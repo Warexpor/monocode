@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows is a supported desktop target. Terminals, agent CLIs, and the rest of the macOS/Linux feature set run there, and the window uses Tauri Acrylic in place of macOS vibrancy.
+
 ## [0.1.28] - 2026-09-01
 
 ### Added

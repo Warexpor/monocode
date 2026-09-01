@@ -23,7 +23,7 @@ import {
   type SidebarLayout,
   type SidebarTabId,
 } from "./lib/appearance";
-import { IS_MAC } from "./lib/platform";
+import { HAS_NATIVE_GLASS, IS_MAC } from "./lib/platform";
 import { runUpdateFlow } from "./lib/updater";
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import { basename, notifyGitChanged, pickFolder, restoreSessionCheckout } from "./lib/fs";
@@ -4218,7 +4218,7 @@ export default function App({
   return (
     <div
       className={`flex h-full text-content ${
-        IS_MAC ? "bg-background-base/40" : "bg-background-base"
+        HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
       }`}
     >
       <Sidebar
