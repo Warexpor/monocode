@@ -219,6 +219,48 @@ export function subscribeGridArcadeEnabled(onStoreChange: () => void) {
     window.removeEventListener(GRID_ARCADE_ENABLED_CHANGE_EVENT, onStoreChange);
 }
 
+const DIFF_VIEWER_KEY = "monocode.diffViewer";
+
+export type DiffViewer = "editor" | "unified";
+
+export const DIFF_VIEWER_DEFAULT: DiffViewer = "editor";
+
+/** Fired on `window` when the working-tree diff layout flips. */
+export const DIFF_VIEWER_CHANGE_EVENT = "monocode:diff-viewer-change";
+
+function isDiffViewer(value: unknown): value is DiffViewer {
+  return value === "editor" || value === "unified";
+}
+
+export function loadDiffViewer(): DiffViewer {
+  try {
+    const raw = localStorage.getItem(DIFF_VIEWER_KEY);
+    return isDiffViewer(raw) ? raw : DIFF_VIEWER_DEFAULT;
+  } catch {
+    return DIFF_VIEWER_DEFAULT;
+  }
+}
+
+export function saveDiffViewer(value: DiffViewer) {
+  const next = isDiffViewer(value) ? value : DIFF_VIEWER_DEFAULT;
+  try {
+    localStorage.setItem(DIFF_VIEWER_KEY, next);
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<DiffViewer>(DIFF_VIEWER_CHANGE_EVENT, { detail: next }),
+  );
+}
+
+export function subscribeDiffViewer(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(DIFF_VIEWER_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(DIFF_VIEWER_CHANGE_EVENT, onStoreChange);
+}
+
 const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
 
 export const CLAUDE_HOOKS_DEFAULT = true;
@@ -260,7 +302,6 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
   { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
-  { command: "App: Toggle Zen Mode", keys: `${MOD}${ALT}Z`, when: "Always" },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
   { command: "Tab: New", keys: `${MOD}T`, when: "Always" },
   { command: "Tab: Next", keys: `${MOD}${SHIFT}]`, when: "Always" },
@@ -288,7 +329,7 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Pane: Focus Down", keys: `${MOD}${ALT}↓`, when: "Always" },
   { command: "Terminal: New", keys: `${MOD}\``, when: "Always" },
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
-  { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "deckLayout" },
+  { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
   { command: "Editor: Find", keys: `${MOD}F`, when: "editorFocus" },
   { command: "Editor: Replace", keys: `${MOD}${ALT}F`, when: "editorFocus" },
 ];

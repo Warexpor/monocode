@@ -5,6 +5,7 @@ import {
   Copy,
   FilePlusCorner,
   Minus,
+  Bot,
   PenLine,
   Search,
   Sparkles,
@@ -51,7 +52,6 @@ import {
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
-import { useTranscriptZen } from "../hooks/useTranscriptZen";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
 import type { TranscriptLayout } from "../lib/appearance";
@@ -59,11 +59,12 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import {
   activityPhaseTitle,
-  activityPreviousLabel,
+  activityStillRunning,
   buildActivityPhases,
   editVerb,
   groupTurnItems,
   groupTurns,
+  hasRunningSubagent,
   isIncompleteTool,
   isThinkingBlock,
   lastActivityIndex,
@@ -71,7 +72,6 @@ import {
   needsApproval,
   nestedScrollAbsorbsWheel,
   proseSummary,
-  splitActivityRows,
   toolCallLabel,
   toolCallState,
   turnCopyText,
@@ -89,6 +89,7 @@ type Props = {
   busy?: boolean;
   cwd?: string;
   harness?: HarnessId;
+  pendingQuestion?: boolean;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
@@ -108,6 +109,7 @@ export function AgentTranscript({
   busy,
   cwd,
   harness,
+  pendingQuestion = false,
   onApproval,
   onAddToChat,
   onSaveNote,
@@ -138,7 +140,6 @@ export function AgentTranscript({
     onAddToChat !== undefined,
   );
   const transcriptLayout = useTranscriptLayout();
-  const zen = useTranscriptZen();
   const promptAnchor = useTranscriptAnchor();
   const lastUserId = lastUserBlockId(blocks);
   const seenUserId = useRef(lastUserId);
@@ -147,7 +148,7 @@ export function AgentTranscript({
     if (lastUserId && !anchorTurn) setAnchorTurn(true);
   }
   const liveStartedAt = turnUserBlock(blocks)?.startedAt;
-  const waitingForApproval = hasPendingApproval(blocks);
+  const waitingForApproval = hasPendingApproval(blocks) || pendingQuestion;
   const preparingHandoff = blocks.some(
     (block) =>
       block.role === "handoff" && block.handoff?.status === "preparing",
@@ -311,10 +312,10 @@ export function AgentTranscript({
           const userBlock = turnUserBlock(turn);
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
-          const items = groupTurnItems(turn, zen);
-          // Where the work ends and the answer begins, in zen: the last group
-          // of activity in the turn.
-          const foldedAt = zen ? lastActivityIndex(items) : -1;
+          const items = groupTurnItems(turn);
+          // Where the work ends and the answer begins: the last group of
+          // activity in the turn.
+          const foldedAt = lastActivityIndex(items);
           const startedAt = userBlock?.startedAt;
           // The agent starting its answer is the end of the work: fold the
           // groups then, not when the turn finally settles, so the collapse
@@ -326,6 +327,7 @@ export function AgentTranscript({
               .some(
                 (item) => item.type === "block" && isProseBlock(item.block),
               );
+          const workStillRunning = activityStillRunning(turn);
           return (
             <div
               key={turn[0].id}
@@ -339,26 +341,15 @@ export function AgentTranscript({
             >
               {items.map((item, itemIndex) =>
                 item.type === "activity" ? (
-                  zen ? (
                     <ActivityPhases
                       key={item.blocks[0].id}
                       blocks={item.blocks}
                       cwd={cwd}
-                      done={settled || answering}
+                      done={settled || (answering && !workStillRunning)}
                       onApproval={onApproval}
                       onOpenFile={onOpenFile}
                       onOpenDiff={onOpenDiff}
                     />
-                  ) : (
-                    <ActivityGroup
-                      key={item.blocks[0].id}
-                      blocks={item.blocks}
-                      cwd={cwd}
-                      onApproval={onApproval}
-                      onOpenFile={onOpenFile}
-                      onOpenDiff={onOpenDiff}
-                    />
-                  )
                 ) : (
                   <TranscriptBlock
                     key={item.block.id}
@@ -406,6 +397,10 @@ export function AgentTranscript({
                 <LiveWorking
                   startedAt={liveStartedAt}
                   paused={waitingForApproval}
+                  waitingLabel={
+                    pendingQuestion ? "Waiting for answers" : undefined
+                  }
+                  subagent={hasRunningSubagent(turn)}
                 />
               ) : null}
             </div>
@@ -426,12 +421,24 @@ export function AgentTranscript({
 function LiveWorking({
   startedAt,
   paused,
+  waitingLabel,
+  subagent = false,
 }: {
   startedAt?: number;
   paused: boolean;
+  waitingLabel?: string;
+  subagent?: boolean;
 }) {
   const elapsedMs = useElapsedFrom(startedAt, paused);
-  return <TurnDuration elapsedMs={elapsedMs} live waiting={paused} />;
+  return (
+    <TurnDuration
+      elapsedMs={elapsedMs}
+      live
+      waiting={paused}
+      waitingLabel={waitingLabel}
+      subagent={subagent}
+    />
+  );
 }
 
 function TurnDuration({
@@ -439,6 +446,8 @@ function TurnDuration({
   live = false,
   done = false,
   waiting = false,
+  waitingLabel,
+  subagent = false,
   completedAt,
   copyText: output,
   onSaveNote,
@@ -450,6 +459,8 @@ function TurnDuration({
   live?: boolean;
   done?: boolean;
   waiting?: boolean;
+  waitingLabel?: string;
+  subagent?: boolean;
   completedAt?: number;
   copyText?: string;
   onSaveNote?: (text: string) => void;
@@ -458,8 +469,8 @@ function TurnDuration({
   onHandoff?: (harness: HarnessId, model: string) => void;
 }) {
   const label = waiting
-    ? "Waiting for approval"
-    : formatWorkingDuration(elapsedMs, done);
+    ? waitingLabel ?? "Waiting for approval"
+    : formatWorkingDuration(elapsedMs, done, subagent);
   const dot = (
     <span
       aria-hidden
@@ -471,7 +482,13 @@ function TurnDuration({
       role={live ? "status" : undefined}
       aria-live={live ? "polite" : undefined}
       aria-label={
-        waiting ? "Waiting for approval" : live ? "Agent is working" : label
+        waiting
+          ? label
+          : live
+            ? subagent
+              ? "Subagent is running"
+              : "Agent is working"
+            : label
       }
       className="flex items-center gap-3 px-4 pt-1 pb-3 font-sans text-sm text-content/40"
     >
@@ -784,100 +801,13 @@ function UserMessageBlock({
   );
 }
 
-/** One activity row: py-1 around a 20px line. */
-const ACTIVITY_ROW_HEIGHT = "h-7";
-
-const DISCLOSURE_ROW = "flex w-fit items-center gap-1.5 py-1 font-sans text-sm";
-
 /**
- * The default transcript's tool stack: the call the agent is on holds the
- * line, and everything it has already finished waits behind a disclosure.
- */
-function ActivityGroup({
-  blocks,
-  cwd,
-  onApproval,
-  onOpenFile,
-  onOpenDiff,
-}: {
-  blocks: Block[];
-  cwd?: string;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
-  onOpenFile?: (path: string) => void;
-  onOpenDiff?: (path: string) => void;
-}) {
-  const [showPrevious, setShowPrevious] = useState(false);
-  const { latest, pending, hidden } = splitActivityRows(blocks);
-
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-4">
-      {hidden.length > 0 ? (
-        <button
-          type="button"
-          aria-expanded={showPrevious}
-          aria-label={
-            showPrevious
-              ? "Hide previous tool calls"
-              : `Show ${hidden.length} previous tool calls`
-          }
-          onClick={() => setShowPrevious((open) => !open)}
-          className={`${DISCLOSURE_ROW} ${ACTIVITY_ROW_HEIGHT} shrink-0 text-content/40 transition-colors duration-200 hover:text-content/70`}
-        >
-          <ChevronRight
-            className={`size-3.5 shrink-0 transition-transform duration-200 ${
-              showPrevious ? "rotate-90" : ""
-            }`}
-            strokeWidth={1.75}
-          />
-          <span>
-            {showPrevious
-              ? "Hide previous"
-              : activityPreviousLabel(hidden.length)}
-          </span>
-        </button>
-      ) : null}
-      {showPrevious
-        ? hidden.map((block) => (
-            <ActivityRow
-              key={block.id}
-              block={block}
-              cwd={cwd}
-              expanded
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-            />
-          ))
-        : null}
-      {latest ? (
-        <ActivityRow
-          block={latest}
-          cwd={cwd}
-          live
-          onOpenFile={onOpenFile}
-          onOpenDiff={onOpenDiff}
-        />
-      ) : null}
-      {pending.map((block) => (
-        <ActivityRow
-          key={block.id}
-          block={block}
-          cwd={cwd}
-          onApproval={onApproval}
-          onOpenFile={onOpenFile}
-          onOpenDiff={onOpenDiff}
-        />
-      ))}
-    </div>
-  );
-}
-
-/**
- * Zen's activity view: the turn's work as phases. A phase is a run of related
- * calls under the line the agent wrote to introduce it — "now I need to find
- * the theme provider", then the searches and reads that followed. The phase
- * the agent is in stays open, with new steps scrolling inside a short window;
- * the moment it moves on the phase folds back to its header, so a long turn
- * ends up as a handful of labelled groups sitting above the answer.
+ * The turn's work as phases. A phase is a run of related calls under the line
+ * the agent wrote to introduce it — "now I need to find the theme provider",
+ * then the searches and reads that followed. The phase the agent is in stays
+ * open, with new steps scrolling inside a short window; the moment it moves
+ * on the phase folds back to its header, so a long turn ends up as a handful
+ * of labelled groups sitting above the answer.
  */
 function ActivityPhases({
   blocks,
@@ -1016,7 +946,6 @@ function ActivityPhaseGroup({
           <ActivityRow
             block={phase.steps[0]}
             cwd={cwd}
-            variant="phase"
             live={active}
             onApproval={onApproval}
             onOpenFile={onOpenFile}
@@ -1109,7 +1038,6 @@ function ActivityPhaseGroup({
                 <ActivityRow
                   block={block}
                   cwd={cwd}
-                  variant="phase"
                   live={active}
                   onApproval={onApproval}
                   onOpenFile={onOpenFile}
@@ -1145,6 +1073,7 @@ function ActivityPhaseIcon({
   if (kind === "edit") return <PenLine {...props} />;
   if (kind === "research") return <Search {...props} />;
   if (kind === "run") return <Terminal {...props} />;
+  if (kind === "agent") return <Bot {...props} />;
   if (kind === "think") return <Sparkles {...props} />;
   if (kind === "other") return <Wrench {...props} />;
   return <Minus {...props} />;
@@ -1158,58 +1087,38 @@ function ActivityPhaseIcon({
 function ActivityRow({
   block,
   cwd,
-  expanded = false,
   live = false,
-  variant = "stack",
   onApproval,
   onOpenFile,
   onOpenDiff,
 }: {
   block: Block;
   cwd?: string;
-  expanded?: boolean;
   live?: boolean;
-  variant?: "stack" | "phase";
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
-  const railed = variant === "phase";
   if (isThinkingBlock(block)) {
     return (
       <ActivityThinkingRow
         block={block}
         cwd={cwd}
-        expandable={expanded || railed}
-        bare={railed}
+        expandable
+        bare
         onOpenFile={onOpenFile}
       />
     );
   }
   if (isProseBlock(block)) {
-    if (railed) {
-      return (
-        <ActivityNoteRow
-          block={block}
-          cwd={cwd}
-          bare
-          expandable
-          onOpenFile={onOpenFile}
-        />
-      );
-    }
-    return expanded ? (
-      <div className="flex min-w-0 gap-1.5 py-1 text-content">
-        <Minus
-          className="mt-[5px] size-3.5 shrink-0 text-content/50"
-          strokeWidth={1.75}
-        />
-        <div className="min-w-0 flex-1">
-          <AgentMarkdown text={block.text} cwd={cwd} onOpenFile={onOpenFile} />
-        </div>
-      </div>
-    ) : (
-      <ActivityNoteRow block={block} />
+    return (
+      <ActivityNoteRow
+        block={block}
+        cwd={cwd}
+        bare
+        expandable
+        onOpenFile={onOpenFile}
+      />
     );
   }
   return (
@@ -1217,7 +1126,7 @@ function ActivityRow({
       block={block}
       cwd={cwd}
       live={live}
-      bare={railed}
+      bare
       onApproval={onApproval}
       onOpenFile={onOpenFile}
       onOpenDiff={onOpenDiff}
@@ -1490,10 +1399,21 @@ function useElapsedFrom(
   return elapsedMs;
 }
 
-function formatWorkingDuration(elapsedMs: number | null, done = false): string {
-  if (elapsedMs == null) return done ? "Worked" : "Working…";
+function formatWorkingDuration(
+  elapsedMs: number | null,
+  done = false,
+  subagent = false,
+): string {
+  if (elapsedMs == null) {
+    if (done) return "Worked";
+    return subagent ? "Subagent running…" : "Working…";
+  }
   const totalSec = Math.max(1, Math.round(elapsedMs / 1000));
-  const label = done ? "Worked for" : "Working for";
+  const label = done
+    ? "Worked for"
+    : subagent
+      ? "Subagent running for"
+      : "Working for";
   if (totalSec < 60) return `${label} ${totalSec}s`;
   const minutes = Math.floor(totalSec / 60);
   const seconds = totalSec % 60;

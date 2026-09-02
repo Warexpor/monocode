@@ -23,13 +23,21 @@ import {
   extractAskUserQuestionTitle,
   extractExitPlanModePlan,
   inputJsonDeltaFromEvent,
+  isAgentTaskType,
   isClaudeUltracodeEffort,
   isSubagentMessage,
+  isTerminalAgentTaskStatus,
   isTodoTool,
   normalizeClaudeCliEffort,
+  parseBackgroundAgentTasks,
   parseControlCancelId,
   parseControlRequest,
   parseJsonLine,
+  parseTaskNotification,
+  parseTaskProgress,
+  parseTaskStarted,
+  parseTaskUpdated,
+  parseToolProgress,
   planTextFromTodos,
   previewFromTool,
   resolveClaudeApiModelId,
@@ -49,7 +57,13 @@ import {
   type ClaudeCliSettings,
   type ClaudeControlRequest,
 } from "./claudeProtocol";
+import { isAgentToolName } from "./preview";
 import { joinStreamText, snapshotRemainder } from "./streamText";
+import {
+  questionPromptTitle,
+  questionsFromUnknown,
+  type UserQuestionReply,
+} from "../userQuestion";
 import type { ApprovalDecision, HarnessEvent, SendTurnInput, SteerTurnInput } from "./types";
 
 /**
@@ -62,8 +76,12 @@ type ApprovalOutcome = ApprovalDecision | "cancelled";
 type PendingApproval = {
   requestId: string;
   input: Record<string, unknown>;
-  kind: "permission" | "question";
   resolve: (decision: ApprovalOutcome) => void;
+};
+
+type PendingQuestion = {
+  requestId: string;
+  resolve: (reply: UserQuestionReply | "cancelled") => void;
 };
 
 type InFlightTool = {
@@ -74,6 +92,13 @@ type InFlightTool = {
   title: string;
 };
 
+type LiveAgentTask = {
+  taskId: string;
+  toolUseId?: string;
+  description: string;
+  backgrounded: boolean;
+};
+
 type Live = {
   cwd: string;
   claudeSessionId: string;
@@ -81,10 +106,13 @@ type Live = {
   settingsKey: string;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
+  questions: Map<number, PendingQuestion>;
   nextApprovalUiId: number;
   nextControlId: number;
   toolsByIndex: Map<number, InFlightTool>;
   toolsById: Map<string, InFlightTool>;
+  agentTasks: Map<string, LiveAgentTask>;
+  turnResultSeen: boolean;
   cancelled: boolean;
   muteUpdates: boolean;
   turns: Promise<void>;
@@ -169,6 +197,17 @@ export function respondClaudeApproval(
   pending.resolve(decision);
 }
 
+export function respondClaudeQuestion(
+  sessionId: string,
+  requestId: number,
+  reply: UserQuestionReply,
+): void {
+  const live = liveByThread.get(sessionId);
+  const pending = live?.questions.get(requestId);
+  if (!pending) return;
+  pending.resolve(reply);
+}
+
 export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   const live = liveByThread.get(sessionId);
   if (!live) {
@@ -179,6 +218,8 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   live.muteUpdates = true;
   for (const [, pending] of live.approvals) pending.resolve("deny");
   live.approvals.clear();
+  for (const [, pending] of live.questions) pending.resolve({ kind: "skipped" });
+  live.questions.clear();
   await writeJson(
     sessionId,
     buildControlRequest(nextControlId(live), { subtype: "interrupt" }),
@@ -197,6 +238,8 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
     live.muteUpdates = true;
     for (const [, pending] of live.approvals) pending.resolve("deny");
     live.approvals.clear();
+    for (const [, pending] of live.questions) pending.resolve({ kind: "skipped" });
+    live.questions.clear();
     live.activeTurn = false;
     live.turnDone?.();
     live.turnDone = null;
@@ -258,10 +301,13 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     settingsKey,
     onEvent: input.onEvent,
     approvals: new Map(),
+    questions: new Map(),
     nextApprovalUiId: 1,
     nextControlId: 1,
     toolsByIndex: new Map(),
     toolsById: new Map(),
+    agentTasks: new Map(),
+    turnResultSeen: false,
     cancelled: false,
     muteUpdates: false,
     turns: Promise.resolve(),
@@ -342,6 +388,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.emittedReasoning = "";
   live.toolsByIndex.clear();
   live.toolsById.clear();
+  live.agentTasks.clear();
+  live.turnResultSeen = false;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -382,6 +430,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
         live.approvals.delete(uiId);
       }
     }
+    for (const [uiId, pending] of live.questions) {
+      if (pending.requestId === cancelId) {
+        pending.resolve("cancelled");
+        live.questions.delete(uiId);
+      }
+    }
     return;
   }
 
@@ -418,6 +472,11 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
 
+  if (handleAgentLifecycle(live, rec)) return;
+  if (type === "tool_progress") {
+    handleToolProgress(live, rec);
+    return;
+  }
   if (type === "stream_event") {
     handleStreamEvent(live, rec);
     return;
@@ -457,6 +516,10 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
 
   const started = toolStartFromEvent(rec);
   if (started) {
+    if (subagent) {
+      noteSubagentTool(live, rec, started.name, started.input);
+      return;
+    }
     const tool: InFlightTool = {
       id: started.id,
       name: started.name,
@@ -471,7 +534,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       callId: tool.id,
       title: tool.title,
       kind: toolKindFromName(tool.name),
-      status: "pending",
+      status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
     });
     emitPlanIfNeeded(live, tool.name, tool.input);
@@ -480,6 +543,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
 
   const jsonDelta = inputJsonDeltaFromEvent(rec);
   if (jsonDelta) {
+    if (subagent) return;
     const tool = live.toolsByIndex.get(jsonDelta.index);
     if (!tool) return;
     tool.partialJson += jsonDelta.partial;
@@ -502,7 +566,12 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
 }
 
 function handleAssistant(live: Live, rec: Record<string, unknown>): void {
-  if (isSubagentMessage(rec)) return;
+  if (isSubagentMessage(rec)) {
+    for (const use of assistantToolUses(rec)) {
+      noteSubagentTool(live, rec, use.name, use.input);
+    }
+    return;
+  }
 
   const used = contextUsedFromAssistant(rec);
   if (used !== undefined) live.onEvent({ type: "context", used });
@@ -529,7 +598,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       callId: tool.id,
       title: tool.title,
       kind: toolKindFromName(tool.name),
-      status: "pending",
+      status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
     });
     if (use.name === "ExitPlanMode") {
@@ -541,9 +610,13 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
 }
 
 function handleUser(live: Live, rec: Record<string, unknown>): void {
+  if (isSubagentMessage(rec)) return;
   for (const result of toolResultsFromUserMessage(rec)) {
     const tool = live.toolsById.get(result.toolUseId);
     if (!tool) continue;
+    if (isAgentToolName(tool.name) && isBackgroundedAgentTool(live, tool.id)) {
+      continue;
+    }
     live.onEvent({
       type: "tool.updated",
       callId: tool.id,
@@ -557,6 +630,7 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
 }
 
 function handleResult(live: Live, rec: Record<string, unknown>): void {
+  if (isSubagentMessage(rec)) return;
   const context = contextFromResult(rec);
   if (context) live.onEvent({ type: "context", ...context });
 
@@ -564,10 +638,8 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (result.status === "failed" && result.error && !live.cancelled) {
     live.onEvent({ type: "session.error", message: result.error });
   }
-  finishActiveTurn(live, [
-    { type: "message.completed" },
-    { type: "reasoning.completed" },
-  ]);
+  live.turnResultSeen = true;
+  maybeFinishTurn(live);
 }
 
 async function handleControlRequest(
@@ -598,20 +670,27 @@ async function handleControlRequest(
   }
 
   if (toolName === "AskUserQuestion") {
+    const questions = questionsFromUnknown(input);
     const uiId = live.nextApprovalUiId++;
     live.onEvent({
-      type: "approval.requested",
+      type: "question.asked",
       requestId: uiId,
-      title: extractAskUserQuestionTitle(input),
-      kind: "other",
+      title: questionPromptTitle(questions) || extractAskUserQuestionTitle(input),
+      questions,
       callId: control.toolUseId,
     });
-    const decision = await waitApproval(live, uiId, control.requestId, input, "question");
-    live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
-    if (decision === "cancelled") return;
+    const outcome = await waitQuestion(live, uiId, control.requestId);
+    const decision =
+      outcome === "cancelled"
+        ? "cancelled"
+        : outcome.kind === "answered"
+          ? "answered"
+          : "skipped";
+    live.onEvent({ type: "question.resolved", requestId: uiId, decision });
+    if (outcome === "cancelled") return;
     const response =
-      decision === "allow"
-        ? { behavior: "allow", updatedInput: askUserQuestionAllowInput(input) }
+      outcome.kind === "answered"
+        ? { behavior: "allow", updatedInput: askUserQuestionAllowInput(input, outcome) }
         : {
             behavior: "deny",
             message: "User cancelled tool execution.",
@@ -659,7 +738,7 @@ async function handleControlRequest(
     callId: control.toolUseId,
     preview: previewFromTool(toolName, input),
   });
-  const decision = await waitApproval(live, uiId, control.requestId, input, "permission");
+  const decision = await waitApproval(live, uiId, control.requestId, input);
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   if (decision === "cancelled") return;
   await writeJson(
@@ -698,10 +777,19 @@ function waitApproval(
   uiId: number,
   requestId: string,
   input: Record<string, unknown>,
-  kind: "permission" | "question",
 ): Promise<ApprovalOutcome> {
   return new Promise((resolve) => {
-    live.approvals.set(uiId, { requestId, input, kind, resolve });
+    live.approvals.set(uiId, { requestId, input, resolve });
+  });
+}
+
+function waitQuestion(
+  live: Live,
+  uiId: number,
+  requestId: string,
+): Promise<UserQuestionReply | "cancelled"> {
+  return new Promise((resolve) => {
+    live.questions.set(uiId, { requestId, resolve });
   });
 }
 
@@ -713,6 +801,219 @@ function emitPlanIfNeeded(
   if (!isTodoTool(toolName)) return;
   const plan = planTextFromTodos(input);
   if (plan) live.onEvent({ type: "plan", text: plan });
+}
+
+function handleAgentLifecycle(
+  live: Live,
+  rec: Record<string, unknown>,
+): boolean {
+  const started = parseTaskStarted(rec);
+  if (started) {
+    if (started.ambient || !isAgentTaskType(started.taskType)) return true;
+    live.agentTasks.set(started.taskId, {
+      taskId: started.taskId,
+      toolUseId: started.toolUseId,
+      description: started.description,
+      backgrounded: started.backgrounded,
+    });
+    upsertAgentTool(live, started.toolUseId, started.description, "in_progress");
+    return true;
+  }
+
+  const progress = parseTaskProgress(rec);
+  if (progress) {
+    const task = live.agentTasks.get(progress.taskId);
+    const title = progress.description || task?.description || "Subagent";
+    const detail =
+      progress.summary ||
+      progress.lastToolName ||
+      (progress.subagentType
+        ? `${progress.subagentType.replace(/[_-]+/g, " ")} subagent`
+        : undefined);
+    upsertAgentTool(
+      live,
+      progress.toolUseId ?? task?.toolUseId,
+      title,
+      "in_progress",
+      detail,
+    );
+    return true;
+  }
+
+  const updated = parseTaskUpdated(rec);
+  if (updated) {
+    const task = live.agentTasks.get(updated.taskId);
+    if (task && updated.backgrounded !== undefined) {
+      task.backgrounded = updated.backgrounded;
+    }
+    if (task && updated.description) task.description = updated.description;
+    if (isTerminalAgentTaskStatus(updated.status)) {
+      completeAgentTask(
+        live,
+        updated.taskId,
+        updated.status === "completed" ? "completed" : "failed",
+        updated.error,
+      );
+    }
+    return true;
+  }
+
+  const notice = parseTaskNotification(rec);
+  if (notice) {
+    if (!notice.ambient) {
+      completeAgentTask(
+        live,
+        notice.taskId,
+        notice.status === "completed" ? "completed" : "failed",
+        notice.summary || undefined,
+      );
+    }
+    return true;
+  }
+
+  const liveTasks = parseBackgroundAgentTasks(rec);
+  if (!liveTasks) return false;
+  const next = new Set(liveTasks.map((task) => task.taskId));
+  for (const id of [...live.agentTasks.keys()]) {
+    if (!next.has(id)) completeAgentTask(live, id, "completed");
+  }
+  for (const row of liveTasks) {
+    if (live.agentTasks.has(row.taskId)) continue;
+    live.agentTasks.set(row.taskId, {
+      taskId: row.taskId,
+      description: row.description,
+      backgrounded: true,
+    });
+    upsertAgentTool(live, undefined, row.description, "in_progress");
+  }
+  maybeFinishTurn(live);
+  return true;
+}
+
+function handleToolProgress(live: Live, rec: Record<string, unknown>): void {
+  const progress = parseToolProgress(rec);
+  if (!progress) return;
+  const tool =
+    live.toolsById.get(progress.toolUseId) ??
+    (progress.parentToolUseId
+      ? live.toolsById.get(progress.parentToolUseId)
+      : undefined);
+  if (!tool || !isAgentToolName(tool.name)) return;
+  const detail = progress.subagentType
+    ? `${progress.subagentType.replace(/[_-]+/g, " ")} subagent`
+    : progress.toolName;
+  live.onEvent({
+    type: "tool.updated",
+    callId: tool.id,
+    title: tool.title,
+    kind: "agent",
+    status: "in_progress",
+    ...(detail ? { detail } : {}),
+  });
+}
+
+function noteSubagentTool(
+  live: Live,
+  rec: Record<string, unknown>,
+  name: string,
+  input: Record<string, unknown>,
+): void {
+  const parentId = stringField(rec, "parent_tool_use_id");
+  if (!parentId) return;
+  const parent = live.toolsById.get(parentId);
+  if (!parent || !isAgentToolName(parent.name)) return;
+  live.onEvent({
+    type: "tool.updated",
+    callId: parent.id,
+    title: parent.title,
+    kind: "agent",
+    status: "in_progress",
+    detail: toolTitle(name, input),
+  });
+}
+
+function isBackgroundedAgentTool(live: Live, toolUseId: string): boolean {
+  for (const task of live.agentTasks.values()) {
+    if (task.toolUseId === toolUseId && task.backgrounded) return true;
+  }
+  return false;
+}
+
+function upsertAgentTool(
+  live: Live,
+  callId: string | undefined,
+  title: string,
+  status: string,
+  detail?: string,
+): void {
+  const id = callId ?? `agent:${title}`;
+  const existing = live.toolsById.get(id);
+  if (!existing) {
+    live.toolsById.set(id, {
+      id,
+      name: "Agent",
+      input: {},
+      partialJson: "",
+      title,
+    });
+    live.onEvent({
+      type: "tool.started",
+      callId: id,
+      title,
+      kind: "agent",
+      status,
+    });
+    if (status !== "in_progress" && status !== "pending" && status !== "running") {
+      live.onEvent({
+        type: "tool.updated",
+        callId: id,
+        title,
+        kind: "agent",
+        status,
+        ...(detail ? { detail } : {}),
+      });
+    }
+    return;
+  }
+  if (title) existing.title = title;
+  live.onEvent({
+    type: "tool.updated",
+    callId: id,
+    title: existing.title,
+    kind: "agent",
+    status,
+    ...(detail ? { detail } : {}),
+  });
+}
+
+function completeAgentTask(
+  live: Live,
+  taskId: string,
+  status: string,
+  detail?: string,
+): void {
+  const task = live.agentTasks.get(taskId);
+  live.agentTasks.delete(taskId);
+  if (task) {
+    upsertAgentTool(
+      live,
+      task.toolUseId,
+      task.description,
+      status,
+      detail,
+    );
+  }
+  maybeFinishTurn(live);
+}
+
+function maybeFinishTurn(live: Live): void {
+  if (!live.turnResultSeen) return;
+  if (live.agentTasks.size > 0) return;
+  if (!live.activeTurn && !live.turnDone) return;
+  finishActiveTurn(live, [
+    { type: "message.completed" },
+    { type: "reasoning.completed" },
+  ]);
 }
 
 function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
@@ -816,4 +1117,11 @@ function launchOptions(
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
   };
+}
+
+/** Exported for tests. */
+export function __claudeTestReset(): void {
+  liveByThread.clear();
+  resumeByThread.clear();
+  cancelledThreads.clear();
 }
