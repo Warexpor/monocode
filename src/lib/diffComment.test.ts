@@ -58,4 +58,18 @@ describe("diff comments", () => {
       ),
     ).toBe("");
   });
+
+  it("slash-normalizes Windows paths in the location", () => {
+    expect(
+      diffCommentLocation({
+        path: "src\\auth.ts",
+        line: {
+          kind: "add",
+          text: "x",
+          oldNumber: null,
+          newNumber: 1,
+        },
+      }),
+    ).toBe("src/auth.ts:1");
+  });
 });

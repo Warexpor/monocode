@@ -1,4 +1,5 @@
 import type { UnifiedLine } from "./unifiedDiff";
+import { slash } from "./paths";
 
 export type DiffCommentTarget = {
   path: string;
@@ -7,7 +8,8 @@ export type DiffCommentTarget = {
 
 export function diffCommentLocation({ path, line }: DiffCommentTarget): string {
   const number = line.kind === "del" ? line.oldNumber : line.newNumber;
-  return number == null ? path : `${path}:${number}`;
+  const file = slash(path);
+  return number == null ? file : `${file}:${number}`;
 }
 
 export function formatDiffComment(
