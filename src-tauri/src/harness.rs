@@ -6,9 +6,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-#[cfg(not(windows))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -212,7 +210,7 @@ impl Drop for HarnessHost {
 pub fn harness_resolve_cursor() -> Result<CursorBinary, String> {
     resolve_cursor_agent()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| "Cursor CLI not found. Install it and run `agent login`, then retry.".into())
 }
@@ -222,7 +220,7 @@ pub fn harness_resolve_cursor() -> Result<CursorBinary, String> {
 pub fn harness_resolve_codex() -> Result<CursorBinary, String> {
     resolve_codex()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "Codex CLI not found. Install it from https://developers.openai.com/codex/cli and run `codex login`, then retry."
@@ -235,7 +233,7 @@ pub fn harness_resolve_codex() -> Result<CursorBinary, String> {
 pub fn harness_resolve_opencode() -> Result<CursorBinary, String> {
     resolve_opencode()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "OpenCode CLI not found. Install it from https://opencode.ai and run `opencode auth login`, then retry."
@@ -248,7 +246,7 @@ pub fn harness_resolve_opencode() -> Result<CursorBinary, String> {
 pub fn harness_resolve_claude() -> Result<CursorBinary, String> {
     resolve_claude()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "Claude Code CLI not found. Install it from https://claude.com/product/claude-code and run `claude auth login`, then retry."
@@ -261,7 +259,7 @@ pub fn harness_resolve_claude() -> Result<CursorBinary, String> {
 pub fn harness_resolve_pi() -> Result<CursorBinary, String> {
     resolve_pi()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "Pi CLI not found. Install it with `npm install -g @earendil-works/pi-coding-agent` and authenticate, then retry."
@@ -274,7 +272,7 @@ pub fn harness_resolve_pi() -> Result<CursorBinary, String> {
 pub fn harness_resolve_omp() -> Result<CursorBinary, String> {
     resolve_omp()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "omp CLI not found. Install it with `curl -fsSL https://omp.sh/install | sh` and authenticate, then retry."
@@ -287,7 +285,7 @@ pub fn harness_resolve_omp() -> Result<CursorBinary, String> {
 pub fn harness_resolve_fx() -> Result<CursorBinary, String> {
     resolve_fx()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "fx CLI not found. Install it from https://fx.sh and run `fx login`, then retry.".into()
@@ -299,7 +297,7 @@ pub fn harness_resolve_fx() -> Result<CursorBinary, String> {
 pub fn harness_resolve_grok() -> Result<CursorBinary, String> {
     resolve_grok()
         .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
+            path: crate::fs::path_to_js(&path),
         })
         .ok_or_else(|| {
             "Grok Build CLI not found. Install it with `curl -fsSL https://x.ai/cli/install.sh | bash` and run `grok login`, then retry.".into()
@@ -723,12 +721,13 @@ fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<Str
     }
 }
 
+#[cfg(windows)]
+const KILL_ESCALATE: Duration = Duration::from_millis(300);
+#[cfg(not(windows))]
 const KILL_ESCALATE: Duration = Duration::from_secs(2);
 /// Quit and `Drop` cannot wait on a detached escalate thread — the process
 /// exits first and isolated harness groups stay behind as PID-1 orphans.
-#[cfg(not(windows))]
 const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
-#[cfg(not(windows))]
 const KILL_ALL_KILL_WAIT: Duration = Duration::from_millis(150);
 const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
@@ -775,8 +774,13 @@ fn terminate_after(pid: u32, escalate: Duration) {
     }
     #[cfg(windows)]
     {
-        let _ = escalate;
-        signal_tree(pid, TreeSignal::Kill);
+        signal_tree(pid, TreeSignal::Term);
+        thread::spawn(move || {
+            thread::sleep(escalate);
+            if tree_alive(pid) {
+                signal_tree(pid, TreeSignal::Kill);
+            }
+        });
     }
     #[cfg(not(windows))]
     {
@@ -794,8 +798,26 @@ fn terminate_after(pid: u32, escalate: Duration) {
 pub(crate) fn terminate_all(pids: &[u32]) {
     let pids: Vec<u32> = pids.iter().copied().filter(|pid| *pid > 1).collect();
     #[cfg(windows)]
-    for pid in pids {
-        signal_tree(pid, TreeSignal::Kill);
+    {
+        if pids.is_empty() {
+            return;
+        }
+        for pid in &pids {
+            signal_tree(*pid, TreeSignal::Term);
+        }
+        wait_until_dead(&pids, Instant::now() + KILL_ALL_GRACE);
+        let remaining: Vec<u32> = pids
+            .iter()
+            .copied()
+            .filter(|pid| tree_alive(*pid))
+            .collect();
+        if remaining.is_empty() {
+            return;
+        }
+        for pid in &remaining {
+            signal_tree(*pid, TreeSignal::Kill);
+        }
+        wait_until_dead(&remaining, Instant::now() + KILL_ALL_KILL_WAIT);
     }
     #[cfg(not(windows))]
     {
@@ -825,7 +847,6 @@ pub(crate) fn terminate_all(pids: &[u32]) {
 /// answering `kill(pid, 0)` within a poll or two. Reaping here instead would
 /// race that thread for the exit status and free the pid while we still signal
 /// it.
-#[cfg(not(windows))]
 fn wait_until_dead(pids: &[u32], until: Instant) {
     while Instant::now() < until {
         if pids.iter().all(|pid| !tree_alive(*pid)) {
@@ -836,7 +857,6 @@ fn wait_until_dead(pids: &[u32], until: Instant) {
 }
 
 enum TreeSignal {
-    #[cfg(not(windows))]
     Term,
     Kill,
 }
@@ -860,12 +880,13 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
     }
     #[cfg(windows)]
     {
-        let _ = signal;
         let mut cmd = Command::new("taskkill");
         crate::hide_window_console(&mut cmd);
-        cmd.args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        cmd.args(["/PID", &pid.to_string(), "/T"]);
+        if matches!(signal, TreeSignal::Kill) {
+            cmd.arg("/F");
+        }
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
         let _ = cmd.status();
     }
     #[cfg(not(any(unix, windows)))]
@@ -873,6 +894,25 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
         let _ = signal;
         let _ = Command::new("kill").arg(pid.to_string()).status();
     }
+}
+
+#[cfg(windows)]
+fn tree_alive(pid: u32) -> bool {
+    let mut cmd = Command::new("tasklist");
+    crate::hide_window_console(&mut cmd);
+    let output = cmd
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output();
+    let Ok(output) = output else {
+        return true;
+    };
+    if !output.status.success() {
+        return true;
+    }
+    let pid_field = format!(",\"{pid}\",");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line.contains(&pid_field))
 }
 
 #[cfg(not(windows))]

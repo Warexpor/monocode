@@ -4,9 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-#[cfg(unix)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -420,19 +418,44 @@ fn spawn_windows(
     let data_app = app.clone();
     let data_id = id.clone();
     thread::spawn(move || {
-        let mut buf = vec![0_u8; READ_CHUNK];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    // ponytail: caps bridge traffic at 125 emits/s; use a timed
-                    // drain only if sustained PTY throughput becomes limiting.
-                    thread::sleep(PTY_COALESCE);
-                    emit_pty_data(&data_app, &data_id, &buf[..n]);
+        let (send, recv) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let mut buf = vec![0_u8; READ_CHUNK];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if send.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 }
-                Err(_) => break,
             }
+        });
+
+        let mut acc = Vec::with_capacity(READ_CHUNK);
+        let mut disconnected = false;
+        while !disconnected {
+            let Ok(chunk) = recv.recv() else {
+                break;
+            };
+            acc.extend_from_slice(&chunk);
+            let last_emit = Instant::now();
+            while !pty_should_flush(acc.len(), last_emit.elapsed()) {
+                match recv.recv_timeout(PTY_COALESCE.saturating_sub(last_emit.elapsed())) {
+                    Ok(chunk) => acc.extend_from_slice(&chunk),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
+            }
+            emit_pty_data(&data_app, &data_id, &acc);
+            acc.clear();
         }
+        emit_pty_data(&data_app, &data_id, &acc);
     });
 
     let wait_app = app;
@@ -463,6 +486,18 @@ fn working_dir(cwd: &str) -> std::path::PathBuf {
 fn default_shell() -> (String, Vec<String>) {
     #[cfg(windows)]
     {
+        if let Ok(shell) = std::env::var("SHELL") {
+            if !shell.is_empty() {
+                if let Some(path) = crate::harness::resolve_gui_binary(&shell) {
+                    return (path.to_string_lossy().into_owned(), Vec::new());
+                }
+            }
+        }
+        for shell in ["pwsh.exe", "powershell.exe"] {
+            if let Some(path) = crate::harness::resolve_gui_binary(shell) {
+                return (path.to_string_lossy().into_owned(), vec!["-NoLogo".into()]);
+            }
+        }
         if let Ok(comspec) = std::env::var("COMSPEC") {
             if !comspec.is_empty() {
                 return (comspec, Vec::new());
@@ -670,7 +705,6 @@ fn emit_pty_data(app: &AppHandle, id: &str, bytes: &[u8]) {
     );
 }
 
-#[cfg(unix)]
 fn pty_should_flush(buffered: usize, since: Duration) -> bool {
     buffered >= READ_CHUNK || since >= PTY_COALESCE
 }
@@ -799,13 +833,6 @@ mod tests {
     }
 
     #[test]
-    fn pty_flush_waits_for_a_full_chunk_or_the_coalesce_window() {
-        assert!(!pty_should_flush(1, Duration::from_millis(1)));
-        assert!(pty_should_flush(READ_CHUNK, Duration::from_millis(1)));
-        assert!(pty_should_flush(1, PTY_COALESCE));
-    }
-
-    #[test]
     fn remove_if_pid_ignores_a_replaced_session() {
         let host = PtyHost::new();
         host.insert(
@@ -820,5 +847,17 @@ mod tests {
         assert!(host.get("term").is_some());
         assert!(host.remove_if_pid("term", 42).is_some());
         assert!(host.get("term").is_none());
+    }
+}
+
+#[cfg(test)]
+mod flush_tests {
+    use super::*;
+
+    #[test]
+    fn pty_flush_waits_for_a_full_chunk_or_the_coalesce_window() {
+        assert!(!pty_should_flush(1, Duration::from_millis(1)));
+        assert!(pty_should_flush(READ_CHUNK, Duration::from_millis(1)));
+        assert!(pty_should_flush(1, PTY_COALESCE));
     }
 }

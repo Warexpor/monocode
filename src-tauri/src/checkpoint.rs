@@ -74,7 +74,7 @@ impl CheckpointStore {
         write_manifest(
             &dir,
             &Manifest {
-                cwd: root.to_string_lossy().into_owned(),
+                cwd: path_to_js(&root),
                 files,
                 touched: BTreeSet::new(),
                 tracked,
@@ -247,7 +247,7 @@ impl CheckpointStore {
             .map(|stats| stats.status.clone())
             .unwrap_or_else(|| "modified".into());
         Ok(CheckpointFileDiff {
-            path: root.join(&relative).to_string_lossy().into_owned(),
+            path: path_to_js(&root.join(&relative)),
             relative,
             status,
             original,
@@ -719,7 +719,7 @@ fn describe_change(
 ) -> CheckpointFile {
     if let Some((status, additions, deletions)) = session_change {
         return CheckpointFile {
-            path: root.join(relative).to_string_lossy().into_owned(),
+            path: path_to_js(&root.join(relative)),
             relative: relative.to_string(),
             status,
             additions,

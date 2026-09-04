@@ -195,34 +195,23 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       },
     );
 
-    const starting = spawnPty(id, cwd, term.cols, term.rows)
-      .then(() => {
-        if (!closed) spawned.current = true;
-      })
-      .catch((error) => {
-        spawned.current = false;
-        if (!closed) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          term.writeln(`\x1b[31m${message}\x1b[0m`);
-        }
-        throw error;
-      });
-    void starting.catch(() => undefined);
+    let spawnPending = false;
+    let spawnGate: Promise<void> = Promise.resolve();
 
-    const dataSub = term.onData((data) => {
-      void starting
+    const writeAfterSpawn = (data: string) => {
+      if (!spawned.current && !spawnPending) return;
+      void spawnGate
         .then(() => (closed ? undefined : writePty(id, data)))
         .catch(() => undefined);
+    };
+
+    const dataSub = term.onData((data) => {
+      writeAfterSpawn(data);
     });
 
     const replyOsc = (code: 10 | 11 | 12, hex: string) => {
       const reply = oscColorReply(code, hex);
-      if (reply) {
-        void starting
-          .then(() => (closed ? undefined : writePty(id, reply)))
-          .catch(() => undefined);
-      }
+      if (reply) writeAfterSpawn(reply);
       return true;
     };
     const oscFg = term.parser.registerOscHandler(10, (data) =>
@@ -269,10 +258,42 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       const next = fitTerminal(term, host, fitMode());
       if (!next) return;
       const { cols, rows } = next;
+      if (!spawned.current) {
+        if (spawnPending) return;
+        lastCols = cols;
+        lastRows = rows;
+        spawnPending = true;
+        spawnGate = spawnPty(id, cwd, cols, rows)
+          .then(() => {
+            if (closed) return;
+            spawned.current = true;
+            applySize();
+          })
+          .catch((error) => {
+            spawned.current = false;
+            lastCols = 0;
+            lastRows = 0;
+            if (!closed) {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              term.writeln(`\x1b[31m${message}\x1b[0m`);
+            }
+            throw error;
+          });
+        const currentGate = spawnGate;
+        void currentGate
+          .catch(() => undefined)
+          .finally(() => {
+            if (spawnGate !== currentGate) return;
+            spawnPending = false;
+            if (!spawned.current) spawnGate = Promise.resolve();
+          });
+        return;
+      }
       if (cols === lastCols && rows === lastRows) return;
       lastCols = cols;
       lastRows = rows;
-      void starting
+      void spawnGate
         .then(() => (closed ? undefined : resizePty(id, cols, rows)))
         .catch(() => {
           lastCols = 0;
@@ -290,7 +311,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
     applySizeRef.current = applySize;
     const renderSub = term.onRender(() => {
-      if (!spawned.current) applySize();
+      if (!spawned.current && !spawnPending) applySize();
     });
     const bufferSub = term.buffer.onBufferChange(syncAltScreenMode);
     syncAltScreenMode();
@@ -315,7 +336,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       renderSub.dispose();
       bufferSub.dispose();
       unsubscribe();
-      void starting.catch(() => undefined).then(() => killPty(id));
+      void spawnGate.catch(() => undefined).then(() => killPty(id));
       term.dispose();
       termRef.current = null;
       spawned.current = false;
