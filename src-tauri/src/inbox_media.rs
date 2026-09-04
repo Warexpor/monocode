@@ -1,5 +1,4 @@
 use std::io::Read;
-use std::process::Command;
 use std::time::Duration;
 
 use crate::dirs_home;
