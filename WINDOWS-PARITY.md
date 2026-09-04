@@ -30,4 +30,4 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 ## Upstream drift (dry-run)
 
-This branch is stacked on `cursor/sync-upstream-8584`, which already merged `f211602`, `d7e6b6d`, and `e36ebd9` from `upstream/main` (PR targeting `main`). After that lands, merge `main` into `custom/warexpor`.
+This branch is stacked on `cursor/sync-upstream-8584`, which merged `upstream/main` through `c804e0e` (plan mode) plus the earlier three commits. After that lands, merge `main` into `custom/warexpor`.
