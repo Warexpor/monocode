@@ -841,33 +841,27 @@ fn command_label(args: &str) -> Option<String> {
         return None;
     }
     let exe = parts[0];
-    let base = std::path::Path::new(exe)
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .or_else(|| {
-            std::path::Path::new(exe)
-                .file_name()
-                .and_then(|name| name.to_str())
-        })?;
+    let base = path_stem(exe)?;
     if is_interpreter(base) {
         for part in parts.iter().skip(1) {
             if part.starts_with('-') {
                 continue;
             }
-            let name = std::path::Path::new(part)
-                .file_stem()
-                .and_then(|name| name.to_str())
-                .or_else(|| {
-                    std::path::Path::new(part)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                })?;
+            let name = path_stem(part)?;
             if !name.starts_with('-') {
                 return Some(name.to_string());
             }
         }
     }
     Some(base.to_string())
+}
+
+fn path_stem(path: &str) -> Option<&str> {
+    let name = path.rsplit(['/', '\\']).find(|part| !part.is_empty())?;
+    match name.rfind('.') {
+        Some(dot) if dot > 0 => Some(&name[..dot]),
+        _ => Some(name),
+    }
 }
 
 fn split_command_parts(args: &str) -> Vec<&str> {
@@ -898,10 +892,7 @@ fn is_interpreter(name: &str) -> bool {
 }
 
 fn is_shell_name(name: &str) -> bool {
-    let stem = std::path::Path::new(name)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or(name);
+    let stem = path_stem(name).unwrap_or(name);
     matches!(
         stem.to_ascii_lowercase().as_str(),
         "zsh"
