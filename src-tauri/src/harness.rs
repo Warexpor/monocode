@@ -355,13 +355,7 @@ pub fn harness_spawn(
     let pid = child.id();
 
     #[cfg(windows)]
-    let job = {
-        let job = crate::windows_job::Job::new();
-        if let Some(job) = job.as_ref() {
-            let _ = job.assign_child(&child);
-        }
-        job
-    };
+    let job = crate::windows_job::Job::for_child(&child);
 
     let stdin = child
         .stdin

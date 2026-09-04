@@ -416,13 +416,7 @@ fn spawn_windows(
         .take_writer()
         .map_err(|err| format!("Failed to write to terminal: {err}"))?;
 
-    let job = crate::windows_job::Job::new().and_then(|job| {
-        if job.assign_pid(pid) {
-            Some(job)
-        } else {
-            None
-        }
-    });
+    let job = crate::windows_job::Job::for_pid(pid);
 
     let live = Arc::new(LivePty {
         writer: Mutex::new(Box::new(writer)),
