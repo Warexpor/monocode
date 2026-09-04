@@ -139,6 +139,13 @@ fn set_window_background_blur(
 ) {
     #[cfg(target_os = "macos")]
     macos::set_background_blur_radius(&window, radius);
+    // DWM material effects have no radius. Re-apply the glass fallback so a
+    // Settings blur change is not a no-op on Windows.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = radius;
+        crate::window::apply_windows_glass(&window);
+    }
 }
 
 #[tauri::command]

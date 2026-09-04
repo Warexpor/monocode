@@ -51,14 +51,33 @@ pub fn enable_window_glass(window: WebviewWindow) {
         crate::macos::enable_glass(&window);
     }
     #[cfg(target_os = "windows")]
-    {
-        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        let _ = window.set_effects(EffectsBuilder::new().effect(Effect::Acrylic).build());
-    }
+    apply_windows_glass(&window);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = window;
     }
+}
+
+/// Acrylic is the closest DWM stand-in for macOS CGS blur, but it is not
+/// available on every Windows SKU. Walk the fallbacks so the window is never
+/// left fully transparent after `enable_window_glass`.
+#[cfg(target_os = "windows")]
+pub fn apply_windows_glass(window: &WebviewWindow) {
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+    for effect in [
+        Effect::Acrylic,
+        Effect::Mica,
+        Effect::MicaDark,
+        Effect::Blur,
+    ] {
+        if window
+            .set_effects(EffectsBuilder::new().effect(effect).build())
+            .is_ok()
+        {
+            return;
+        }
+    }
+    let _ = window.set_background_color(Some(Color(18, 18, 18, 255)));
 }
 
 /// Close with a running chat hides the webview so the harness child keeps going.
