@@ -17,7 +17,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
-| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; Windows `reap_snapshots_kills_a_marked_orphan` (powershell sleeper) | PARTIAL until that test is green on `windows-latest` |
+| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` passed on GitHub `windows-latest` | 1TO1 (CI) |
 | NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI job `Windows NSIS` ran `npm run build:windows` on `f78e490` and uploaded `windows-nsis` (~8.4 MiB) | 1TO1 (CI) |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
 
@@ -27,8 +27,8 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 - Acrylic vs Mica vs solid fallback on a real DWM session.
 - Live harness session (`ocx` is machine-local; this Linux VM is not that proof).
 
-GitHub Actions on PR #1 `f78e490` (`33866015253`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` green, artifact `windows-nsis`. `6ac1488` already ran `windows_job::tests::job_kill_on_close_reaps_the_child` successfully. That is CI proof of build/kill-on-close, not a desktop DWM/`ocx` session.
+GitHub Actions on `origin/main` `e81f999` (`33868756420`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` green, `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` and `job_kill_on_close_reaps_the_child` both ok. That is CI proof of build/kill/orphan-reap, not a desktop DWM/`ocx` session.
 
 ## Upstream drift (dry-run)
 
-This branch is stacked on `cursor/sync-upstream-8584`, which merged `upstream/main` through `c804e0e` (plan mode) plus the earlier three commits. After that lands, merge `main` into `custom/warexpor`.
+`origin/main` tracks `hardbeat920/monocode` `main` plus Windows. `custom/warexpor` fast-forwards from `main` until product commits land. `./scripts/sync-upstream.sh --dry-run` (and the PowerShell twin) report behind/ahead against `upstream/main`.
