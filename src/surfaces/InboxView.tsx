@@ -64,6 +64,7 @@ import {
 } from "../lib/githubTasks";
 import {
   applyInboxFilters,
+  DEFAULT_INBOX_FILTERS,
   hasActiveInboxFilters,
   inboxFetchState,
   loadInboxFilters,
@@ -421,7 +422,6 @@ export function InboxView({
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
-  const narrowedByUser = searchNarrowed || filtersActive;
   const sourceError = providerErrors[source] ?? null;
 
   const selected =
@@ -548,21 +548,36 @@ export function InboxView({
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
         ) : visibleItems.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">
-            {narrowedByUser
-              ? searchNarrowed
-                ? source === "linear"
-                  ? "No matching Linear issues"
-                  : "No matching issues or pull requests"
-                : source === "linear"
+          filtersActive ? (
+            <div className="px-3 py-2">
+              <p className="text-[12px] text-content/50">
+                {source === "linear"
                   ? "No Linear issues match these filters"
-                  : "No issues or pull requests match these filters"
-              : source === "linear"
+                  : "No issues or pull requests match these filters"}
+              </p>
+              <button
+                type="button"
+                onClick={() => onFiltersChange(DEFAULT_INBOX_FILTERS)}
+                className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : searchNarrowed ? (
+            <p className="px-3 py-2 text-[12px] text-content/50">
+              {source === "linear"
+                ? "No matching Linear issues"
+                : "No matching issues or pull requests"}
+            </p>
+          ) : (
+            <p className="px-3 py-2 text-[12px] text-content/50">
+              {source === "linear"
                 ? "No Linear issues"
                 : projects.length === 0
                   ? "Open a project to fill the inbox"
                   : "No matching issues or pull requests"}
-          </p>
+            </p>
+          )
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
             {visibleItems.map((item) => {
