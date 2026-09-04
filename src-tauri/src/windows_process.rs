@@ -24,6 +24,7 @@ const STILL_ACTIVE: u32 = 259;
 const ERROR_ACCESS_DENIED: u32 = 5;
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct ProcessBasicInformation {
     exit_status: isize,
     peb_base_address: *mut core::ffi::c_void,
@@ -34,6 +35,7 @@ struct ProcessBasicInformation {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct UnicodeString {
     length: u16,
     maximum_length: u16,
