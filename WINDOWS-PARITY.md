@@ -22,9 +22,9 @@ This document does **not** claim a live Claude/`ocx` session or a pixel-level DW
 | Accelerators | native `menu.rs` | HTML `MenuBar` (File/View splits, tabs, focus, Settings, Quit) + `App.tsx` (`Ctrl+Q/O/Shift+N/B/P/K/,/Shift+F/.`) | 1TO1 (code) |
 | Claude creds | Keychain on macOS; `0o600` file on Linux | File store + owner+SYSTEM DACL | 1TO1 (code) |
 | NSIS first-run | n/a | Silent install + launch on `windows-latest` | 1TO1 (CI) — not interactive desktop UX |
-| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; CI recorded `acrylic` | 1TO1 (CI apply) — **not** a pixel screenshot |
+| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; Rust applies on `Ready` / new windows (JS re-applies after splash) | 1TO1 (CI sidecar) — **not** a pixel screenshot |
 
-Latest GHA proof on `origin/main` `49faefc` (`33878426385`): `check` green macOS/Ubuntu/Windows; NSIS `starterAlive=True named=1`; `DWM glass fallback=acrylic`.
+Latest GHA proof on `origin/main` `49faefc` (`33878426385`): `check` green macOS/Ubuntu/Windows; NSIS `starterAlive=True named=1`; `DWM glass fallback=acrylic`. PR #1 also applies glass from Rust so the sidecar does not wait on JS boot.
 
 ## Still needs Warexpor’s Windows PC
 

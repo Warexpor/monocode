@@ -363,6 +363,8 @@ pub fn run() {
                 macos::prefer_bundle_dock_icon();
             }
             window::ensure_launch_window_visible(handle);
+            #[cfg(target_os = "windows")]
+            window::apply_windows_glass_all(handle);
         }
         tauri::RunEvent::WindowEvent {
             label,
