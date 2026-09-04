@@ -166,6 +166,23 @@ describe("keybindings catalog", () => {
     expect(keys).toContain(`${MOD}${SHIFT}F`);
   });
 
+  it("documents session and project cycling in the shortcut list", () => {
+    const rows = KEYBINDINGS.filter(
+      (row) =>
+        row.command.startsWith("Session:") ||
+        row.command.startsWith("Project:"),
+    );
+    expect(rows.map((row) => row.command)).toEqual([
+      "Session: Previous",
+      "Session: Next",
+      "Project: Previous",
+      "Project: Next",
+    ]);
+    expect(rows.every((row) => row.when === "!textFocus && !overlay")).toBe(
+      true,
+    );
+  });
+
   it("finds the stop-turn binding by its advertised key", () => {
     expect(filterKeybindings(KEYBINDINGS, "esc").map((row) => row.command)).toEqual(
       ["Agent: Stop focused turn"],
