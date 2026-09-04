@@ -4,6 +4,7 @@ import {
   focusedBusyAgentSessionId,
   shouldIgnoreTerminalCtrlChord,
   isQuitChord,
+  isModelPickerChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./tabKeys";
@@ -108,6 +109,19 @@ describe("shouldIgnoreTerminalCtrlChord", () => {
     expect(
       shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), false),
     ).toBe(false);
+  });
+});
+
+describe("isModelPickerChord", () => {
+  it("matches cmd/ctrl-period without other modifiers", () => {
+    expect(isModelPickerChord(key({ key: ".", metaKey: true }))).toBe(true);
+    expect(
+      isModelPickerChord(key({ key: ".", code: "Period", ctrlKey: true })),
+    ).toBe(true);
+    expect(
+      isModelPickerChord(key({ key: ".", ctrlKey: true, shiftKey: true })),
+    ).toBe(false);
+    expect(isModelPickerChord(key({ key: "." }))).toBe(false);
   });
 });
 

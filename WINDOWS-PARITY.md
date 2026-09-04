@@ -1,35 +1,44 @@
 # Windows parity vs upstream
 
-Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github.com/hardbeat920/monocode) `main`. OS-native chrome (traffic lights, Dock badge, Keychain) is not a portability target.
+Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github.com/hardbeat920/monocode) `main`. OS-native chrome (traffic lights, Dock badge, Keychain) is **not** a portability target.
 
-| Item | Upstream (macOS/Linux) | Windows now | Class |
-|------|------------------------|-------------|-------|
-| Window glass | `macos::enable_glass` via CGS blur (`src-tauri/src/macos.rs`) | `apply_windows_glass`: radius 1–12 Blur, 13–40 Acrylic, 41–64 Mica, then remaining DWM materials, then solid. CI first-run on `0ffa6b9` (`33874438372`) recorded `DWM glass fallback=acrylic` | 1TO1 (CI) |
-| Sidebar blur radius | `set_background_blur_radius` 1–64 | Stores the macOS 1–64 value and remaps DWM material (no per-pixel CGS radius) | 1TO1 (code) |
-| Login PATH | `zsh`/`bash` `-lic printenv` (`load_unix_login_shell_env`) | PowerShell prints Machine+User+Process PATH (joined, process first) plus profile; other `LOGIN_SHELL_KEYS` from Process then User | 1TO1 (CI) |
-| Harness/PTY kill | process group SIGTERM then SIGKILL | TERM via `taskkill /T`; SIGKILL via Toolhelp descendants + `TerminateProcess`; Job drop still covers assigned trees | 1TO1 (CI) |
-| Git PATH | `Command::new("git")` | `git_cmd()` uses `resolve_gui_binary("git")` + `apply_gui_env` (search + checkpoint too) | 1TO1 |
-| Harness CLI resolve | login-shell PATH after POSIX install dirs | Same `gui_search_path` as PTY/git (login PATH plus `AppData\Roaming\npm`, scoop shims, Git, Node) so Explorer-launched MonoCode finds `opencode.exe` | 1TO1 (code) |
-| npm `.cmd` shims | shebang scripts | `command_for_args` runs `.cmd`/`.bat` via `cmd.exe /D /S /C` with program and args in one string so `CREATE_NO_WINDOW` can start npm-global `opencode.cmd serve` | 1TO1 (code) |
-| Default terminal | `$SHELL` else zsh/bash, `-l` for bash/zsh | `$SHELL` if it exists; else Git `bash.exe` (`-l`) as the Linux `/bin/bash` analog; else pwsh/powershell (`-NoLogo`); else `COMSPEC`. `Git\\bin` on search PATH | 1TO1 (code) |
-| Terminal Ctrl | Mac skips every `tabCommand` for Ctrl in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` does the same | 1TO1 |
-| Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |
-| Harness Job assign | Unix `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` plus kill-on-close Job. `job_kill_on_close_reaps_the_child` passed on GitHub `windows-latest` | 1TO1 (CI) |
-| Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp walk (8 nested shells), `NtQuery` command line with `ReadProcessMemory` when the buffer is remote, PEB `CommandLine` fallback; else image name | 1TO1 (code) |
-| Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` (Settings, Quit, terminal tab, Sidebar Appearance) plus `App.tsx` (`Ctrl+Q` / `Ctrl+O` / `Ctrl+Shift+N`; terminal Ctrl skipped like Mac) | 1TO1 (code) |
-| Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
-| Claude usage Keychain | `security` CLI | file store under user config (same as Linux); Windows applies owner+SYSTEM DACL (`restrict_owner_acl`) as the `0o600` analog used for Linear tokens | 1TO1 (code) |
-| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` passed on GitHub `windows-latest` | 1TO1 (CI) |
-| NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI `Windows NSIS` on `c491513` (`33872243241`) built `MonoCode_0.1.32_x64-setup.exe`, silent-installed, launched `monocode.exe`, process still alive after 20s | 1TO1 (CI) |
-| Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
+This document does **not** claim a live Claude/`ocx` session or a pixel-level DWM screenshot. Warexpor’s home PC owns visual glass and interactive UI smoke.
 
-## Still needs a Windows desktop (not GHA Server)
+## Done in code (and, where noted, GitHub Actions)
 
-- Whether Acrylic *looks* like CGS blur on a real interactive DWM session (CI recorded `set_effects(Acrylic)` succeeded; it did not capture pixels).
-- Live harness session (`ocx` is machine-local; this Linux VM is not that proof).
+| Item | Upstream (macOS/Linux) | Windows | Evidence |
+|------|------------------------|---------|----------|
+| Login PATH | `zsh`/`bash` `-lic printenv` | PowerShell Machine+User+Process PATH (process first) | 1TO1 (CI) |
+| Harness/PTY kill | process group SIGTERM then SIGKILL | `taskkill /T` then Toolhelp + `TerminateProcess` | 1TO1 (CI) |
+| Job assign / kill-on-close | `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` + kill-on-close Job | 1TO1 (CI `job_kill_on_close_reaps_the_child`) |
+| Orphan reap | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | PEB environ + Toolhelp | 1TO1 (CI `windows_reap_tests`) |
+| Git / GUI PATH | login-shell PATH | `gui_search_path` + `git_cmd` / `resolve_gui_binary` | 1TO1 (code + tests) |
+| Harness CLI resolve | POSIX dirs then login PATH | Same `gui_search_path` as PTY (npm, scoop, Git, Node) | 1TO1 (code + tests) |
+| npm `.cmd` shims | shebang argv | `command_for_args` → `cmd.exe /D /S /C` with program **and** args in one string | 1TO1 (code + tests) |
+| Default terminal | `$SHELL` else zsh/bash `-l` | `$SHELL` if present; else Git `bash.exe -l`; else pwsh/powershell; else `COMSPEC` | 1TO1 (code) |
+| Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp (8 shells), remote `NtQuery` / PEB `CommandLine`, `path_stem` / `command_label` | 1TO1 (code + Ubuntu tests) |
+| Paths to JS | POSIX | `path_to_js` on list/git/search/create/rename/copy/move/clone/attach/default cwd/logo | 1TO1 (code) |
+| Terminal Ctrl | skip `tabCommand` in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` | 1TO1 |
+| Accelerators | native `menu.rs` | HTML `MenuBar` (File/View splits, tabs, focus, Settings, Quit) + `App.tsx` (`Ctrl+Q/O/Shift+N/B/P/K/,/Shift+F/.`) | 1TO1 (code) |
+| Claude creds | Keychain on macOS; `0o600` file on Linux | File store + owner+SYSTEM DACL | 1TO1 (code) |
+| NSIS first-run | n/a | Silent install + launch on `windows-latest` | 1TO1 (CI) — not interactive desktop UX |
+| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; CI recorded `acrylic` | 1TO1 (CI apply) — **not** a pixel screenshot |
 
-GitHub Actions on `origin/main` `0ffa6b9` (`33874438372`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` silent-install launched `monocode.exe` (alive 20s) and wrote `DWM glass fallback=acrylic`. That is CI proof of build/install/launch/glass-apply, not a live `ocx` session.
+Latest GHA proof on `origin/main` `49faefc` (`33878426385`): `check` green macOS/Ubuntu/Windows; NSIS `starterAlive=True named=1`; `DWM glass fallback=acrylic`.
 
-## Upstream drift (dry-run)
+## Still needs Warexpor’s Windows PC
 
-`origin/main` tracks `hardbeat920/monocode` `main` plus Windows. `custom/warexpor` fast-forwards from `main` until product commits land. `./scripts/sync-upstream.sh --dry-run` (and the PowerShell twin) report behind/ahead against `upstream/main`.
+These cannot be closed on this Linux cloud VM (no GPU DWM session, no machine-local `ocx`):
+
+- **Visual glass** — whether Acrylic *looks* like CGS blur on an interactive desktop (CI only proved `set_effects` succeeded).
+- **Interactive NSIS** — installer wizard, shortcuts, uninstaller UX. GHA already silent-installed and launched once.
+- **Job kill-on-close on a real desktop** — GHA unit test already passed; re-check only if a desktop spawn still orphans.
+- **Live `ocx` / Claude session** — `127.0.0.1:10100`, model `claude-opus-4-8-20261030`. Not transferable. Do not invent `SESSION_OK`.
+
+## N/A (OS chrome, not a portability target)
+
+Dock badge / reopen, native macOS menu extras (Hide/About), Keychain `security` CLI.
+
+## Upstream
+
+`main` tracks `hardbeat920/monocode` plus Windows. `custom/warexpor` fast-forwards until product commits. `./scripts/sync-upstream.sh --dry-run` (and `scripts/sync-upstream.ps1`).

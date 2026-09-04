@@ -170,7 +170,7 @@ fn scan_files(root: &Path, options: &SearchOptions, query: &str) -> Result<Searc
         });
     }
 
-    let files = list_project_files_sync(&root.to_string_lossy())?;
+    let files = list_project_files_sync(&crate::fs::path_to_js(root))?;
     let include = glob_tokens(&options.include);
     let exclude = glob_tokens(&options.exclude);
     let needle = if options.case_sensitive {
