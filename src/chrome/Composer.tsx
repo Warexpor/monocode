@@ -1453,8 +1453,8 @@ function ComposerAction({
         ) : null}
         <button
           type="button"
-          title="Stop"
-          aria-label="Stop"
+          title="Stop (Esc)"
+          aria-label="Stop (Esc)"
           onClick={onStop}
           className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
         >
