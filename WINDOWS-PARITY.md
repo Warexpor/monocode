@@ -4,8 +4,8 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 | Item | Upstream (macOS/Linux) | Windows now | Class |
 |------|------------------------|-------------|-------|
-| Window glass | `macos::enable_glass` via CGS blur (`src-tauri/src/macos.rs`) | `apply_windows_glass`: Acrylic, Mica, MicaDark, Blur, then solid `Color(18,18,18,255)` | PARTIAL |
-| Sidebar blur radius | `set_background_blur_radius` 1–64 | Re-applies DWM glass. No per-pixel radius | PARTIAL |
+| Window glass | `macos::enable_glass` via CGS blur (`src-tauri/src/macos.rs`) | `apply_windows_glass`: radius 1–12 Blur, 13–40 Acrylic, 41–64 Mica, then remaining DWM materials, then solid `Color(18,18,18,255)` | 1TO1 (code) |
+| Sidebar blur radius | `set_background_blur_radius` 1–64 | Stores the macOS 1–64 value and remaps DWM material (no per-pixel CGS radius) | 1TO1 (code) |
 | Login PATH | `zsh`/`bash` `-lic printenv` (`load_unix_login_shell_env`) | PowerShell prints Machine+User+Process PATH (joined, process first) plus profile; other `LOGIN_SHELL_KEYS` from Process then User | 1TO1 (CI) |
 | Harness/PTY kill | process group SIGTERM then SIGKILL | TERM via `taskkill /T`; SIGKILL via Toolhelp descendants + `TerminateProcess`; Job drop still covers assigned trees | 1TO1 (CI) |
 | Git PATH | `Command::new("git")` | `git_cmd()` uses `resolve_gui_binary("git")` + `apply_gui_env` (search + checkpoint too) | 1TO1 |

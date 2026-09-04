@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -8,8 +10,54 @@ use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(1);
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static GLASS_RADIUS: AtomicU8 = AtomicU8::new(GLASS_RADIUS_DEFAULT);
 
 const QUIT_REQUESTED: &str = "quit_requested";
+
+/// Same range as macOS `CGSSetWindowBackgroundBlurRadius` (1–64, default 24).
+#[cfg(any(windows, test))]
+pub(crate) const GLASS_RADIUS_MIN: u8 = 1;
+#[cfg(any(windows, test))]
+pub(crate) const GLASS_RADIUS_MAX: u8 = 64;
+#[cfg(any(windows, test))]
+pub(crate) const GLASS_RADIUS_DEFAULT: u8 = 24;
+
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WindowsGlassKind {
+    Acrylic,
+    Mica,
+    MicaDark,
+    Blur,
+}
+
+/// DWM has no per-pixel radius. Map the macOS slider onto the closest material:
+/// low → Blur, mid → Acrylic, high → Mica.
+#[cfg(any(windows, test))]
+pub(crate) fn windows_glass_effect_order(radius: u8) -> [WindowsGlassKind; 4] {
+    let radius = radius.clamp(GLASS_RADIUS_MIN, GLASS_RADIUS_MAX);
+    match radius {
+        1..=12 => [
+            WindowsGlassKind::Blur,
+            WindowsGlassKind::Acrylic,
+            WindowsGlassKind::Mica,
+            WindowsGlassKind::MicaDark,
+        ],
+        13..=40 => [
+            WindowsGlassKind::Acrylic,
+            WindowsGlassKind::Mica,
+            WindowsGlassKind::MicaDark,
+            WindowsGlassKind::Blur,
+        ],
+        _ => [
+            WindowsGlassKind::Mica,
+            WindowsGlassKind::MicaDark,
+            WindowsGlassKind::Acrylic,
+            WindowsGlassKind::Blur,
+        ],
+    }
+}
 
 pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
     let mut config = app
@@ -59,17 +107,18 @@ pub fn enable_window_glass(window: WebviewWindow) {
 }
 
 /// Acrylic is the closest DWM stand-in for macOS CGS blur, but it is not
-/// available on every Windows SKU. Walk the fallbacks so the window is never
-/// left fully transparent after `enable_window_glass`.
+/// available on every Windows SKU. Walk the radius-mapped fallbacks so the
+/// window is never left fully transparent after `enable_window_glass`.
 #[cfg(target_os = "windows")]
 pub fn apply_windows_glass(window: &WebviewWindow) {
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-    for effect in [
-        Effect::Acrylic,
-        Effect::Mica,
-        Effect::MicaDark,
-        Effect::Blur,
-    ] {
+    for kind in windows_glass_effect_order(GLASS_RADIUS.load(Ordering::Relaxed)) {
+        let effect = match kind {
+            WindowsGlassKind::Acrylic => Effect::Acrylic,
+            WindowsGlassKind::Mica => Effect::Mica,
+            WindowsGlassKind::MicaDark => Effect::MicaDark,
+            WindowsGlassKind::Blur => Effect::Blur,
+        };
         if window
             .set_effects(EffectsBuilder::new().effect(effect).build())
             .is_ok()
@@ -78,6 +127,15 @@ pub fn apply_windows_glass(window: &WebviewWindow) {
         }
     }
     let _ = window.set_background_color(Some(Color(18, 18, 18, 255)));
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_windows_glass_radius(window: &WebviewWindow, radius: u8) {
+    GLASS_RADIUS.store(
+        radius.clamp(GLASS_RADIUS_MIN, GLASS_RADIUS_MAX),
+        Ordering::Relaxed,
+    );
+    apply_windows_glass(window);
 }
 
 /// Close with a running chat hides the webview so the harness child keeps going.
@@ -166,4 +224,28 @@ pub fn confirm_quit(app: AppHandle) {
         host.kill_all();
     }
     app.exit(0);
+}
+
+#[cfg(test)]
+mod glass_order_tests {
+    use super::*;
+
+    #[test]
+    fn low_radius_prefers_blur() {
+        assert_eq!(windows_glass_effect_order(1)[0], WindowsGlassKind::Blur);
+        assert_eq!(windows_glass_effect_order(12)[0], WindowsGlassKind::Blur);
+    }
+
+    #[test]
+    fn default_radius_prefers_acrylic() {
+        assert_eq!(
+            windows_glass_effect_order(GLASS_RADIUS_DEFAULT)[0],
+            WindowsGlassKind::Acrylic
+        );
+    }
+
+    #[test]
+    fn high_radius_prefers_mica() {
+        assert_eq!(windows_glass_effect_order(64)[0], WindowsGlassKind::Mica);
+    }
 }
