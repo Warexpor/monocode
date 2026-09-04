@@ -1,15 +1,32 @@
 # Windows parity vs upstream
 
-Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github.com/hardbeat920/monocode) `main`. OS-native chrome (traffic lights, Dock badge, Keychain) is **not** a portability target.
+Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github.com/hardbeat920/monocode) `main`. OS-native chrome (traffic lights, Dock badge, Keychain) is not a portability target.
 
-This document does **not** claim a live Claude/`ocx` session or a pixel-level DWM screenshot. Warexpor’s home PC owns visual glass and interactive UI smoke.
+Remotes and sync: `UPSTREAM.md`. Product overlay: `CUSTOM.md`.
+
+This document does not claim a live Claude/`ocx` session or a pixel-level DWM screenshot. Warexpor’s home PC owns visual glass and interactive UI smoke.
+
+## What CI proves (and where)
+
+Workflow: `.github/workflows/ci.yml`. Latest green push on `origin/main` `8e30be0`: [run 33883482964](https://github.com/Warexpor/monocode/actions/runs/33883482964).
+
+| Job | Runner | What it actually ran |
+|-----|--------|----------------------|
+| `check` | `ubuntu-latest` | `npm test`, `tsc`, rustfmt, clippy, `cargo test` on Linux. POSIX harness/PTY paths. Some Windows-oriented unit tests still compile/run here when they are not `cfg(windows)`-only. |
+| `check` | `macos-latest` | Same suite on macOS. |
+| `check` | `windows-latest` | Same suite on Windows. Job Objects, `taskkill`, PEB reap, PATH/shim tests that are `cfg(windows)` live here. |
+| `windows-nsis` | `windows-latest` | `npm run build:windows` → one NSIS `.exe` → `scripts/windows-nsis-smoke.ps1` silent `/S` install, launch, process still up, sidecar `DWM glass fallback=acrylic`. |
+
+Linux cloud VMs (this class of agent) are `check` on Ubuntu only unless you run the Windows jobs. They cannot prove DWM pixels, NSIS wizard UX, or a machine-local `ocx` session.
+
+`npm run check` locally is the `check` job, not NSIS.
 
 ## Done in code (and, where noted, GitHub Actions)
 
 | Item | Upstream (macOS/Linux) | Windows | Evidence |
 |------|------------------------|---------|----------|
-| Login PATH | `zsh`/`bash` `-lic printenv` | PowerShell Machine+User+Process PATH (process first) | 1TO1 (CI) |
-| Harness/PTY kill | process group SIGTERM then SIGKILL | `taskkill /T` then Toolhelp + `TerminateProcess` | 1TO1 (CI) |
+| Login PATH | `zsh`/`bash` `-lic printenv` | PowerShell Machine+User+Process PATH (process first) | 1TO1 (CI `check` windows) |
+| Harness/PTY kill | process group SIGTERM then SIGKILL | `taskkill /T` then Toolhelp + `TerminateProcess` | 1TO1 (CI `check` windows) |
 | Job assign / kill-on-close | `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` + kill-on-close Job | 1TO1 (CI `job_kill_on_close_reaps_the_child`) |
 | Orphan reap | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | PEB environ + Toolhelp | 1TO1 (CI `windows_reap_tests`) |
 | Git / GUI PATH | login-shell PATH | `gui_search_path` + `git_cmd` / `resolve_gui_binary` | 1TO1 (code + tests) |
@@ -21,14 +38,14 @@ This document does **not** claim a live Claude/`ocx` session or a pixel-level DW
 | Terminal Ctrl | skip `tabCommand` in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` | 1TO1 |
 | Accelerators | native `menu.rs` | HTML `MenuBar` (File/View splits, tabs, focus, Settings, Quit) + `App.tsx` (`Ctrl+Q/O/Shift+N/B/P/K/,/Shift+F/.`) | 1TO1 (code) |
 | Claude creds | Keychain on macOS; `0o600` file on Linux | File store + owner+SYSTEM DACL | 1TO1 (code) |
-| NSIS first-run | n/a | Silent install + launch on `windows-latest` | 1TO1 (CI) — not interactive desktop UX |
-| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; Rust applies on `Ready` / new windows (JS re-applies after splash) | 1TO1 (CI sidecar) — **not** a pixel screenshot |
+| NSIS first-run | n/a | Silent install + launch on `windows-latest` | 1TO1 (CI `windows-nsis`) — not interactive desktop UX |
+| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; Rust applies on `Ready` / new windows (JS re-applies after splash) | 1TO1 (CI sidecar `fallback=acrylic` on `8e30be0`) — not a pixel screenshot |
 
-Latest GHA proof on `origin/main` `49faefc` (`33878426385`): `check` green macOS/Ubuntu/Windows; NSIS `starterAlive=True named=1`; `DWM glass fallback=acrylic`. PR #1 also applies glass from Rust so the sidecar does not wait on JS boot.
+PR #1 applies glass from Rust so the sidecar does not wait on JS boot.
 
 ## Still needs Warexpor’s Windows PC
 
-These cannot be closed on this Linux cloud VM (no GPU DWM session, no machine-local `ocx`):
+These cannot be closed on a Linux cloud VM (no GPU DWM session, no machine-local `ocx`):
 
 - **Visual glass** — whether Acrylic *looks* like CGS blur on an interactive desktop (CI only proved `set_effects` succeeded).
 - **Interactive NSIS** — installer wizard, shortcuts, uninstaller UX. GHA already silent-installed and launched once.
@@ -38,7 +55,3 @@ These cannot be closed on this Linux cloud VM (no GPU DWM session, no machine-lo
 ## N/A (OS chrome, not a portability target)
 
 Dock badge / reopen, native macOS menu extras (Hide/About), Keychain `security` CLI.
-
-## Upstream
-
-`main` tracks `hardbeat920/monocode` plus Windows. `custom/warexpor` fast-forwards until product commits. `./scripts/sync-upstream.sh --dry-run` (and `scripts/sync-upstream.ps1`).
