@@ -30,11 +30,4 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 ## Upstream drift (dry-run)
 
-`./scripts/sync-upstream.sh --dry-run` from `origin/main` @ `bd4a069` vs `upstream/main`:
-
-- ahead 10, behind 3 (`f211602`, `d7e6b6d`, `e36ebd9`)
-- merge-base `4d7a7a1`
-- would merge, not fast-forward
-- `git merge-tree` only reports `CHANGELOG.md` as changed in both
-
-Do not merge those three on this branch. Run `sync-upstream` on `main`, then merge `main` into `custom/warexpor`.
+This branch is stacked on `cursor/sync-upstream-8584`, which already merged `f211602`, `d7e6b6d`, and `e36ebd9` from `upstream/main` (PR targeting `main`). After that lands, merge `main` into `custom/warexpor`.

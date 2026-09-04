@@ -49,7 +49,7 @@ git merge upstream/main
 
 1. Resolve conflicts favoring clear platform boundaries (`#[cfg(windows)]`, path helpers).
 2. Run `npm ci` then `npm run check` (or at least `npm run check:web` plus Windows `cargo test`).
-3. On Windows, run `npm run build:windows` before declaring the sync good.
+3. On Windows, run `npm run build:windows` before declaring the sync good. That script sets `RUSTUP_TOOLCHAIN` and runs from Node, so it works in cmd, PowerShell, and Git Bash.
 
 ## Credit
 
