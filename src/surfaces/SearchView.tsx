@@ -387,7 +387,10 @@ export function SearchView({
         ) : error && hits.length === 0 ? (
           <p className="px-2 py-1.5 text-[12px] text-red-400">{error}</p>
         ) : noResults ? (
-          <p className="px-2 py-1.5 text-[12px] text-content/50">No results</p>
+          <SearchEmptyResults
+            scope={scope}
+            onClearScope={() => setScope("all")}
+          />
         ) : (
           <ResultList
             hits={hits}
@@ -400,6 +403,31 @@ export function SearchView({
       </div>
     </div>
   );
+}
+
+/** Quiet empty copy when a query returns nothing. Projects scope is a filter. */
+export function SearchEmptyResults({
+  scope,
+  onClearScope,
+}: {
+  scope: SearchScope;
+  onClearScope: () => void;
+}) {
+  if (scope === "projects") {
+    return (
+      <div className="px-2 py-1.5">
+        <p className="text-[12px] text-content/50">Filters hid all projects</p>
+        <button
+          type="button"
+          onClick={onClearScope}
+          className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+        >
+          Clear filters
+        </button>
+      </div>
+    );
+  }
+  return <p className="px-2 py-1.5 text-[12px] text-content/50">No results</p>;
 }
 
 const EMPTY_DOT_COLS = 27;
