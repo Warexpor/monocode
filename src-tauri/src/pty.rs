@@ -770,7 +770,7 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
 
 #[cfg(windows)]
 fn foreground_label(shell_pid: u32) -> Option<String> {
-    foreground_from_process_tree(shell_pid, &windows_process_snapshot())
+    foreground_from_process_tree(shell_pid, &windows_process_snapshot(), true)
 }
 
 /// pid, parent pid, image name. Unix TIOCGPGRP has no Toolhelp analog, so we
@@ -780,7 +780,11 @@ fn foreground_label(shell_pid: u32) -> Option<String> {
 const FOREGROUND_WALK_DEPTH: usize = 8;
 
 #[cfg(any(windows, test))]
-fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> Option<String> {
+fn foreground_from_process_tree(
+    shell_pid: u32,
+    rows: &[(u32, u32, String)],
+    live: bool,
+) -> Option<String> {
     if shell_pid == 0 {
         return None;
     }
@@ -793,7 +797,7 @@ fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> 
                     continue;
                 }
                 next.push(*pid);
-                let label = windows_foreground_label(*pid, name);
+                let label = windows_foreground_label(*pid, name, live);
                 if *pid == shell_pid || is_shell_name(&label) || is_conhost_name(&label) {
                     continue;
                 }
@@ -812,19 +816,30 @@ fn is_conhost_name(name: &str) -> bool {
 }
 
 #[cfg(any(windows, test))]
-fn windows_foreground_label(pid: u32, image: &str) -> String {
+fn prefer_command_line_or_image(command_line: Option<&str>, image: &str) -> String {
+    command_line
+        .and_then(command_label)
+        .or_else(|| command_label(image))
+        .unwrap_or_else(|| image.to_string())
+}
+
+#[cfg(any(windows, test))]
+fn live_command_line(pid: u32) -> Option<String> {
     #[cfg(windows)]
     {
         crate::windows_process::command_line(pid)
-            .and_then(|args| command_label(&args))
-            .or_else(|| command_label(image))
-            .unwrap_or_else(|| image.to_string())
     }
     #[cfg(not(windows))]
     {
         let _ = pid;
-        command_label(image).unwrap_or_else(|| image.to_string())
+        None
     }
+}
+
+#[cfg(any(windows, test))]
+fn windows_foreground_label(pid: u32, image: &str, live: bool) -> String {
+    let cmdline = if live { live_command_line(pid) } else { None };
+    prefer_command_line_or_image(cmdline.as_deref(), image)
 }
 
 #[cfg(windows)]
@@ -963,20 +978,38 @@ mod label_tests {
     }
 
     #[test]
+    fn command_line_overlay_beats_snapshot_image() {
+        assert_eq!(
+            prefer_command_line_or_image(
+                Some(r#""C:\Program Files\nodejs\node.exe" C:\npm\npm-cli.js"#),
+                "node.exe",
+            ),
+            "npm-cli".to_string()
+        );
+        assert_eq!(
+            prefer_command_line_or_image(None, "node.exe"),
+            "node".to_string()
+        );
+    }
+
+    #[test]
     fn foreground_skips_conhost_and_walks_one_parent_level() {
         let rows = [
             (10, 1, "pwsh.exe".into()),
             (11, 10, "conhost.exe".into()),
             (12, 10, "node.exe".into()),
         ];
-        assert_eq!(foreground_from_process_tree(10, &rows), Some("node".into()));
+        assert_eq!(
+            foreground_from_process_tree(10, &rows, false),
+            Some("node".into())
+        );
         let nested = [
             (20, 1, "powershell.exe".into()),
             (21, 20, "conhost.exe".into()),
             (22, 21, "git.exe".into()),
         ];
         assert_eq!(
-            foreground_from_process_tree(20, &nested),
+            foreground_from_process_tree(20, &nested, false),
             Some("git".into())
         );
         let wrapped = [
@@ -986,7 +1019,7 @@ mod label_tests {
             (33, 32, "cargo.exe".into()),
         ];
         assert_eq!(
-            foreground_from_process_tree(30, &wrapped),
+            foreground_from_process_tree(30, &wrapped, false),
             Some("cargo".into())
         );
     }
