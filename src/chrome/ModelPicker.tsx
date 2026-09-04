@@ -44,6 +44,7 @@ import {
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
 import { Popover } from "./Popover";
+import { LAYER } from "../lib/layers";
 import { MOD } from "../lib/platform";
 
 type Props = {
@@ -323,6 +324,9 @@ export function ModelPicker({
           strokeWidth={1.75}
         />
       </button>
+      {/* Composer `data-composer-box` is `relative z-10` (stacking context).
+          Popover portals onto document.body at LAYER.popover so the menu is
+          not clipped by that context — same fix as hardbeat920/monocode#31. */}
       {open ? (
         <Popover
           anchor={root}
@@ -330,6 +334,7 @@ export function ModelPicker({
           width={MENU_WIDTH}
           minHeight={MENU_MIN_HEIGHT}
           maxHeight={MENU_MAX_HEIGHT}
+          layer={LAYER.popover}
           onDismiss={() => dismiss(false)}
           dismissOnEscape={false}
           role="dialog"
