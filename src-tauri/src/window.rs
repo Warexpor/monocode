@@ -123,10 +123,29 @@ pub fn apply_windows_glass(window: &WebviewWindow) {
             .set_effects(EffectsBuilder::new().effect(effect).build())
             .is_ok()
         {
+            record_windows_glass(kind_label(kind));
             return;
         }
     }
     let _ = window.set_background_color(Some(Color(18, 18, 18, 255)));
+    record_windows_glass("solid");
+}
+
+#[cfg(windows)]
+fn kind_label(kind: WindowsGlassKind) -> &'static str {
+    match kind {
+        WindowsGlassKind::Acrylic => "acrylic",
+        WindowsGlassKind::Mica => "mica",
+        WindowsGlassKind::MicaDark => "mica-dark",
+        WindowsGlassKind::Blur => "blur",
+    }
+}
+
+/// Sidecar for CI / desktop smoke: which DWM fallback actually stuck.
+#[cfg(windows)]
+fn record_windows_glass(kind: &str) {
+    let path = std::env::temp_dir().join("monocode-windows-glass.txt");
+    let _ = std::fs::write(path, kind);
 }
 
 #[cfg(target_os = "windows")]

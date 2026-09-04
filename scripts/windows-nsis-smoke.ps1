@@ -55,6 +55,8 @@ if (-not $exe) {
 }
 
 Write-Host "Launching $($exe.FullName)"
+$glass = Join-Path $env:TEMP "monocode-windows-glass.txt"
+Remove-Item $glass -ErrorAction SilentlyContinue
 $app = Start-Process -FilePath $exe.FullName -PassThru
 Start-Sleep -Seconds 20
 $named = @(Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" })
@@ -64,6 +66,23 @@ if (-not $starterAlive -and $named.Count -eq 0) {
     throw "MonoCode was not running after first-run wait (exit $code)"
 }
 Write-Host "MonoCode still running after first-run wait (starterAlive=$starterAlive named=$($named.Count))"
+$glassDeadline = (Get-Date).AddSeconds(10)
+$effect = $null
+while ((Get-Date) -lt $glassDeadline) {
+    if (Test-Path $glass) {
+        $effect = (Get-Content -Raw $glass).Trim()
+        if ($effect) { break }
+    }
+    Start-Sleep -Milliseconds 500
+}
+if (-not $effect) {
+    throw "enable_window_glass did not record DWM fallback at $glass"
+}
+$allowed = @("acrylic", "mica", "mica-dark", "blur", "solid")
+if ($allowed -notcontains $effect) {
+    throw "unexpected DWM fallback '$effect'"
+}
+Write-Host "DWM glass fallback=$effect"
 Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" } | Stop-Process -Force -ErrorAction SilentlyContinue
 if ($app -and -not $app.HasExited) {
     Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
