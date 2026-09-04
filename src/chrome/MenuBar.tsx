@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../lib/platform";
 import { runUpdateFlow } from "../lib/updater";
+import { openFindInActiveEditor } from "../surfaces/editorSearch";
 
 type MenuKey = "file" | "view" | "terminal";
 
@@ -169,6 +170,9 @@ export function MenuBar({
         case "find_in_project":
           onFindInProject?.();
           break;
+        case "find":
+          openFindInActiveEditor();
+          break;
         case "close_tab":
           onCloseCurrentTab?.();
           break;
@@ -269,6 +273,7 @@ export function MenuBar({
           { kind: "item", id: "open_search", label: "Search…", shortcut: `${MOD}K` },
           { kind: "item", id: "go_to_file", label: "Go to File…", shortcut: `${MOD}P` },
           { kind: "item", id: "find_in_project", label: "Find in Files…", shortcut: `${MOD}${SHIFT}F` },
+          { kind: "item", id: "find", label: "Find", shortcut: `${MOD}F` },
           { kind: "sep" },
           { kind: "item", id: "split_right", label: "Split Pane Right", shortcut: `${MOD}D` },
           { kind: "item", id: "split_down", label: "Split Pane Down", shortcut: `${MOD}${SHIFT}D` },

@@ -565,7 +565,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
+    let cwd = crate::fs::slash_cwd(&session.cwd);
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let branch = session
         .branch
         .as_deref()
@@ -575,7 +576,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
-        .map(str::trim)
+        .map(crate::fs::slash_cwd)
         .filter(|value| !value.is_empty());
 
     let has_user_message = has_user_block(&session.blocks);
@@ -629,7 +630,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            has_user_message = excluded.has_user_message",
         params![
             session.id,
-            session.cwd,
+            cwd,
             session.harness,
             session.model,
             model_settings,
@@ -649,7 +650,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
 
     Ok(SessionSummary {
         id: session.id.clone(),
-        cwd: session.cwd.clone(),
+        cwd,
         harness: session.harness.clone(),
         model: session.model.clone(),
         runtime_mode: session.runtime_mode.clone(),
@@ -682,7 +683,7 @@ fn search_sessions(
     let cwd = options
         .cwd
         .as_deref()
-        .map(str::trim)
+        .map(crate::fs::slash_cwd)
         .filter(|value| !value.is_empty());
 
     let mut sql = String::from(
@@ -913,7 +914,8 @@ fn ceil_char_boundary(text: &str, mut index: usize) -> usize {
 }
 
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(cwd));
+    let cwd = crate::fs::slash_cwd(cwd);
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned
@@ -1335,6 +1337,16 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].id, "s2");
         assert_eq!(listed[1].id, "s1");
+    }
+
+    #[test]
+    fn list_by_project_treats_backslash_and_slash_cwd_as_the_same_project() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("s1", r"C:\Users\me\app", "Win")).unwrap();
+        let listed = list_by_project(&conn, "C:/Users/me/app").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].cwd, "C:/Users/me/app");
     }
 
     #[test]
