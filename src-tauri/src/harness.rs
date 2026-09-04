@@ -1764,12 +1764,13 @@ fn is_cursor_agent(path: &Path) -> bool {
     false
 }
 
-/// Look `name` up in the interactive login shell's PATH.
+/// Look `name` up the way a terminal and the PTY do.
 ///
-/// Reads the cached PATH rather than spawning a shell per lookup: six
-/// resolvers each asking `command -v` meant six shell startups per probe.
+/// Uses `gui_search_path` (login PATH plus Homebrew / npm / scoop / Git
+/// fallbacks), not login PATH alone. Explorer-launched MonoCode otherwise
+/// misses CLIs that a terminal finds. Cached — no per-resolver shell spawn.
 fn which_via_login_shell(name: &str) -> Option<PathBuf> {
-    which_in_path(&login_shell_path()?, name)
+    which_in_path(&gui_search_path(), name)
 }
 
 fn which_in_path(path: &str, name: &str) -> Option<PathBuf> {
@@ -2977,5 +2978,44 @@ mod windows_resolve_tests {
         };
         let found = resolve_claude().expect("PATH hit implies resolve_claude succeeds");
         assert_eq!(found, from_path);
+    }
+
+    #[test]
+    fn gui_search_path_finds_opencode_exe_in_roaming_npm() {
+        let dir = std::env::temp_dir().join(format!(
+            "monocode-opencode-npm-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let npm = dir.join(r"AppData\Roaming\npm");
+        std::fs::create_dir_all(&npm).unwrap();
+        let exe = npm.join("opencode.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let path = gui_search_path_from(None, Some(dir.to_string_lossy().into_owned()), None);
+        assert_eq!(which_in_path(&path, "opencode"), Some(exe));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn gui_search_path_finds_opencode_exe_in_scoop_shims() {
+        let dir = std::env::temp_dir().join(format!(
+            "monocode-opencode-scoop-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let shims = dir.join(r"scoop\shims");
+        std::fs::create_dir_all(&shims).unwrap();
+        let exe = shims.join("opencode.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let path = gui_search_path_from(None, Some(dir.to_string_lossy().into_owned()), None);
+        assert_eq!(which_in_path(&path, "opencode"), Some(exe));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn which_via_gui_path_matches_resolve_gui_binary() {
+        let from_gui = resolve_gui_binary("opencode");
+        let from_which = which_via_login_shell("opencode");
+        assert_eq!(from_gui, from_which);
     }
 }
