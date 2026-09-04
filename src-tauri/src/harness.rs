@@ -2826,6 +2826,53 @@ mod login_env_tests {
 }
 
 #[cfg(all(test, windows))]
+mod windows_reap_tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    fn wait_dead(pid: u32, child: &mut std::process::Child) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if !tree_alive(pid) {
+                let _ = child.try_wait();
+                return true;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    #[test]
+    fn reap_snapshots_kills_a_marked_orphan() {
+        let mut child = Command::new("powershell.exe")
+            .args(["-NoLogo", "-Command", "Start-Sleep -Seconds 30"])
+            .env(HARNESS_PARENT_ENV, "2147483646")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn marked orphan");
+        let pid = child.id();
+        reap_snapshots(
+            &[ProcessSnapshot {
+                pid,
+                ppid: 1,
+                args: r"C:\Users\n\.local\bin\claude.exe acp".into(),
+                harness_parent: Some(2_147_483_646),
+            }],
+            std::process::id(),
+        );
+        if !wait_dead(pid, &mut child) {
+            let _ = child.kill();
+            panic!("marked orphan survived reap_snapshots");
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
 mod windows_resolve_tests {
     use super::*;
 

@@ -17,7 +17,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
-| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; Job kill-on-close still covers in-process trees | PARTIAL until Windows smoke |
+| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; Windows `reap_snapshots_kills_a_marked_orphan` (powershell sleeper) | PARTIAL until that test is green on `windows-latest` |
 | NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI job `Windows NSIS` ran `npm run build:windows` on `f78e490` and uploaded `windows-nsis` (~8.4 MiB) | 1TO1 (CI) |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
 
