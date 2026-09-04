@@ -203,7 +203,12 @@ pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, Str
         let foreground = foreground_label(live.master_fd, live.pid);
         Ok(PtyStatus { foreground })
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let foreground = foreground_label(live.pid);
+        Ok(PtyStatus { foreground })
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = live;
         Ok(PtyStatus { foreground: None })
@@ -740,6 +745,72 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
     Some(label)
 }
 
+#[cfg(windows)]
+fn foreground_label(shell_pid: u32) -> Option<String> {
+    if shell_pid == 0 {
+        return None;
+    }
+    let children = windows_child_processes(shell_pid);
+    for (pid, name, command_line) in children {
+        let label = command_label(command_line.as_deref().unwrap_or(name.as_str()))
+            .or_else(|| Some(name.clone()))?;
+        if pid == shell_pid || is_shell_name(&label) || is_conhost_name(&label) {
+            continue;
+        }
+        return Some(label);
+    }
+    None
+}
+
+#[cfg(windows)]
+fn windows_child_processes(parent_pid: u32) -> Vec<(u32, String, Option<String>)> {
+    use std::process::Command;
+    let mut cmd = Command::new("powershell.exe");
+    crate::hide_window_console(&mut cmd);
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"ParentProcessId={parent_pid}\" | \
+         Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    );
+    let output = cmd
+        .args(["-NoProfile", "-NoLogo", "-Command", &script])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return Vec::new();
+    }
+    let parsed: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match parsed {
+        serde_json::Value::Array(rows) => rows,
+        other => vec![other],
+    };
+    rows.into_iter()
+        .filter_map(|row| {
+            let pid = row.get("ProcessId")?.as_u64()? as u32;
+            let name = row.get("Name")?.as_str()?.to_string();
+            let command_line = row
+                .get("CommandLine")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            Some((pid, name, command_line))
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn is_conhost_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("conhost.exe") || name.eq_ignore_ascii_case("conhost")
+}
+
 #[cfg(unix)]
 fn process_label(pid: i32) -> Option<String> {
     use std::process::Command;
@@ -758,24 +829,33 @@ fn process_label(pid: i32) -> Option<String> {
     command_label(args)
 }
 
-#[cfg(unix)]
 fn command_label(args: &str) -> Option<String> {
-    let parts: Vec<&str> = args.split_whitespace().collect();
+    let parts = split_command_parts(args);
     if parts.is_empty() {
         return None;
     }
     let exe = parts[0];
     let base = std::path::Path::new(exe)
-        .file_name()
-        .and_then(|name| name.to_str())?;
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .or_else(|| {
+            std::path::Path::new(exe)
+                .file_name()
+                .and_then(|name| name.to_str())
+        })?;
     if is_interpreter(base) {
         for part in parts.iter().skip(1) {
             if part.starts_with('-') {
                 continue;
             }
             let name = std::path::Path::new(part)
-                .file_name()
-                .and_then(|name| name.to_str())?;
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .or_else(|| {
+                    std::path::Path::new(part)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                })?;
             if !name.starts_with('-') {
                 return Some(name.to_string());
             }
@@ -784,23 +864,56 @@ fn command_label(args: &str) -> Option<String> {
     Some(base.to_string())
 }
 
-#[cfg(unix)]
+fn split_command_parts(args: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut rest = args.trim();
+    while !rest.is_empty() {
+        if let Some(stripped) = rest.strip_prefix('"') {
+            let Some(end) = stripped.find('"') else {
+                parts.push(stripped);
+                break;
+            };
+            parts.push(&stripped[..end]);
+            rest = stripped[end + 1..].trim_start();
+            continue;
+        }
+        let next = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        parts.push(&rest[..next]);
+        rest = rest[next..].trim_start();
+    }
+    parts
+}
+
 fn is_interpreter(name: &str) -> bool {
     matches!(
-        name,
+        name.to_ascii_lowercase().as_str(),
         "node" | "nodejs" | "python" | "python3" | "ruby" | "deno" | "bun"
     )
 }
 
-#[cfg(unix)]
 fn is_shell_name(name: &str) -> bool {
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(name);
     matches!(
-        name,
-        "zsh" | "bash" | "sh" | "fish" | "nu" | "dash" | "ksh" | "tcsh" | "zsh5"
+        stem.to_ascii_lowercase().as_str(),
+        "zsh"
+            | "bash"
+            | "sh"
+            | "fish"
+            | "nu"
+            | "dash"
+            | "ksh"
+            | "tcsh"
+            | "zsh5"
+            | "cmd"
+            | "powershell"
+            | "pwsh"
     )
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod label_tests {
     use super::*;
 
@@ -811,11 +924,16 @@ mod label_tests {
             Some("npm".into())
         );
         assert_eq!(command_label("cargo build"), Some("cargo".into()));
+        assert_eq!(
+            command_label(r#""C:\Program Files\nodejs\node.exe" C:\npm\npm-cli.js"#),
+            Some("npm-cli".into())
+        );
     }
 
     #[test]
     fn shell_names_are_ignored() {
         assert!(is_shell_name("zsh"));
+        assert!(is_shell_name("powershell.exe"));
         assert!(!is_shell_name("npm"));
     }
 }
