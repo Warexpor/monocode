@@ -4,7 +4,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 | Item | Upstream (macOS/Linux) | Windows now | Class |
 |------|------------------------|-------------|-------|
-| Window glass | `macos::enable_glass` via CGS blur (`src-tauri/src/macos.rs`) | `apply_windows_glass`: radius 1–12 Blur, 13–40 Acrylic, 41–64 Mica, then remaining DWM materials, then solid `Color(18,18,18,255)` | 1TO1 (code) |
+| Window glass | `macos::enable_glass` via CGS blur (`src-tauri/src/macos.rs`) | `apply_windows_glass`: radius 1–12 Blur, 13–40 Acrylic, 41–64 Mica, then remaining DWM materials, then solid. CI first-run on `0ffa6b9` (`33874438372`) recorded `DWM glass fallback=acrylic` | 1TO1 (CI) |
 | Sidebar blur radius | `set_background_blur_radius` 1–64 | Stores the macOS 1–64 value and remaps DWM material (no per-pixel CGS radius) | 1TO1 (code) |
 | Login PATH | `zsh`/`bash` `-lic printenv` (`load_unix_login_shell_env`) | PowerShell prints Machine+User+Process PATH (joined, process first) plus profile; other `LOGIN_SHELL_KEYS` from Process then User | 1TO1 (CI) |
 | Harness/PTY kill | process group SIGTERM then SIGKILL | TERM via `taskkill /T`; SIGKILL via Toolhelp descendants + `TerminateProcess`; Job drop still covers assigned trees | 1TO1 (CI) |
@@ -23,10 +23,10 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 ## Still needs a Windows desktop (not GHA Server)
 
-- Acrylic vs Mica vs solid on a real DWM session (CI first-run only proved the process stayed up).
+- Whether Acrylic *looks* like CGS blur on a real interactive DWM session (CI recorded `set_effects(Acrylic)` succeeded; it did not capture pixels).
 - Live harness session (`ocx` is machine-local; this Linux VM is not that proof).
 
-GitHub Actions on `origin/main` `c491513` (`33872243241`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` green including silent-install + 20s live `monocode.exe`. That is CI proof of build/install/launch/kill/orphan-reap, not a desktop DWM/`ocx` session.
+GitHub Actions on `origin/main` `0ffa6b9` (`33874438372`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` silent-install launched `monocode.exe` (alive 20s) and wrote `DWM glass fallback=acrylic`. That is CI proof of build/install/launch/glass-apply, not a live `ocx` session.
 
 ## Upstream drift (dry-run)
 
