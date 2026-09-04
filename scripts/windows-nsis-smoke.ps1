@@ -16,48 +16,61 @@ if (Test-Path $dest) {
 }
 New-Item -ItemType Directory -Force $dest | Out-Null
 
+# /D= must be last and unquoted (NSIS). Start-Process would quote it.
 Write-Host "Installing $($installer.Name) -> $dest"
-$setup = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$dest") -Wait -PassThru
-if ($setup.ExitCode -ne 0) {
-    throw "NSIS installer exited $($setup.ExitCode)"
+cmd.exe /c "`"$($installer.FullName)`" /S /D=$dest"
+if ($LASTEXITCODE -ne 0) {
+    throw "NSIS installer exited $LASTEXITCODE"
 }
 
-$exe = Get-ChildItem -Path $dest -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.BaseName -notmatch "(?i)uninstall" } |
-    Select-Object -First 1
-if (-not $exe) {
-    foreach ($candidate in @(
-            (Join-Path $env:LOCALAPPDATA "MonoCode\MonoCode.exe"),
-            (Join-Path $env:LOCALAPPDATA "Programs\MonoCode\MonoCode.exe")
+function Find-InstalledExe {
+    $hits = @()
+    if (Test-Path $dest) {
+        $hits += Get-ChildItem -Path $dest -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
+    }
+    foreach ($dir in @(
+            (Join-Path $env:LOCALAPPDATA "MonoCode"),
+            (Join-Path $env:LOCALAPPDATA "Programs\MonoCode")
         )) {
-        if (Test-Path $candidate) {
-            $exe = Get-Item $candidate
-            break
+        if (Test-Path $dir) {
+            $hits += Get-ChildItem -Path $dir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
         }
     }
+    $hits | Where-Object { $_.BaseName -notmatch "(?i)uninstall" } | Select-Object -First 1
+}
+
+$deadline = (Get-Date).AddSeconds(60)
+$exe = $null
+while ((Get-Date) -lt $deadline) {
+    $exe = Find-InstalledExe
+    if ($exe) { break }
+    Start-Sleep -Milliseconds 500
 }
 if (-not $exe) {
-    Get-ChildItem -Path $dest -Recurse | ForEach-Object { Write-Host $_.FullName }
+    Write-Host "dest listing:"
+    if (Test-Path $dest) {
+        Get-ChildItem -Path $dest -Recurse | ForEach-Object { Write-Host $_.FullName }
+    }
     throw "installed tree has no MonoCode.exe"
 }
 
 Write-Host "Launching $($exe.FullName)"
 $app = Start-Process -FilePath $exe.FullName -PassThru
-$deadline = (Get-Date).AddSeconds(20)
-while (-not $app.HasExited -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 500
-    $app.Refresh()
+Start-Sleep -Seconds 20
+$named = @(Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" })
+$starterAlive = $app -and -not $app.HasExited
+if (-not $starterAlive -and $named.Count -eq 0) {
+    $code = if ($app) { $app.ExitCode } else { "n/a" }
+    throw "MonoCode was not running after first-run wait (exit $code)"
 }
-if ($app.HasExited) {
-    throw "MonoCode exited $($app.ExitCode) during first-run smoke"
-}
-
-Write-Host "Process $($app.Id) still running after first-run wait"
-Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+Write-Host "MonoCode still running after first-run wait (starterAlive=$starterAlive named=$($named.Count))"
 Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" } | Stop-Process -Force -ErrorAction SilentlyContinue
-$uninstaller = Get-ChildItem -Path $dest -Filter "*.exe" -Recurse |
+if ($app -and -not $app.HasExited) {
+    Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+}
+$uninstaller = Get-ChildItem -Path $dest -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
     Where-Object { $_.BaseName -match "(?i)uninstall" } |
     Select-Object -First 1
 if ($uninstaller) {
-    Start-Process -FilePath $uninstaller.FullName -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
+    cmd.exe /c "`"$($uninstaller.FullName)`" /S" | Out-Null
 }
