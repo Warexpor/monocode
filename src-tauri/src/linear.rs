@@ -717,66 +717,12 @@ fn write_secret_file(path: &std::path::Path, token: &str) -> Result<(), String> 
     #[cfg(windows)]
     {
         fs::write(path, token).map_err(|error| error.to_string())?;
-        restrict_secret_acl(path)
+        crate::windows_secret::restrict_owner_acl(path)
     }
     #[cfg(not(any(unix, windows)))]
     {
         fs::write(path, token).map_err(|error| error.to_string())
     }
-}
-
-#[cfg(windows)]
-fn restrict_secret_acl(path: &std::path::Path) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{LocalFree, FALSE, HLOCAL};
-    use windows_sys::Win32::Security::Authorization::{
-        ConvertStringSecurityDescriptorToSecurityDescriptorW, SetNamedSecurityInfoW,
-        SDDL_REVISION_1, SE_FILE_OBJECT,
-    };
-    use windows_sys::Win32::Security::{
-        GetSecurityDescriptorDacl, ACL, DACL_SECURITY_INFORMATION,
-        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-    };
-
-    let wide: Vec<u16> = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)\0".encode_utf16().collect();
-    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
-    unsafe {
-        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            sddl.as_ptr(),
-            SDDL_REVISION_1,
-            &mut sd,
-            std::ptr::null_mut(),
-        ) == 0
-        {
-            return Err("Failed to build secret-file ACL".into());
-        }
-        let mut present = FALSE;
-        let mut dacl: *mut ACL = std::ptr::null_mut();
-        let mut defaulted = FALSE;
-        if GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted) == 0 {
-            let _ = LocalFree(sd as HLOCAL);
-            return Err("Failed to read secret-file ACL".into());
-        }
-        let status = SetNamedSecurityInfoW(
-            wide.as_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            dacl,
-            std::ptr::null(),
-        );
-        let _ = LocalFree(sd as HLOCAL);
-        if status != 0 {
-            return Err("Failed to restrict secret-file ACL".into());
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
