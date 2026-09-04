@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(any(windows, test))]
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -1931,8 +1933,9 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
             }
         }
         if std::env::var_os("SHELL").is_none() {
-            if let Some(shell) =
-                resolve_gui_binary("pwsh.exe").or_else(|| resolve_gui_binary("powershell.exe"))
+            if let Some(shell) = resolve_gui_binary("bash.exe")
+                .or_else(|| resolve_gui_binary("pwsh.exe"))
+                .or_else(|| resolve_gui_binary("powershell.exe"))
             {
                 cmd.env("SHELL", shell);
             }

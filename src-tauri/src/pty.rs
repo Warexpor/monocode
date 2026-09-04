@@ -499,27 +499,33 @@ fn working_dir(cwd: &str) -> std::path::PathBuf {
     dirs_home().map(std::path::PathBuf::from).unwrap_or(path)
 }
 
+fn shell_with_login_args(path: String) -> (String, Vec<String>) {
+    let args = login_args(&path)
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect();
+    (path, args)
+}
+
 fn default_shell() -> (String, Vec<String>) {
     #[cfg(windows)]
     {
+        // $SHELL first (Unix analog). Then Git bash — Linux's /bin/bash stand-in —
+        // then PowerShell, then COMSPEC.
         if let Some(path) = windows_shell_from_env() {
-            let args = login_args(&path)
-                .iter()
-                .map(|arg| (*arg).to_string())
-                .collect();
-            return (path, args);
+            return shell_with_login_args(path);
         }
-        for shell in ["pwsh.exe", "powershell.exe"] {
+        for shell in ["bash.exe", "pwsh.exe", "powershell.exe"] {
             if let Some(path) = crate::harness::resolve_gui_binary(shell) {
-                return (path.to_string_lossy().into_owned(), vec!["-NoLogo".into()]);
+                return shell_with_login_args(path.to_string_lossy().into_owned());
             }
         }
         if let Ok(comspec) = std::env::var("COMSPEC") {
             if !comspec.is_empty() {
-                return (comspec, Vec::new());
+                return shell_with_login_args(comspec);
             }
         }
-        ("powershell.exe".into(), vec!["-NoLogo".into()])
+        shell_with_login_args("powershell.exe".into())
     }
     #[cfg(not(windows))]
     {
@@ -533,11 +539,7 @@ fn default_shell() -> (String, Vec<String>) {
                     "/bin/bash".into()
                 }
             });
-        let args = login_args(&shell)
-            .iter()
-            .map(|arg| (*arg).to_string())
-            .collect();
-        (shell, args)
+        shell_with_login_args(shell)
     }
 }
 
@@ -554,12 +556,10 @@ fn windows_shell_from_env() -> Option<String> {
 }
 
 fn login_args(shell: &str) -> &'static [&'static str] {
-    match std::path::Path::new(shell)
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or(shell)
-    {
+    let stem = path_stem(shell).unwrap_or(shell).to_ascii_lowercase();
+    match stem.as_str() {
         "zsh" | "bash" | "sh" | "fish" => &["-l"],
+        "pwsh" | "powershell" => &["-NoLogo"],
         _ => &[],
     }
 }
@@ -947,6 +947,15 @@ mod label_tests {
         assert!(is_shell_name("zsh"));
         assert!(is_shell_name("powershell.exe"));
         assert!(!is_shell_name("npm"));
+    }
+
+    #[test]
+    fn login_args_use_path_stem_for_windows_and_posix() {
+        assert_eq!(login_args("/bin/zsh"), &["-l"]);
+        assert_eq!(login_args(r"C:\Program Files\Git\bin\bash.exe"), &["-l"]);
+        assert_eq!(login_args("pwsh.exe"), &["-NoLogo"]);
+        assert_eq!(login_args("powershell.exe"), &["-NoLogo"]);
+        assert_eq!(login_args("cmd.exe"), &[] as &[&str]);
     }
 
     #[test]
