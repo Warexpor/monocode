@@ -776,9 +776,7 @@ fn isolate_child(cmd: &mut Command) {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        cmd.creation_flags(
-            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
-        );
+        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -931,21 +929,7 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
 
 #[cfg(windows)]
 fn tree_alive(pid: u32) -> bool {
-    let mut cmd = Command::new("tasklist");
-    crate::hide_window_console(&mut cmd);
-    let output = cmd
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .output();
-    let Ok(output) = output else {
-        return true;
-    };
-    if !output.status.success() {
-        return true;
-    }
-    let pid_field = format!(",\"{pid}\",");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|line| line.contains(&pid_field))
+    crate::windows_process::alive(pid)
 }
 
 #[cfg(not(windows))]
@@ -967,18 +951,15 @@ fn process_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    #[cfg(unix)]
-    {
-        unsafe { libc::kill(pid as i32, 0) == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-#[cfg(any(unix, test))]
+#[cfg(windows)]
+fn process_alive(pid: u32) -> bool {
+    crate::windows_process::alive(pid)
+}
+
+#[cfg(any(unix, windows, test))]
 #[derive(Debug, Clone)]
 struct ProcessSnapshot {
     pid: u32,
@@ -993,16 +974,14 @@ struct ProcessSnapshot {
 /// launch would otherwise hold the first window for both. Nothing this run
 /// spawns can be caught by it — our own children carry our pid as the marker.
 pub(crate) fn reap_orphaned_harness_processes() {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let our_pid = std::process::id();
         thread::spawn(move || reap_snapshots(&snapshot_processes(), our_pid));
     }
-    // Windows: harness children are assigned to Job Objects with kill-on-close,
-    // so MonoCode exit tears the tree down without a ps-style sweep.
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     let pids: Vec<u32> = rows
         .iter()
@@ -1012,7 +991,7 @@ fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     terminate_all(&pids);
 }
 
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 fn should_reap_process(
     proc: &ProcessSnapshot,
     our_pid: u32,
@@ -1028,7 +1007,7 @@ fn should_reap_process(
 }
 
 /// Pre-marker leftovers: `cursor-agent acp` reparented to launchd.
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
     if !args.contains("cursor-agent") {
         return false;
@@ -1039,7 +1018,7 @@ fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
 /// Argv of an agent CLI we spawned — not a shell, tmux, or `npm start`.
 /// Used to decide whose environment is worth opening; the marker still
 /// decides what actually dies.
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 fn looks_like_harness_argv(args: &str) -> bool {
     if is_legacy_orphaned_cursor_acp(args) {
         return true;
@@ -1047,14 +1026,17 @@ fn looks_like_harness_argv(args: &str) -> bool {
     args.split_whitespace().any(is_harness_argv_token)
 }
 
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 fn is_harness_argv_token(part: &str) -> bool {
-    let name = Path::new(part)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(part);
+    let trimmed = part.trim_matches('"');
+    let file = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed);
+    let stem = if file.len() > 4 && file[file.len() - 4..].eq_ignore_ascii_case(".exe") {
+        &file[..file.len() - 4]
+    } else {
+        file
+    };
     matches!(
-        name,
+        stem.to_ascii_lowercase().as_str(),
         "cursor-agent"
             | "pi-coding-agent"
             | "claude"
@@ -1089,7 +1071,7 @@ fn parse_ps_row(line: &str) -> Option<ProcessSnapshot> {
     })
 }
 
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 fn harness_parent_from_bytes(buf: &[u8]) -> Option<u32> {
     let mut needle = Vec::with_capacity(HARNESS_PARENT_ENV.len() + 1);
     needle.extend_from_slice(HARNESS_PARENT_ENV.as_bytes());
@@ -1121,6 +1103,21 @@ fn snapshot_processes() -> Vec<ProcessSnapshot> {
     {
         snapshot_from_ps()
     }
+}
+
+#[cfg(windows)]
+fn snapshot_processes() -> Vec<ProcessSnapshot> {
+    let mut rows: Vec<ProcessSnapshot> = crate::windows_process::snapshot()
+        .into_iter()
+        .map(|(pid, ppid, name)| ProcessSnapshot {
+            pid,
+            ppid,
+            args: crate::windows_process::command_line(pid).unwrap_or(name),
+            harness_parent: None,
+        })
+        .collect();
+    attach_markers_from_env(&mut rows);
+    rows
 }
 
 /// `ps -E`/`-e` dumps every process environment; skip that. List argv only,
@@ -1174,7 +1171,7 @@ fn snapshot_from_proc() -> Vec<ProcessSnapshot> {
     rows
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn attach_markers_from_env(rows: &mut [ProcessSnapshot]) {
     let pids: Vec<u32> = rows
         .iter()
@@ -1246,6 +1243,16 @@ fn read_harness_parents(pids: &[u32]) -> HashMap<u32, u32> {
     pids.iter()
         .filter_map(|pid| {
             let buf = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+            Some((*pid, harness_parent_from_bytes(&buf)?))
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn read_harness_parents(pids: &[u32]) -> HashMap<u32, u32> {
+    pids.iter()
+        .filter_map(|pid| {
+            let buf = crate::windows_process::environment_block(*pid)?;
             Some((*pid, harness_parent_from_bytes(&buf)?))
         })
         .collect()
@@ -1892,8 +1899,8 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
             }
         }
         if std::env::var_os("SHELL").is_none() {
-            if let Some(shell) = resolve_gui_binary("pwsh.exe")
-                .or_else(|| resolve_gui_binary("powershell.exe"))
+            if let Some(shell) =
+                resolve_gui_binary("pwsh.exe").or_else(|| resolve_gui_binary("powershell.exe"))
             {
                 cmd.env("SHELL", shell);
             }
@@ -2747,6 +2754,16 @@ mod reap_logic_tests {
         assert!(!is_legacy_orphaned_cursor_acp(
             "node /usr/local/bin/typescript-language-server --stdio"
         ));
+    }
+
+    #[test]
+    fn harness_argv_tokens_match_windows_exe_names() {
+        assert!(is_harness_argv_token(r"C:\Users\n\claude.exe"));
+        assert!(is_harness_argv_token("CLAUDE.EXE"));
+        assert!(looks_like_harness_argv(
+            r#""C:\Users\n\AppData\Local\claude.exe" --dangerously-skip-permissions"#
+        ));
+        assert!(!is_harness_argv_token("notepad.exe"));
     }
 }
 

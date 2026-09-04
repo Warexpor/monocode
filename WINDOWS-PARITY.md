@@ -13,11 +13,11 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Terminal Ctrl | Mac skips every `tabCommand` for Ctrl in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` does the same | 1TO1 |
 | Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |
 | Harness Job assign | Unix `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` plus kill-on-close Job | PARTIAL until Windows smoke |
-| Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp snapshot, two parent levels, skip conhost/shell. Image name only, not full command line | PARTIAL |
+| Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp walk, then `NtQueryInformationProcess` command line when allowed; else image name | PARTIAL until Windows smoke |
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
-| Orphan harness sweep | `/proc` or `ps` + marker | Job Object kill-on-close; no `ps` sweep | PARTIAL |
+| Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; Job kill-on-close still covers in-process trees | PARTIAL until Windows smoke |
 | NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis` | NOT_1TO1 until Windows smoke |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
 

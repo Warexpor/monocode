@@ -11,8 +11,7 @@ This repo is a true fork of [hardbeat920/monocode](https://github.com/hardbeat92
 
 | Branch | Purpose |
 |--------|---------|
-| `main` | Tracks upstream `main` as closely as practical |
-| `feat/windows` | 1:1 Windows port (nonlooped PR #46 merged onto current upstream) |
+| `main` | Tracks upstream `main` plus the 1:1 Windows port |
 | `custom/warexpor` | Warexpor product changes (`CUSTOM.md`, `src/custom/`), stacked on Windows-ready `main` |
 
 Keep Windows and custom work out of a long-lived rewritten history. Prefer merge or rebase of `upstream/main` into our base, then replay custom commits.

@@ -20,6 +20,8 @@ mod window;
 mod window_transfer;
 #[cfg(windows)]
 mod windows_job;
+#[cfg(windows)]
+mod windows_process;
 
 // Phase 1 seam: spawn / kill harness children per MonoCode thread.
 // Adapters own the protocol; this host only supervises processes.

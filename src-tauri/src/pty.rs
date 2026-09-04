@@ -543,7 +543,9 @@ fn default_shell() -> (String, Vec<String>) {
 
 #[cfg(windows)]
 fn windows_shell_from_env() -> Option<String> {
-    let shell = std::env::var("SHELL").ok().filter(|shell| !shell.is_empty())?;
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|shell| !shell.is_empty())?;
     let path = std::path::Path::new(&shell);
     if path.is_file() {
         return Some(shell);
@@ -773,6 +775,7 @@ fn foreground_label(shell_pid: u32) -> Option<String> {
 
 /// pid, parent pid, image name. Unix TIOCGPGRP has no Toolhelp analog, so we
 /// walk two parent levels and skip conhost / the shell itself.
+#[cfg(any(windows, test))]
 fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> Option<String> {
     if shell_pid == 0 {
         return None;
@@ -786,7 +789,7 @@ fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> 
                     continue;
                 }
                 next.push(*pid);
-                let label = command_label(name).unwrap_or_else(|| name.clone());
+                let label = windows_foreground_label(*pid, name);
                 if *pid == shell_pid || is_shell_name(&label) || is_conhost_name(&label) {
                     continue;
                 }
@@ -798,50 +801,31 @@ fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> 
     None
 }
 
+#[cfg(any(windows, test))]
 fn is_conhost_name(name: &str) -> bool {
     let stem = path_stem(name).unwrap_or(name);
     stem.eq_ignore_ascii_case("conhost")
 }
 
-#[cfg(windows)]
-fn windows_process_snapshot() -> Vec<(u32, u32, String)> {
-    use std::mem::size_of;
-    use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-
-    unsafe {
-        let raw = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if raw.is_null() || raw == INVALID_HANDLE_VALUE {
-            return Vec::new();
-        }
-        let _snap = OwnedHandle::from_raw_handle(raw as RawHandle);
-        let mut entry = std::mem::zeroed::<PROCESSENTRY32W>();
-        entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
-        if Process32FirstW(raw, &mut entry) == 0 {
-            return Vec::new();
-        }
-        let mut rows = Vec::new();
-        loop {
-            let name = wide_z_to_string(&entry.szExeFile);
-            if !name.is_empty() {
-                rows.push((entry.th32ProcessID, entry.th32ParentProcessID, name));
-            }
-            if Process32NextW(raw, &mut entry) == 0 {
-                break;
-            }
-        }
-        rows
+#[cfg(any(windows, test))]
+fn windows_foreground_label(pid: u32, image: &str) -> String {
+    #[cfg(windows)]
+    {
+        crate::windows_process::command_line(pid)
+            .and_then(|args| command_label(&args))
+            .or_else(|| command_label(image))
+            .unwrap_or_else(|| image.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        command_label(image).unwrap_or_else(|| image.to_string())
     }
 }
 
 #[cfg(windows)]
-fn wide_z_to_string(buf: &[u16]) -> String {
-    let len = buf.iter().position(|&unit| unit == 0).unwrap_or(buf.len());
-    String::from_utf16_lossy(&buf[..len])
+fn windows_process_snapshot() -> Vec<(u32, u32, String)> {
+    crate::windows_process::snapshot()
 }
 
 #[cfg(unix)]
@@ -972,10 +956,7 @@ mod label_tests {
             (11, 10, "conhost.exe".into()),
             (12, 10, "node.exe".into()),
         ];
-        assert_eq!(
-            foreground_from_process_tree(10, &rows),
-            Some("node".into())
-        );
+        assert_eq!(foreground_from_process_tree(10, &rows), Some("node".into()));
         let nested = [
             (20, 1, "powershell.exe".into()),
             (21, 20, "conhost.exe".into()),
