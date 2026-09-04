@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Selecting Astra in the composer celebrates it with a pane-wide solar animation: champagne-gold meteors, star glints, a glowing sun, and orbiting rings. The effect replays on every selection, fades out automatically, and respects reduced-motion preferences.
 - Diff reviews can be annotated line by line in both Unified and Editor views. Use the comment action on a changed line to write a note and add its file, line number, and code context to the active composer; collect multiple comments and send them to the agent in one prompt.
 
 ### Fixed
