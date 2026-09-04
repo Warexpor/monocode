@@ -61,7 +61,7 @@ fn save_project_logo_sync(
     source_path: &str,
 ) -> Result<String, String> {
     let source = expand_home(source_path);
-    let meta = std::fs::metadata(&source).map_err(|e| format!("{}: {e}", source.display()))?;
+    let meta = std::fs::metadata(&source).map_err(|e| crate::fs::path_io(&source, &e))?;
     if !meta.is_file() {
         return Err("Not a file".into());
     }
@@ -87,9 +87,9 @@ fn save_project_logo_sync(
     let temp = dir.join(format!(".{stem}-upload"));
 
     // Copy before removing the old logo so re-selecting the saved file still works.
-    std::fs::copy(&source, &temp).map_err(|e| format!("{}: {e}", temp.display()))?;
+    std::fs::copy(&source, &temp).map_err(|e| crate::fs::path_io(&temp, &e))?;
     remove_existing_logos(&dir, project)?;
-    std::fs::rename(&temp, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    std::fs::rename(&temp, &dest).map_err(|e| crate::fs::path_io(&dest, &e))?;
     Ok(crate::fs::path_to_js(&dest))
 }
 

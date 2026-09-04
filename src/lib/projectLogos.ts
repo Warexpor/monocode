@@ -5,6 +5,7 @@ import {
   saveTabGroupLogo,
   tabGroupLogoDisplayRevision,
 } from "./tabGroups";
+import { slash } from "./paths";
 
 export async function pickImageFile(): Promise<string | null> {
   const selected = await open({
@@ -18,7 +19,7 @@ export async function pickImageFile(): Promise<string | null> {
       },
     ],
   });
-  if (typeof selected === "string" && selected) return selected;
+  if (typeof selected === "string" && selected) return slash(selected);
   return null;
 }
 

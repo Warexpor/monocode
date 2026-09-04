@@ -349,7 +349,7 @@ pub fn harness_spawn(
     if !workdir.is_dir() {
         return Err(format!(
             "Working directory does not exist: {}",
-            workdir.display()
+            crate::fs::path_to_js(&workdir)
         ));
     }
 
