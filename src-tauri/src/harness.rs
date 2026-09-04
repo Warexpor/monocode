@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -2039,8 +2039,24 @@ fn load_windows_powershell_env() -> HashMap<String, String> {
         .map(|key| format!("'{key}'"))
         .collect::<Vec<_>>()
         .join(",");
+    // Machine+User is the Windows login PATH. Process includes that plus
+    // profile prepends (nvm-style). Join like Unix -lic printenv of PATH.
     let script = format!(
-        "foreach ($k in @({keys})) {{ $v = [Environment]::GetEnvironmentVariable($k, 'Process'); if ($v) {{ Write-Output ($k + '=' + $v) }} }}"
+        concat!(
+            "$m = [Environment]::GetEnvironmentVariable('PATH','Machine'); ",
+            "$u = [Environment]::GetEnvironmentVariable('PATH','User'); ",
+            "$p = [Environment]::GetEnvironmentVariable('PATH','Process'); ",
+            "Write-Output ('MONOCODE_PATH_MACHINE=' + $m); ",
+            "Write-Output ('MONOCODE_PATH_USER=' + $u); ",
+            "Write-Output ('MONOCODE_PATH_PROCESS=' + $p); ",
+            "foreach ($k in @({keys})) {{ ",
+            "  if ($k -eq 'PATH') {{ continue }}; ",
+            "  $v = [Environment]::GetEnvironmentVariable($k, 'Process'); ",
+            "  if (-not $v) {{ $v = [Environment]::GetEnvironmentVariable($k, 'User') }}; ",
+            "  if ($v) {{ Write-Output ($k + '=' + $v) }} ",
+            "}}"
+        ),
+        keys = keys
     );
     let mut cmd = Command::new("powershell.exe");
     crate::hide_window_console(&mut cmd);
@@ -2064,10 +2080,49 @@ fn load_windows_powershell_env() -> HashMap<String, String> {
             return map;
         }
     };
-    for (key, value) in parse_login_env_output(&String::from_utf8_lossy(&output.stdout)) {
-        map.insert(key, value);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut machine = String::new();
+    let mut user = String::new();
+    let mut process = String::new();
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("MONOCODE_PATH_MACHINE=") {
+            machine = value.to_string();
+        } else if let Some(value) = line.strip_prefix("MONOCODE_PATH_USER=") {
+            user = value.to_string();
+        } else if let Some(value) = line.strip_prefix("MONOCODE_PATH_PROCESS=") {
+            process = value.to_string();
+        }
+    }
+    let path = join_windows_path_scopes(&process, &user, &machine);
+    if !path.is_empty() {
+        map.insert("PATH".into(), path);
+    }
+    for (key, value) in parse_login_env_output(&stdout) {
+        if key != "PATH" {
+            map.insert(key, value);
+        }
     }
     map
+}
+
+/// Login PATH analog: process (profile) first, then user, then machine.
+#[cfg(any(windows, test))]
+fn join_windows_path_scopes(process: &str, user: &str, machine: &str) -> String {
+    let mut seen = HashSet::new();
+    let mut parts = Vec::new();
+    for scope in [process, user, machine] {
+        for part in scope.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let key = part.to_ascii_lowercase();
+            if seen.insert(key) {
+                parts.push(part.to_string());
+            }
+        }
+    }
+    parts.join(";")
 }
 
 fn parse_login_env_output(stdout: &str) -> HashMap<String, String> {
@@ -2822,6 +2877,18 @@ mod login_env_tests {
         );
         assert_eq!(map.get("XAI_API_KEY").map(String::as_str), Some("secret"));
         assert!(!map.contains_key("IGNORED"));
+    }
+
+    #[test]
+    fn join_windows_path_scopes_puts_process_then_user_then_machine() {
+        assert_eq!(
+            join_windows_path_scopes(
+                r"C:\Users\n\bin;C:\Windows",
+                r"C:\Users\n\bin;C:\UserTools",
+                r"C:\Windows;C:\Windows\System32",
+            ),
+            r"C:\Users\n\bin;C:\Windows;C:\UserTools;C:\Windows\System32"
+        );
     }
 }
 
