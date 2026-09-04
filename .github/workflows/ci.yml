@@ -69,6 +69,10 @@ jobs:
           fi
           echo "nsis=${exe[0]}"
 
+      - name: Silent-install and launch
+        shell: pwsh
+        run: ./scripts/windows-nsis-smoke.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-nsis
