@@ -2540,9 +2540,10 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
     Ok(relative)
 }
 
-fn git_cmd() -> Command {
-    let mut cmd = Command::new("git");
-    crate::hide_window_console(&mut cmd);
+pub(crate) fn git_cmd() -> Command {
+    let program = crate::harness::resolve_gui_binary("git").unwrap_or_else(|| "git".into());
+    let mut cmd = Command::new(program);
+    crate::harness::apply_gui_env(&mut cmd);
     cmd
 }
 

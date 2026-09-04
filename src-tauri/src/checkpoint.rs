@@ -2,7 +2,6 @@
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -775,7 +774,7 @@ fn calculate_session_stats(dir: &Path, manifest: &Manifest, relative: &str) -> O
 }
 
 fn diff_numstat(before: &Path, after: &Path) -> Option<(i64, i64)> {
-    let output = Command::new("git")
+    let output = crate::fs::git_cmd()
         .args(["diff", "--no-index", "--no-ext-diff", "--numstat", "--"])
         .arg(before)
         .arg(after)

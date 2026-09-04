@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
+  shouldIgnoreTerminalCtrlChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./tabKeys";
@@ -86,6 +87,26 @@ describe("tabCommand", () => {
         key({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true }),
       ),
     ).toBe("next");
+  });
+});
+
+describe("shouldIgnoreTerminalCtrlChord", () => {
+  it("lets Ctrl reach the terminal on Windows and Linux", () => {
+    expect(
+      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), true),
+    ).toBe(true);
+    expect(
+      shouldIgnoreTerminalCtrlChord(key({ key: "w", ctrlKey: true }), true),
+    ).toBe(true);
+  });
+
+  it("still allows Cmd chords and non-terminal Ctrl", () => {
+    expect(
+      shouldIgnoreTerminalCtrlChord(key({ key: "d", metaKey: true }), true),
+    ).toBe(false);
+    expect(
+      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), false),
+    ).toBe(false);
   });
 });
 

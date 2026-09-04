@@ -168,9 +168,18 @@ impl HarnessHost {
         };
         self.stop_all_sse();
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
-        // Drop stdin before signaling so ACP CLIs that watch the pipe can exit.
-        drop(kids);
-        terminate_all(&pids);
+        #[cfg(windows)]
+        {
+            // Keep Job handles alive through TERM. Drop is kill-on-close.
+            terminate_all(&pids);
+            drop(kids);
+        }
+        #[cfg(not(windows))]
+        {
+            // Drop stdin before signaling so ACP CLIs that watch the pipe can exit.
+            drop(kids);
+            terminate_all(&pids);
+        }
     }
 
     fn insert_sse(&self, session_id: String, live: Arc<LiveSse>) -> Option<Arc<LiveSse>> {
@@ -383,7 +392,10 @@ pub fn harness_spawn(
         // stream that replaced it. Reap it without emitting anything.
         terminate(rejected.pid);
         thread::spawn(move || {
+            #[cfg(windows)]
+            thread::sleep(KILL_ESCALATE);
             let _ = child.wait();
+            drop(rejected);
         });
         return Err(SPAWN_CANCELLED.to_string());
     }
@@ -462,7 +474,7 @@ pub fn harness_write(
 pub fn harness_kill(host: State<HarnessHost>, session_id: String) -> Result<(), String> {
     host.stop_sse(&session_id);
     if let Some(live) = host.kill_session(&session_id) {
-        terminate(live.pid);
+        terminate_then_release(live);
     }
     Ok(())
 }
@@ -771,8 +783,19 @@ fn isolate_child(cmd: &mut Command) {
     }
 }
 
-fn terminate(pid: u32) {
+pub(crate) fn terminate(pid: u32) {
     terminate_after(pid, KILL_ESCALATE);
+}
+
+fn terminate_then_release(live: Arc<LiveChild>) {
+    terminate(live.pid);
+    #[cfg(windows)]
+    thread::spawn(move || {
+        thread::sleep(KILL_ESCALATE);
+        drop(live);
+    });
+    #[cfg(not(windows))]
+    drop(live);
 }
 
 fn terminate_after(pid: u32, escalate: Duration) {
@@ -1813,6 +1836,8 @@ fn gui_search_path_from(
         parts.push(format!("{home}/AppData/Roaming/npm").into());
         parts.push(format!("{home}/AppData/Local/Yarn/bin").into());
         parts.push(format!("{home}/scoop/shims").into());
+        parts.push(format!("{home}/AppData/Local/pnpm").into());
+        parts.push(format!("{home}/.volta/bin").into());
     }
     parts.push("/opt/homebrew/bin".into());
     parts.push("/usr/local/bin".into());
@@ -1822,6 +1847,8 @@ fn gui_search_path_from(
     #[cfg(windows)]
     {
         parts.push(r"C:\Program Files\Git\cmd".into());
+        parts.push(r"C:\Program Files\Git\bin".into());
+        parts.push(r"C:\Program Files\Git\usr\bin".into());
         parts.push(r"C:\Program Files\nodejs".into());
     }
     if let Some(existing) = existing {
@@ -1859,6 +1886,13 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
         if std::env::var_os("USER").is_none() {
             if let Ok(username) = std::env::var("USERNAME") {
                 cmd.env("USER", username);
+            }
+        }
+        if std::env::var_os("SHELL").is_none() {
+            if let Some(shell) = resolve_gui_binary("pwsh.exe")
+                .or_else(|| resolve_gui_binary("powershell.exe"))
+            {
+                cmd.env("SHELL", shell);
             }
         }
     }

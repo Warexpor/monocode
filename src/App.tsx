@@ -257,6 +257,7 @@ import { playCue } from "./lib/sounds";
 import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
+  shouldIgnoreTerminalCtrlChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./lib/tabKeys";
@@ -4266,12 +4267,7 @@ export default function App({
       if (cmd) {
         const target = e.target instanceof Element ? e.target : null;
         if (
-          target?.closest(".monocode-terminal") &&
-          e.ctrlKey &&
-          !e.metaKey &&
-          (cmd === "back" ||
-            cmd === "forward" ||
-            /Mac|iPhone|iPad/.test(navigator.platform))
+          shouldIgnoreTerminalCtrlChord(e, Boolean(target?.closest(".monocode-terminal")))
         ) {
           return;
         }

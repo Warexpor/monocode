@@ -38,6 +38,13 @@ export type TabCommand =
   | { activate: number }
   | { focus: FocusDir };
 
+export function shouldIgnoreTerminalCtrlChord(
+  e: Pick<KeyboardEvent, "ctrlKey" | "metaKey">,
+  inTerminal: boolean,
+): boolean {
+  return inTerminal && e.ctrlKey && !e.metaKey;
+}
+
 export function tabCommand(e: KeyboardEvent): TabCommand | null {
   if (e.isComposing) return null;
 

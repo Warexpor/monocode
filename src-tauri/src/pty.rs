@@ -94,19 +94,15 @@ impl PtyHost {
             map.drain().map(|(_, live)| live).collect()
         };
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
-        for live in kids {
+        for live in &kids {
             #[cfg(unix)]
             {
                 hangup(live.pid);
                 close_fd(live.master_fd);
             }
-            #[cfg(not(unix))]
-            drop(live);
         }
-        // Quit and `Drop` both exit the process, so the SIGKILL has to land
-        // before this returns. `terminate`'s detached escalate thread never gets
-        // to run, and every shell is its own `setsid` session that outlives us.
         crate::harness::terminate_all(&pids);
+        drop(kids);
     }
 }
 
@@ -129,6 +125,8 @@ pub fn pty_spawn(
         terminate(prev.pid);
         #[cfg(unix)]
         close_fd(prev.master_fd);
+        #[cfg(windows)]
+        retain_job_after_term(prev);
     }
 
     #[cfg(unix)]
@@ -224,6 +222,8 @@ pub fn pty_kill(host: State<PtyHost>, id: String) -> Result<(), String> {
         terminate(live.pid);
         #[cfg(unix)]
         close_fd(live.master_fd);
+        #[cfg(windows)]
+        retain_job_after_term(live);
     }
     Ok(())
 }
@@ -396,9 +396,14 @@ fn spawn_windows(
     cmd.env("COLORFGBG", "15;0");
     cmd.env("TERM_PROGRAM", "MonoCode");
     cmd.env("PATH", crate::harness::gui_search_path());
+    cmd.env("SHELL", &shell);
+    cmd.env("LANG", "en_US.UTF-8");
     if let Some(home) = dirs_home() {
         cmd.env("HOME", &home);
         cmd.env("USERPROFILE", &home);
+    }
+    if let Ok(user) = std::env::var("USERNAME").or_else(|_| std::env::var("USER")) {
+        cmd.env("USER", user);
     }
     cmd.env("PWD", workdir.to_string_lossy().as_ref());
 
@@ -497,12 +502,12 @@ fn working_dir(cwd: &str) -> std::path::PathBuf {
 fn default_shell() -> (String, Vec<String>) {
     #[cfg(windows)]
     {
-        if let Ok(shell) = std::env::var("SHELL") {
-            if !shell.is_empty() {
-                if let Some(path) = crate::harness::resolve_gui_binary(&shell) {
-                    return (path.to_string_lossy().into_owned(), Vec::new());
-                }
-            }
+        if let Some(path) = windows_shell_from_env() {
+            let args = login_args(&path)
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect();
+            return (path, args);
         }
         for shell in ["pwsh.exe", "powershell.exe"] {
             if let Some(path) = crate::harness::resolve_gui_binary(shell) {
@@ -536,7 +541,16 @@ fn default_shell() -> (String, Vec<String>) {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(windows)]
+fn windows_shell_from_env() -> Option<String> {
+    let shell = std::env::var("SHELL").ok().filter(|shell| !shell.is_empty())?;
+    let path = std::path::Path::new(&shell);
+    if path.is_file() {
+        return Some(shell);
+    }
+    crate::harness::resolve_gui_binary(&shell).map(|path| path.to_string_lossy().into_owned())
+}
+
 fn login_args(shell: &str) -> &'static [&'static str] {
     match std::path::Path::new(shell)
         .file_stem()
@@ -548,7 +562,14 @@ fn login_args(shell: &str) -> &'static [&'static str] {
     }
 }
 
-/// The hangup a closing shell expects, without `terminate`'s escalation.
+#[cfg(windows)]
+fn retain_job_after_term(live: Arc<LivePty>) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(300));
+        drop(live);
+    });
+}
+
 #[cfg(unix)]
 fn hangup(pid: u32) {
     if pid == 0 || pid == 1 {
@@ -584,13 +605,7 @@ fn terminate(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let mut cmd = std::process::Command::new("taskkill");
-        crate::hide_window_console(&mut cmd);
-        let _ = cmd
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        crate::harness::terminate(pid);
     }
     #[cfg(not(any(unix, windows)))]
     {
