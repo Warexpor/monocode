@@ -77,3 +77,11 @@ Tauri loads `src-tauri/tauri.windows.conf.json` automatically for Windows develo
 ## License
 
 [MIT](LICENSE). Provider names and logos are trademarks of their owners - see [NOTICE](NOTICE).
+
+## Warexpor fork
+
+This GitHub repo is [Warexpor/monocode](https://github.com/Warexpor/monocode). The rest of this README is upstream copy.
+
+- Remotes and sync scripts: [UPSTREAM.md](UPSTREAM.md)
+- Windows vs Linux CI: [WINDOWS-PARITY.md](WINDOWS-PARITY.md)
+- Product branch (`custom/warexpor`): [CUSTOM.md](CUSTOM.md)
