@@ -17,12 +17,22 @@ This repo is a true fork of [hardbeat920/monocode](https://github.com/hardbeat92
 
 Keep Windows and custom work out of a long-lived rewritten history. Prefer merge or rebase of `upstream/main` into our base, then replay custom commits.
 
+See `WINDOWS-PARITY.md` for the living 1:1 checklist.
+
 ## Pull upstream
 
 From repo root (PowerShell):
 
 ```powershell
+.\scripts\sync-upstream.ps1 -DryRun
 .\scripts\sync-upstream.ps1
+```
+
+From repo root (bash):
+
+```bash
+./scripts/sync-upstream.sh --dry-run
+./scripts/sync-upstream.sh
 ```
 
 Or by hand:

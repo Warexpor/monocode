@@ -1,4 +1,8 @@
 ﻿# Pull hardbeat920/monocode into local main, then report next steps.
+param(
+  [switch]$DryRun
+)
+
 $ErrorActionPreference = "Stop"
 
 git remote get-url upstream | Out-Null
@@ -10,12 +14,27 @@ $branch = git rev-parse --abbrev-ref HEAD
 Write-Host "Fetching upstream..."
 git fetch upstream
 
+$mainRef = "main"
+git rev-parse --verify $mainRef | Out-Null
+$behind = git rev-list --count "${mainRef}..upstream/main"
+$ahead = git rev-list --count "upstream/main..${mainRef}"
+Write-Host "main vs upstream/main: ahead=$ahead behind=$behind"
+
+if ($DryRun) {
+  Write-Host "Dry run. No checkout, no merge."
+  if ($behind -eq 0) {
+    Write-Host "Already contains upstream/main."
+  } elseif ($ahead -eq 0) {
+    Write-Host "Would fast-forward main to upstream/main ($behind commits)."
+  } else {
+    Write-Host "Would merge upstream/main into main (divergent)."
+  }
+  Write-Host "Current branch is $branch"
+  exit 0
+}
+
 Write-Host "Checking out main..."
 git checkout main
-
-$behind = git rev-list --count HEAD..upstream/main
-$ahead = git rev-list --count upstream/main..HEAD
-Write-Host "main vs upstream/main: ahead=$ahead behind=$behind"
 
 if ($behind -eq 0) {
   Write-Host "Already contains upstream/main. Nothing to merge."
