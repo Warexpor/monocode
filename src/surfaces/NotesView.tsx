@@ -235,11 +235,10 @@ export function NotesView({
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
         ) : visible.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">
-            {query.trim()
-              ? "No matching notes"
-              : "No notes yet. Save a turn from the transcript, or create one here."}
-          </p>
+          <NotesListEmpty
+            query={query}
+            onClearSearch={() => setQuery("")}
+          />
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
             {visible.map((note) => (
@@ -309,6 +308,35 @@ export function NotesView({
         />
       </div>
     </div>
+  );
+}
+
+/** Quiet empty copy. Filter misses get a reset; true empty does not. */
+export function NotesListEmpty({
+  query,
+  onClearSearch,
+}: {
+  query: string;
+  onClearSearch: () => void;
+}) {
+  if (query.trim()) {
+    return (
+      <div className="px-3 py-2">
+        <p className="text-[12px] text-content/50">No matching notes</p>
+        <button
+          type="button"
+          onClick={onClearSearch}
+          className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+        >
+          Clear search
+        </button>
+      </div>
+    );
+  }
+  return (
+    <p className="px-3 py-2 text-[12px] text-content/50">
+      No notes yet. Save a turn from the transcript, or create one here.
+    </p>
   );
 }
 
