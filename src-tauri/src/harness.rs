@@ -6,7 +6,9 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(windows))]
+use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -115,7 +117,7 @@ impl HarnessHost {
         (epoch, kill_all, prev)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn spawn_stamp_current(&self, session_id: &str, epoch: u64, kill_all: u64) -> bool {
         let inner = self.lock_inner();
         self.kill_all_gen.load(Ordering::SeqCst) == kill_all
@@ -724,12 +726,15 @@ fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<Str
 const KILL_ESCALATE: Duration = Duration::from_secs(2);
 /// Quit and `Drop` cannot wait on a detached escalate thread — the process
 /// exits first and isolated harness groups stay behind as PID-1 orphans.
+#[cfg(not(windows))]
 const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
+#[cfg(not(windows))]
 const KILL_ALL_KILL_WAIT: Duration = Duration::from_millis(150);
 const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
 /// An interactive shell has to source the user's whole rc file; nvm alone can
 /// take a second.
+#[cfg(not(windows))]
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A spawn that was cancelled mid-fork. The session it was starting is already
@@ -747,6 +752,17 @@ fn isolate_child(cmd: &mut Command) {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = cmd;
+    }
 }
 
 fn terminate(pid: u32) {
@@ -757,43 +773,59 @@ fn terminate_after(pid: u32, escalate: Duration) {
     if pid == 0 || pid == 1 {
         return;
     }
-    signal_tree(pid, TreeSignal::Term);
-    thread::spawn(move || {
-        thread::sleep(escalate);
-        if tree_alive(pid) {
-            signal_tree(pid, TreeSignal::Kill);
-        }
-    });
+    #[cfg(windows)]
+    {
+        let _ = escalate;
+        signal_tree(pid, TreeSignal::Kill);
+    }
+    #[cfg(not(windows))]
+    {
+        signal_tree(pid, TreeSignal::Term);
+        thread::spawn(move || {
+            thread::sleep(escalate);
+            if tree_alive(pid) {
+                signal_tree(pid, TreeSignal::Kill);
+            }
+        });
+    }
 }
 
 /// SIGTERM every tree, then SIGKILL whatever is still standing, before return.
 pub(crate) fn terminate_all(pids: &[u32]) {
     let pids: Vec<u32> = pids.iter().copied().filter(|pid| *pid > 1).collect();
-    if pids.is_empty() {
-        return;
+    #[cfg(windows)]
+    for pid in pids {
+        signal_tree(pid, TreeSignal::Kill);
     }
-    for pid in &pids {
-        signal_tree(*pid, TreeSignal::Term);
+    #[cfg(not(windows))]
+    {
+        if pids.is_empty() {
+            return;
+        }
+        for pid in &pids {
+            signal_tree(*pid, TreeSignal::Term);
+        }
+        wait_until_dead(&pids, Instant::now() + KILL_ALL_GRACE);
+        let remaining: Vec<u32> = pids
+            .iter()
+            .copied()
+            .filter(|pid| tree_alive(*pid))
+            .collect();
+        if remaining.is_empty() {
+            return;
+        }
+        for pid in &remaining {
+            signal_tree(*pid, TreeSignal::Kill);
+        }
+        wait_until_dead(&remaining, Instant::now() + KILL_ALL_KILL_WAIT);
     }
-    wait_until_dead(&pids, Instant::now() + KILL_ALL_GRACE);
-    let remaining: Vec<u32> = pids
-        .iter()
-        .copied()
-        .filter(|pid| tree_alive(*pid))
-        .collect();
-    if remaining.is_empty() {
-        return;
-    }
-    for pid in &remaining {
-        signal_tree(*pid, TreeSignal::Kill);
-    }
-    wait_until_dead(&remaining, Instant::now() + KILL_ALL_KILL_WAIT);
 }
 
 /// The thread that owns each `Child` reaps it, so a killed leader stops
 /// answering `kill(pid, 0)` within a poll or two. Reaping here instead would
 /// race that thread for the exit status and free the pid while we still signal
 /// it.
+#[cfg(not(windows))]
 fn wait_until_dead(pids: &[u32], until: Instant) {
     while Instant::now() < until {
         if pids.iter().all(|pid| !tree_alive(*pid)) {
@@ -804,6 +836,7 @@ fn wait_until_dead(pids: &[u32], until: Instant) {
 }
 
 enum TreeSignal {
+    #[cfg(not(windows))]
     Term,
     Kill,
 }
@@ -825,13 +858,24 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
             libc::kill(ipid, sig);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = signal;
+        let mut cmd = Command::new("taskkill");
+        crate::hide_window_console(&mut cmd);
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let _ = cmd.status();
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = signal;
         let _ = Command::new("kill").arg(pid.to_string()).status();
     }
 }
 
+#[cfg(not(windows))]
 fn tree_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
@@ -845,6 +889,7 @@ fn tree_alive(pid: u32) -> bool {
     }
 }
 
+#[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -860,6 +905,7 @@ fn process_alive(pid: u32) -> bool {
     }
 }
 
+#[cfg(any(unix, test))]
 #[derive(Debug, Clone)]
 struct ProcessSnapshot {
     pid: u32,
@@ -881,6 +927,7 @@ pub(crate) fn reap_orphaned_harness_processes() {
     }
 }
 
+#[cfg(unix)]
 fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     let pids: Vec<u32> = rows
         .iter()
@@ -890,6 +937,7 @@ fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     terminate_all(&pids);
 }
 
+#[cfg(any(unix, test))]
 fn should_reap_process(
     proc: &ProcessSnapshot,
     our_pid: u32,
@@ -905,6 +953,7 @@ fn should_reap_process(
 }
 
 /// Pre-marker leftovers: `cursor-agent acp` reparented to launchd.
+#[cfg(any(unix, test))]
 fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
     if !args.contains("cursor-agent") {
         return false;
@@ -915,6 +964,7 @@ fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
 /// Argv of an agent CLI we spawned — not a shell, tmux, or `npm start`.
 /// Used to decide whose environment is worth opening; the marker still
 /// decides what actually dies.
+#[cfg(any(unix, test))]
 fn looks_like_harness_argv(args: &str) -> bool {
     if is_legacy_orphaned_cursor_acp(args) {
         return true;
@@ -922,6 +972,7 @@ fn looks_like_harness_argv(args: &str) -> bool {
     args.split_whitespace().any(is_harness_argv_token)
 }
 
+#[cfg(any(unix, test))]
 fn is_harness_argv_token(part: &str) -> bool {
     let name = Path::new(part)
         .file_name()
@@ -943,7 +994,7 @@ fn is_harness_argv_token(part: &str) -> bool {
     )
 }
 
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(any(all(unix, not(target_os = "linux")), test))]
 fn parse_ps_row(line: &str) -> Option<ProcessSnapshot> {
     let s = line.trim();
     let pid_end = s.find(char::is_whitespace)?;
@@ -963,6 +1014,7 @@ fn parse_ps_row(line: &str) -> Option<ProcessSnapshot> {
     })
 }
 
+#[cfg(any(unix, test))]
 fn harness_parent_from_bytes(buf: &[u8]) -> Option<u32> {
     let mut needle = Vec::with_capacity(HARNESS_PARENT_ENV.len() + 1);
     needle.extend_from_slice(HARNESS_PARENT_ENV.as_bytes());
@@ -1102,7 +1154,7 @@ fn read_harness_parents(pids: &[u32]) -> HashMap<u32, u32> {
     found
 }
 
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(any(all(unix, not(target_os = "linux")), test))]
 fn parse_ps_pid_command(line: &str) -> Option<(u32, String)> {
     let s = line.trim();
     let pid_end = s.find(char::is_whitespace)?;
@@ -1160,7 +1212,7 @@ fn resolve_cursor_agent() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| is_cursor_agent(path))
+    first_binary_matching(candidates, is_cursor_agent)
 }
 
 fn resolve_codex() -> Option<PathBuf> {
@@ -1191,7 +1243,7 @@ fn resolve_codex() -> Option<PathBuf> {
         "/Applications/Codex.app/Contents/Resources/codex",
     ));
 
-    candidates.into_iter().find(|path| path.is_file())
+    first_binary(candidates)
 }
 
 fn resolve_opencode() -> Option<PathBuf> {
@@ -1213,7 +1265,7 @@ fn resolve_opencode() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| path.is_file())
+    first_binary(candidates)
 }
 
 fn resolve_claude() -> Option<PathBuf> {
@@ -1236,7 +1288,7 @@ fn resolve_claude() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| path.is_file())
+    first_binary(candidates)
 }
 
 fn resolve_pi() -> Option<PathBuf> {
@@ -1265,7 +1317,7 @@ fn resolve_pi() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| is_pi_coding_agent(path))
+    first_binary_matching(candidates, is_pi_coding_agent)
 }
 
 fn resolve_omp() -> Option<PathBuf> {
@@ -1289,7 +1341,7 @@ fn resolve_omp() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| is_omp_agent(path))
+    first_binary_matching(candidates, is_omp_agent)
 }
 
 /// omp ships as a ~126MB compiled binary, so the cheap string scan that
@@ -1299,8 +1351,7 @@ fn is_omp_agent(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if name != "omp" {
+    if !binary_name_eq(path, "omp") {
         return false;
     }
     help_mentions_rpc_mode(path)
@@ -1327,7 +1378,7 @@ fn resolve_fx() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| is_fx_agent(path))
+    first_binary_matching(candidates, is_fx_agent)
 }
 
 fn resolve_grok() -> Option<PathBuf> {
@@ -1350,19 +1401,18 @@ fn resolve_grok() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| is_grok_agent(path))
+    first_binary_matching(candidates, is_grok_agent)
 }
 
 fn is_pi_coding_agent(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if name != "pi" && name != "pi-coding-agent" {
-        return false;
-    }
-    if name == "pi-coding-agent" {
+    if binary_name_eq(path, "pi-coding-agent") {
         return true;
+    }
+    if !binary_name_eq(path, "pi") {
+        return false;
     }
     file_mentions_pi_coding_agent(path) || help_mentions_rpc_mode(path)
 }
@@ -1421,8 +1471,7 @@ fn is_fx_agent(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if name != "fx" {
+    if !binary_name_eq(path, "fx") {
         return false;
     }
     file_mentions_fx_agent(path) || fx_help_mentions_acp(path)
@@ -1432,12 +1481,11 @@ fn is_grok_agent(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if name != "grok" {
+    if !binary_name_eq(path, "grok") {
         return false;
     }
     // Official installer: ~/.grok/bin/grok
-    if path.to_string_lossy().contains("/.grok/") {
+    if path_has_component(path, ".grok") {
         return true;
     }
     file_mentions_grok_agent(path) || grok_help_mentions_agent(path)
@@ -1575,15 +1623,13 @@ fn is_cursor_agent(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    let text = path.to_string_lossy();
-    if text.contains("/.grok/") {
+    if path_has_component(path, ".grok") {
         return false;
     }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if name == "cursor-agent" {
+    if binary_name_eq(path, "cursor-agent") {
         return true;
     }
-    if name == "agent" {
+    if binary_name_eq(path, "agent") {
         // One symlink hop. canonicalize() can walk into another .app
         // and trip macOS "data from other apps" TCC.
         if let Ok(target) = std::fs::read_link(path) {
@@ -1592,7 +1638,11 @@ fn is_cursor_agent(path: &Path) -> bool {
             } else {
                 path.parent().unwrap_or(path).join(target)
             };
-            return resolved.to_string_lossy().contains("cursor-agent");
+            return path_has_component(&resolved, "cursor-agent")
+                || resolved
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .contains("cursor-agent");
         }
     }
     false
@@ -1607,10 +1657,63 @@ fn which_via_login_shell(name: &str) -> Option<PathBuf> {
 }
 
 fn which_in_path(path: &str, name: &str) -> Option<PathBuf> {
-    path.split(':')
-        .filter(|dir| !dir.is_empty())
-        .map(|dir| Path::new(dir).join(name))
-        .find(|candidate| is_executable_file(candidate))
+    std::env::split_paths(std::ffi::OsStr::new(path)).find_map(|dir| {
+        if dir.as_os_str().is_empty() {
+            return None;
+        }
+        existing_binary(dir.join(name))
+    })
+}
+
+fn first_binary(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find_map(existing_binary)
+}
+
+fn first_binary_matching(
+    candidates: Vec<PathBuf>,
+    pred: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    candidates.into_iter().find_map(|path| {
+        let path = existing_binary(path)?;
+        pred(&path).then_some(path)
+    })
+}
+
+fn existing_binary(path: PathBuf) -> Option<PathBuf> {
+    if is_executable_file(&path) {
+        return Some(path);
+    }
+    #[cfg(windows)]
+    if path.extension().is_none() {
+        for ext in ["exe", "cmd", "bat", "com"] {
+            let candidate = path.with_extension(ext);
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn binary_name_eq(path: &Path, expected: &str) -> bool {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case(expected)
+            } else {
+                name == expected
+            }
+        })
+}
+
+fn path_has_component(path: &Path, needle: &str) -> bool {
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name == needle)
+    })
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -1634,7 +1737,7 @@ pub(crate) fn resolve_gui_binary(name: &str) -> Option<PathBuf> {
     which_in_path(&gui_search_path(), name)
 }
 
-fn gui_search_path() -> String {
+pub(crate) fn gui_search_path() -> String {
     gui_search_path_from(login_shell_path(), dirs_home(), std::env::var("PATH").ok())
 }
 
@@ -1643,30 +1746,42 @@ fn gui_search_path_from(
     home: Option<String>,
     existing: Option<String>,
 ) -> String {
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<PathBuf> = Vec::new();
     // Login-shell PATH first so Homebrew, mise, nvm, and custom dirs match
     // the user's terminal. The fixed list is a fallback when that read fails.
     if let Some(path) = login_path {
-        parts.push(path);
+        parts.extend(std::env::split_paths(&path));
     }
     if let Some(home) = home {
-        parts.push(format!("{home}/.local/bin"));
-        parts.push(format!("{home}/.cargo/bin"));
-        parts.push(format!("{home}/.claude/local"));
-        parts.push(format!("{home}/.local/share/claude"));
-        parts.push(format!("{home}/.opencode/bin"));
-        parts.push(format!("{home}/.grok/bin"));
-        parts.push(format!("{home}/.npm-global/bin"));
+        parts.push(format!("{home}/.local/bin").into());
+        parts.push(format!("{home}/.cargo/bin").into());
+        parts.push(format!("{home}/.claude/local").into());
+        parts.push(format!("{home}/.local/share/claude").into());
+        parts.push(format!("{home}/.opencode/bin").into());
+        parts.push(format!("{home}/.grok/bin").into());
+        parts.push(format!("{home}/.npm-global/bin").into());
+        parts.push(format!("{home}/.bun/bin").into());
+        parts.push(format!("{home}/AppData/Roaming/npm").into());
+        parts.push(format!("{home}/AppData/Local/Yarn/bin").into());
+        parts.push(format!("{home}/scoop/shims").into());
     }
     parts.push("/opt/homebrew/bin".into());
     parts.push("/usr/local/bin".into());
     parts.push("/usr/bin".into());
     parts.push("/bin".into());
     parts.push("/snap/bin".into());
-    if let Some(existing) = existing {
-        parts.push(existing);
+    #[cfg(windows)]
+    {
+        parts.push(r"C:\Program Files\Git\cmd".into());
+        parts.push(r"C:\Program Files\nodejs".into());
     }
-    parts.join(":")
+    if let Some(existing) = existing {
+        parts.extend(std::env::split_paths(&existing));
+    }
+    std::env::join_paths(parts)
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn apply_gui_path(cmd: &mut Command) {
@@ -1675,6 +1790,7 @@ fn apply_gui_path(cmd: &mut Command) {
 
 pub(crate) fn apply_gui_env(cmd: &mut Command) {
     apply_gui_path(cmd);
+    crate::hide_window_console(cmd);
     if let Some(id) = passwd_identity() {
         if std::env::var_os("HOME").is_none() {
             cmd.env("HOME", &id.home);
@@ -1687,7 +1803,15 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
             cmd.env("SHELL", &id.shell);
         }
     } else if let Some(home) = dirs_home() {
-        cmd.env("HOME", home);
+        cmd.env("HOME", &home);
+        if std::env::var_os("USERPROFILE").is_none() {
+            cmd.env("USERPROFILE", &home);
+        }
+        if std::env::var_os("USER").is_none() {
+            if let Ok(username) = std::env::var("USERNAME") {
+                cmd.env("USER", username);
+            }
+        }
     }
     if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
         cmd.env("LANG", "en_US.UTF-8");
@@ -1764,13 +1888,29 @@ fn login_shell_env(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn load_login_shell_env() -> HashMap<String, String> {
+    #[cfg(windows)]
+    {
+        LOGIN_SHELL_KEYS
+            .into_iter()
+            .filter_map(|key| {
+                let value = std::env::var(key).ok()?;
+                (!value.is_empty()).then(|| (key.to_string(), value))
+            })
+            .collect()
+    }
+    #[cfg(not(windows))]
+    load_unix_login_shell_env()
+}
+
 /// Read the environment the user actually gets in a terminal.
 ///
 /// `-lic`, not `-lc`: zsh reads `.zshrc` only for *interactive* shells, and
 /// version managers (nvm, fnm, mise, volta) all initialize from there. A
 /// login-but-not-interactive shell sees `.zshenv`/`.zprofile` only, so every
 /// nvm-managed CLI looks uninstalled.
-fn load_login_shell_env() -> HashMap<String, String> {
+#[cfg(not(windows))]
+fn load_unix_login_shell_env() -> HashMap<String, String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| {
         if cfg!(target_os = "macos") {
             "/bin/zsh".into()
@@ -1813,7 +1953,7 @@ fn load_login_shell_env() -> HashMap<String, String> {
 
 fn command_basename(command: &str) -> &str {
     Path::new(command)
-        .file_name()
+        .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or(command)
 }
@@ -2306,6 +2446,7 @@ mod tests {
         assert_eq!(command_basename("/Users/me/.local/bin/fx"), "fx");
         assert_eq!(command_basename("fx"), "fx");
         assert_eq!(command_basename("/Users/me/.grok/bin/grok"), "grok");
+        assert_eq!(command_basename("fx.exe"), "fx");
     }
 
     #[test]

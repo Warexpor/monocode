@@ -1,6 +1,6 @@
 import { listProjectFiles, type ProjectFile } from "./fs";
 import { scorePath, type FuzzyHit } from "./fuzzy";
-import { resolveWorkspacePath } from "./paths";
+import { resolveWorkspacePath, slash } from "./paths";
 import { looksLikeProject } from "./recents";
 import { normalizeEditorPath } from "./search";
 
@@ -18,7 +18,7 @@ let epoch = 0;
 const recentsByCwd = new Map<string, string[]>();
 
 function normCwd(cwd: string): string {
-  return cwd.replace(/\/+$/, "") || "/";
+  return slash(cwd).replace(/\/+$/, "") || "/";
 }
 
 export function peekProjectFiles(cwd: string): ProjectFile[] | null {

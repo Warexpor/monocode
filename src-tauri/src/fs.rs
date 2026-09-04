@@ -46,7 +46,7 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
         out.push(DirEntry {
             ignored: ignore.matches(name),
             name: name.to_string(),
-            path: path.to_string_lossy().into_owned(),
+            path: path_to_js(&path),
             is_dir,
         });
     }
@@ -96,7 +96,7 @@ pub(crate) fn list_project_files_sync(cwd: &str) -> Result<Vec<ProjectFile>, Str
 }
 
 fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
-    let output = Command::new("git")
+    let output = git_cmd()
         .arg("-C")
         .arg(root)
         .args(["ls-files", "-co", "--exclude-standard", "-z"])
@@ -124,7 +124,7 @@ fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
         }
         files.push(ProjectFile {
             name: name.to_string(),
-            path: path.to_string_lossy().into_owned(),
+            path: path_to_js(&path),
             relative,
         });
         if files.len() >= MAX_PROJECT_FILES {
@@ -872,7 +872,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             "modified"
         };
         out.push(GitChangedFile {
-            path: abs.to_string_lossy().into_owned(),
+            path: path_to_js(&abs),
             relative,
             status: status.to_string(),
             additions: acc.additions,
@@ -1070,7 +1070,7 @@ fn git_file_diff_for(root: &Path, relative: &str) -> Result<GitFileDiff, String>
         )
     };
     Ok(GitFileDiff {
-        path: abs.to_string_lossy().into_owned(),
+        path: path_to_js(&abs),
         relative,
         status: status.to_string(),
         original: original_text,
@@ -1396,7 +1396,7 @@ fn git_index_mode(root: &Path, relative: &str) -> Option<String> {
 }
 
 fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut child = git_cmd()
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -2540,8 +2540,14 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
     Ok(relative)
 }
 
+fn git_cmd() -> Command {
+    let mut cmd = Command::new("git");
+    crate::hide_window_console(&mut cmd);
+    cmd
+}
+
 pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
-    let output = Command::new("git")
+    let output = git_cmd()
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -2575,7 +2581,7 @@ fn git_run(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new("git")
+    let output = git_cmd()
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -2780,7 +2786,7 @@ fn git_branch_name(root: &Path, name: &str) -> Result<String, String> {
     if name.is_empty() {
         return Err("Branch name cannot be empty".into());
     }
-    let output = Command::new("git")
+    let output = git_cmd()
         .arg("-C")
         .arg(root)
         .args(["check-ref-format", "--branch", name])
@@ -2906,12 +2912,7 @@ fn git_ahead_behind(root: &Path, base: &str) -> (i64, i64) {
 }
 
 fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .ok()?;
+    let output = git_cmd().arg("-C").arg(root).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -2973,7 +2974,7 @@ fn walk_project_files(root: &Path) -> Vec<ProjectFile> {
             let relative = relative.to_string_lossy().replace('\\', "/");
             files.push(ProjectFile {
                 name: name.to_string(),
-                path: path.to_string_lossy().into_owned(),
+                path: path_to_js(&path),
                 relative,
             });
             if files.len() >= MAX_PROJECT_FILES {
@@ -3019,7 +3020,7 @@ fn skip_walk_dir_name(name: &str) -> bool {
 }
 
 fn path_has_skipped_dir(relative: &str) -> bool {
-    relative.split('/').any(skip_walk_dir_name)
+    relative.split(['/', '\\']).any(skip_walk_dir_name)
 }
 
 /// Directories the OS guards behind a consent prompt. macOS pops "would like to
@@ -3147,12 +3148,17 @@ pub(crate) fn expand_home(path: &str) -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(path));
     }
-    if let Some(rest) = path.strip_prefix("~/") {
+    let rest = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\"));
+    if let Some(rest) = rest {
         if let Some(home) = dirs_home() {
             return PathBuf::from(home).join(rest);
         }
     }
     PathBuf::from(path)
+}
+
+pub(crate) fn path_to_js(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 struct Ignore {
@@ -3224,7 +3230,7 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
         return Err(format!("{} already exists", dest.display()));
     }
     let dest_str = dest.to_str().ok_or("Invalid destination path")?;
-    let output = std::process::Command::new("git")
+    let output = git_cmd()
         .args(["clone", "--", url, dest_str])
         .output()
         .map_err(|e| {
@@ -3370,7 +3376,7 @@ fn inspect_path_sync(path: &str) -> Option<PathInfo> {
         .unwrap_or(path.to_str().unwrap_or("attachment"))
         .to_string();
     Some(PathInfo {
-        path: path.to_string_lossy().into_owned(),
+        path: path_to_js(&path),
         name,
         size: meta.len(),
         is_dir: meta.is_dir(),
@@ -3616,7 +3622,10 @@ fn same_entry(a: &Path, b: &Path) -> bool {
     #[cfg(not(unix))]
     {
         let _ = (a_meta, b_meta);
-        a == b
+        match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        }
     }
 }
 
@@ -3799,11 +3808,9 @@ pub fn reveal_path(path: String) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("{}: No such file or directory", path.display()));
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let path_str = path.to_str().ok_or_else(|| "Invalid path".to_string())?;
-
     #[cfg(target_os = "macos")]
     {
+        let path_str = path.to_str().ok_or_else(|| "Invalid path".to_string())?;
         let status = Command::new("open")
             .args(["-R", path_str])
             .status()
@@ -3816,14 +3823,13 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let status = Command::new("explorer")
+        // explorer.exe returns 1 even when it opened the folder.
+        let path_str = path.to_string_lossy().replace('/', "\\");
+        Command::new("explorer")
             .arg(format!("/select,{path_str}"))
-            .status()
+            .spawn()
             .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err("Could not reveal in File Explorer.".into());
-        }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -3915,7 +3921,7 @@ mod tests {
         assert!(!notes.is_dir);
         assert_eq!(notes.size, 6);
         let folder = infos.iter().find(|info| info.is_dir).unwrap();
-        assert_eq!(folder.path, dir.0.to_string_lossy());
+        assert_eq!(folder.path, path_to_js(&dir.0));
     }
 
     #[test]
@@ -4123,6 +4129,7 @@ mod tests {
         git(dir, &["config", "user.name", "MonoCode"])
             && git(dir, &["config", "user.email", "monocode@test"])
             && git(dir, &["config", "commit.gpgsign", "false"])
+            && git(dir, &["config", "core.autocrlf", "false"])
     }
 
     #[test]
@@ -4782,6 +4789,8 @@ mod tests {
             || !git(&b.0, &["config", "user.name", "MonoCode"])
             || !git(&b.0, &["config", "user.email", "monocode@test"])
             || !git(&b.0, &["config", "commit.gpgsign", "false"])
+            || !git(&b.0, &["config", "core.autocrlf", "false"])
+            || !git(&b.0, &["checkout", "--", "."])
         {
             return;
         }
