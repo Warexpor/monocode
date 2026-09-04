@@ -87,10 +87,14 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
     }
 
     let _ = window.set_focus();
+    #[cfg(target_os = "windows")]
+    apply_windows_glass(&window);
     Ok(())
 }
 
-/// Desktop blur goes on after the first UI paint, not during the dock bounce.
+/// macOS: glass after the first UI paint (JS splash), not during the dock bounce.
+/// Windows: same command still re-applies after paint; DWM is also applied from
+/// `Ready` / `open_new_window` so CI does not depend on JS boot finishing.
 #[tauri::command]
 pub fn enable_window_glass(window: WebviewWindow) {
     #[cfg(target_os = "macos")]
@@ -146,6 +150,15 @@ fn kind_label(kind: WindowsGlassKind) -> &'static str {
 fn record_windows_glass(kind: &str) {
     let path = std::env::temp_dir().join("monocode-windows-glass.txt");
     let _ = std::fs::write(path, kind);
+}
+
+/// Apply DWM effects on every live webview. Called from `RunEvent::Ready` so the
+/// NSIS smoke sidecar is written even if the boot splash never invokes JS.
+#[cfg(target_os = "windows")]
+pub fn apply_windows_glass_all(app: &AppHandle) {
+    for window in app.webview_windows().into_values() {
+        apply_windows_glass(&window);
+    }
 }
 
 #[cfg(target_os = "windows")]

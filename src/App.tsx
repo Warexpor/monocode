@@ -262,6 +262,7 @@ import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
   isQuitChord,
+  isModelPickerChord,
   shouldIgnoreTerminalCtrlChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
@@ -4514,6 +4515,23 @@ export default function App({
         e.preventDefault();
         e.stopPropagation();
         run("find_in_project", actions.current.onFindInProject);
+        return;
+      }
+      if (isModelPickerChord(e)) {
+        const target = e.target instanceof Element ? e.target : null;
+        if (
+          shouldIgnoreTerminalCtrlChord(
+            e,
+            Boolean(target?.closest(".monocode-terminal")),
+          )
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        run("open_model_picker", () => {
+          window.dispatchEvent(new Event("open_model_picker"));
+        });
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -4734,6 +4752,16 @@ export default function App({
                 activeTabId ? () => onCloseTab(activeTabId) : undefined
               }
               onCloseOtherTabs={onCloseOtherTabs}
+              onSplitRight={() => onSplit("right")}
+              onSplitDown={() => onSplit("down")}
+              onNextTab={onNext}
+              onPrevTab={onPrev}
+              onBackTab={onVisitBack}
+              onForwardTab={onVisitForward}
+              onFocusLeft={() => onFocusDir("left")}
+              onFocusRight={() => onFocusDir("right")}
+              onFocusUp={() => onFocusDir("up")}
+              onFocusDown={() => onFocusDir("down")}
               onPickProject={pickProject}
               onFindInProject={onFindInProject}
               onSearch={onOpenSearch}

@@ -16,6 +16,16 @@ type Props = {
   onShowSourceControl?: () => void;
   onCloseCurrentTab?: () => void;
   onCloseOtherTabs?: () => void;
+  onSplitRight?: () => void;
+  onSplitDown?: () => void;
+  onNextTab?: () => void;
+  onPrevTab?: () => void;
+  onBackTab?: () => void;
+  onForwardTab?: () => void;
+  onFocusLeft?: () => void;
+  onFocusRight?: () => void;
+  onFocusUp?: () => void;
+  onFocusDown?: () => void;
   onPickProject?: () => void;
   onFindInProject?: () => void;
   onSearch?: () => void;
@@ -36,6 +46,16 @@ export function MenuBar({
   onShowSourceControl,
   onCloseCurrentTab,
   onCloseOtherTabs,
+  onSplitRight,
+  onSplitDown,
+  onNextTab,
+  onPrevTab,
+  onBackTab,
+  onForwardTab,
+  onFocusLeft,
+  onFocusRight,
+  onFocusUp,
+  onFocusDown,
   onPickProject,
   onFindInProject,
   onSearch,
@@ -155,6 +175,36 @@ export function MenuBar({
         case "close_other_tabs":
           onCloseOtherTabs?.();
           break;
+        case "split_right":
+          onSplitRight?.();
+          break;
+        case "split_down":
+          onSplitDown?.();
+          break;
+        case "next_tab":
+          onNextTab?.();
+          break;
+        case "prev_tab":
+          onPrevTab?.();
+          break;
+        case "back_tab":
+          onBackTab?.();
+          break;
+        case "forward_tab":
+          onForwardTab?.();
+          break;
+        case "focus_left":
+          onFocusLeft?.();
+          break;
+        case "focus_right":
+          onFocusRight?.();
+          break;
+        case "focus_up":
+          onFocusUp?.();
+          break;
+        case "focus_down":
+          onFocusDown?.();
+          break;
         case "toggle_sidebar":
           onToggleSidebar();
           break;
@@ -173,6 +223,16 @@ export function MenuBar({
       closeMenu,
       onCloseCurrentTab,
       onCloseOtherTabs,
+      onSplitRight,
+      onSplitDown,
+      onNextTab,
+      onPrevTab,
+      onBackTab,
+      onForwardTab,
+      onFocusLeft,
+      onFocusRight,
+      onFocusUp,
+      onFocusDown,
       onFindInProject,
       onGoToFile,
       onNew,
@@ -210,6 +270,8 @@ export function MenuBar({
           { kind: "item", id: "go_to_file", label: "Go to File…", shortcut: `${MOD}P` },
           { kind: "item", id: "find_in_project", label: "Find in Files…", shortcut: `${MOD}${SHIFT}F` },
           { kind: "sep" },
+          { kind: "item", id: "split_right", label: "Split Pane Right", shortcut: `${MOD}D` },
+          { kind: "item", id: "split_down", label: "Split Pane Down", shortcut: `${MOD}${SHIFT}D` },
           { kind: "item", id: "close_tab", label: "Close Pane", shortcut: `${MOD}W` },
           {
             kind: "item",
@@ -217,6 +279,11 @@ export function MenuBar({
             label: "Close Other Tabs",
             shortcut: `${MOD}${ALT}T`,
           },
+          { kind: "sep" },
+          { kind: "item", id: "prev_tab", label: "Previous Tab", shortcut: `${MOD}${SHIFT}[` },
+          { kind: "item", id: "next_tab", label: "Next Tab", shortcut: `${MOD}${SHIFT}]` },
+          { kind: "item", id: "back_tab", label: "Go Back", shortcut: `${MOD}[` },
+          { kind: "item", id: "forward_tab", label: "Go Forward", shortcut: `${MOD}]` },
           { kind: "sep" },
           { kind: "item", id: "open_settings", label: "Settings…", shortcut: `${MOD},` },
           { kind: "item", id: "check_for_updates", label: "Check for Updates…" },
@@ -233,6 +300,12 @@ export function MenuBar({
           { kind: "item", id: "toggle_terminal", label: "Toggle Terminal", shortcut: `${MOD}J` },
           { kind: "item", id: "open_model_picker", label: "Switch Model…", shortcut: `${MOD}.` },
           { kind: "item", id: "toggle_diff", label: "Toggle Changes" },
+          { kind: "sep" },
+          { kind: "item", id: "focus_left", label: "Focus Pane Left", shortcut: `${MOD}${ALT}←` },
+          { kind: "item", id: "focus_right", label: "Focus Pane Right", shortcut: `${MOD}${ALT}→` },
+          { kind: "item", id: "focus_up", label: "Focus Pane Up", shortcut: `${MOD}${ALT}↑` },
+          { kind: "item", id: "focus_down", label: "Focus Pane Down", shortcut: `${MOD}${ALT}↓` },
+          { kind: "sep" },
           {
             kind: "item",
             id: "sidebar_opacity",

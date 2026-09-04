@@ -96,6 +96,19 @@ export function isQuitChord(
   return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "q";
 }
 
+/** Same as macOS `CmdOrCtrl+.` Switch Model… */
+export function isModelPickerChord(
+  e: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+): boolean {
+  const mod = e.metaKey || e.ctrlKey;
+  return (
+    mod &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.key === "." || e.code === "Period")
+  );
+}
+
 type EscapeKeyEvent = Pick<
   KeyboardEvent,
   | "key"

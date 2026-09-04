@@ -58,25 +58,36 @@ Write-Host "Launching $($exe.FullName)"
 $glass = Join-Path $env:TEMP "monocode-windows-glass.txt"
 Remove-Item $glass -ErrorAction SilentlyContinue
 $app = Start-Process -FilePath $exe.FullName -PassThru
-Start-Sleep -Seconds 20
-$named = @(Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" })
+$started = Get-Date
+$minAlive = $started.AddSeconds(20)
+$glassDeadline = $started.AddSeconds(45)
+$effect = $null
+$named = @()
+$starterAlive = $true
+while ((Get-Date) -lt $glassDeadline) {
+    if ($app) { $app.Refresh() }
+    $starterAlive = $app -and -not $app.HasExited
+    $named = @(Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" })
+    if ((Get-Date) -ge $minAlive -and -not $starterAlive -and $named.Count -eq 0) {
+        $code = if ($app) { $app.ExitCode } else { "n/a" }
+        throw "MonoCode was not running after first-run wait (exit $code)"
+    }
+    if (Test-Path $glass) {
+        $effect = (Get-Content -Raw $glass).Trim()
+    }
+    if ($effect -and (Get-Date) -ge $minAlive) { break }
+    Start-Sleep -Milliseconds 500
+}
+if ($app) { $app.Refresh() }
 $starterAlive = $app -and -not $app.HasExited
+$named = @(Get-Process | Where-Object { $_.ProcessName -match "(?i)monocode" })
 if (-not $starterAlive -and $named.Count -eq 0) {
     $code = if ($app) { $app.ExitCode } else { "n/a" }
     throw "MonoCode was not running after first-run wait (exit $code)"
 }
 Write-Host "MonoCode still running after first-run wait (starterAlive=$starterAlive named=$($named.Count))"
-$glassDeadline = (Get-Date).AddSeconds(10)
-$effect = $null
-while ((Get-Date) -lt $glassDeadline) {
-    if (Test-Path $glass) {
-        $effect = (Get-Content -Raw $glass).Trim()
-        if ($effect) { break }
-    }
-    Start-Sleep -Milliseconds 500
-}
 if (-not $effect) {
-    throw "enable_window_glass did not record DWM fallback at $glass"
+    throw "Windows DWM apply did not record fallback at $glass"
 }
 $allowed = @("acrylic", "mica", "mica-dark", "blur", "solid")
 if ($allowed -notcontains $effect) {
