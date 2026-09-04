@@ -13,7 +13,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Terminal Ctrl | Mac skips every `tabCommand` for Ctrl in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` does the same | 1TO1 |
 | Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |
 | Harness Job assign | Unix `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` plus kill-on-close Job | PARTIAL until Windows smoke |
-| Reveal in Explorer | `open -R` / `xdg-open` | `explorer /select,` | 1TO1 |
+| Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp snapshot, two parent levels, skip conhost/shell. Image name only, not full command line | PARTIAL |
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
@@ -30,7 +30,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 
 ## Upstream drift (dry-run)
 
-`./scripts/sync-upstream.sh --dry-run` from `custom/warexpor` @ `bd4a069` vs `upstream/main`:
+`./scripts/sync-upstream.sh --dry-run` from `origin/main` @ `bd4a069` vs `upstream/main`:
 
 - ahead 10, behind 3 (`f211602`, `d7e6b6d`, `e36ebd9`)
 - merge-base `4d7a7a1`

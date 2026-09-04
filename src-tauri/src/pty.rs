@@ -768,68 +768,80 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
 
 #[cfg(windows)]
 fn foreground_label(shell_pid: u32) -> Option<String> {
+    foreground_from_process_tree(shell_pid, &windows_process_snapshot())
+}
+
+/// pid, parent pid, image name. Unix TIOCGPGRP has no Toolhelp analog, so we
+/// walk two parent levels and skip conhost / the shell itself.
+fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> Option<String> {
     if shell_pid == 0 {
         return None;
     }
-    let children = windows_child_processes(shell_pid);
-    for (pid, name, command_line) in children {
-        let label = command_label(command_line.as_deref().unwrap_or(name.as_str()))
-            .or_else(|| Some(name.clone()))?;
-        if pid == shell_pid || is_shell_name(&label) || is_conhost_name(&label) {
-            continue;
+    let mut frontier = vec![shell_pid];
+    for _ in 0..2 {
+        let mut next = Vec::new();
+        for parent in frontier {
+            for (pid, ppid, name) in rows {
+                if *ppid != parent {
+                    continue;
+                }
+                next.push(*pid);
+                let label = command_label(name).unwrap_or_else(|| name.clone());
+                if *pid == shell_pid || is_shell_name(&label) || is_conhost_name(&label) {
+                    continue;
+                }
+                return Some(label);
+            }
         }
-        return Some(label);
+        frontier = next;
     }
     None
 }
 
-#[cfg(windows)]
-fn windows_child_processes(parent_pid: u32) -> Vec<(u32, String, Option<String>)> {
-    use std::process::Command;
-    let mut cmd = Command::new("powershell.exe");
-    crate::hide_window_console(&mut cmd);
-    let script = format!(
-        "Get-CimInstance Win32_Process -Filter \"ParentProcessId={parent_pid}\" | \
-         Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
-    );
-    let output = cmd
-        .args(["-NoProfile", "-NoLogo", "-Command", &script])
-        .output();
-    let Ok(output) = output else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    let raw = String::from_utf8_lossy(&output.stdout);
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed == "null" {
-        return Vec::new();
-    }
-    let parsed: serde_json::Value = match serde_json::from_str(trimmed) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    let rows = match parsed {
-        serde_json::Value::Array(rows) => rows,
-        other => vec![other],
-    };
-    rows.into_iter()
-        .filter_map(|row| {
-            let pid = row.get("ProcessId")?.as_u64()? as u32;
-            let name = row.get("Name")?.as_str()?.to_string();
-            let command_line = row
-                .get("CommandLine")
-                .and_then(|value| value.as_str())
-                .map(str::to_string);
-            Some((pid, name, command_line))
-        })
-        .collect()
+fn is_conhost_name(name: &str) -> bool {
+    let stem = path_stem(name).unwrap_or(name);
+    stem.eq_ignore_ascii_case("conhost")
 }
 
 #[cfg(windows)]
-fn is_conhost_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case("conhost.exe") || name.eq_ignore_ascii_case("conhost")
+fn windows_process_snapshot() -> Vec<(u32, u32, String)> {
+    use std::mem::size_of;
+    use std::os::windows::io::{FromRawHandle, OwnedHandle, RawHandle};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    unsafe {
+        let raw = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if raw.is_null() || raw == INVALID_HANDLE_VALUE {
+            return Vec::new();
+        }
+        let _snap = OwnedHandle::from_raw_handle(raw as RawHandle);
+        let mut entry = std::mem::zeroed::<PROCESSENTRY32W>();
+        entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+        if Process32FirstW(raw, &mut entry) == 0 {
+            return Vec::new();
+        }
+        let mut rows = Vec::new();
+        loop {
+            let name = wide_z_to_string(&entry.szExeFile);
+            if !name.is_empty() {
+                rows.push((entry.th32ProcessID, entry.th32ParentProcessID, name));
+            }
+            if Process32NextW(raw, &mut entry) == 0 {
+                break;
+            }
+        }
+        rows
+    }
+}
+
+#[cfg(windows)]
+fn wide_z_to_string(buf: &[u16]) -> String {
+    let len = buf.iter().position(|&unit| unit == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..len])
 }
 
 #[cfg(unix)]
@@ -951,6 +963,28 @@ mod label_tests {
         assert!(is_shell_name("zsh"));
         assert!(is_shell_name("powershell.exe"));
         assert!(!is_shell_name("npm"));
+    }
+
+    #[test]
+    fn foreground_skips_conhost_and_walks_one_parent_level() {
+        let rows = [
+            (10, 1, "pwsh.exe".into()),
+            (11, 10, "conhost.exe".into()),
+            (12, 10, "node.exe".into()),
+        ];
+        assert_eq!(
+            foreground_from_process_tree(10, &rows),
+            Some("node".into())
+        );
+        let nested = [
+            (20, 1, "powershell.exe".into()),
+            (21, 20, "conhost.exe".into()),
+            (22, 21, "git.exe".into()),
+        ];
+        assert_eq!(
+            foreground_from_process_tree(20, &nested),
+            Some("git".into())
+        );
     }
 }
 
