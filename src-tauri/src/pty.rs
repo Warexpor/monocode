@@ -940,6 +940,10 @@ mod label_tests {
             command_label(r#""C:\Program Files\nodejs\node.exe" C:\npm\npm-cli.js"#),
             Some("npm-cli".into())
         );
+        assert_eq!(
+            command_label(r#""C:\Program Files\Git\bin\bash.exe""#),
+            Some("bash".into())
+        );
     }
 
     #[test]

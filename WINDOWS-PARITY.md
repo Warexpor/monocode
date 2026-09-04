@@ -11,7 +11,8 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Git PATH | `Command::new("git")` | `git_cmd()` uses `resolve_gui_binary("git")` + `apply_gui_env` (search + checkpoint too) | 1TO1 |
 | Default terminal | `$SHELL` else zsh/bash, `-l` for bash/zsh | Real `$SHELL` file or PATH lookup, `-l` for bash/zsh/sh, else pwsh. `Git\\bin` on search PATH | PARTIAL |
 | Terminal Ctrl | Mac skips every `tabCommand` for Ctrl in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` does the same | 1TO1 |
-| Path separators to JS | POSIX | `path_to_js` rewrites `\` to `/` | 1TO1 |
+| Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |
+| Harness Job assign | Unix `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` plus kill-on-close Job | PARTIAL until Windows smoke |
 | Reveal in Explorer | `open -R` / `xdg-open` | `explorer /select,` | 1TO1 |
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |

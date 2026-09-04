@@ -3140,7 +3140,7 @@ pub fn create_path(parent: String, name: String, is_dir: bool) -> Result<String,
         })?;
     }
 
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(path_to_js(&dest))
 }
 
 pub(crate) fn expand_home(path: &str) -> PathBuf {
@@ -3250,7 +3250,7 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
             .unwrap_or("git clone failed");
         return Err(msg.trim().to_string());
     }
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(path_to_js(&dest))
 }
 
 fn is_git_url(url: &str) -> bool {
@@ -3469,7 +3469,7 @@ fn write_attachment_sync(name: &str, data: &str) -> Result<String, String> {
         safe_attachment_name(name)
     ));
     std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(path_to_js(&path))
 }
 
 fn safe_attachment_name(name: &str) -> String {
@@ -3687,7 +3687,7 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
     let dest = resolve_under(parent, name)?;
     if same_entry(&from, &dest) {
         if from == dest {
-            return Ok(from.to_string_lossy().into_owned());
+            return Ok(path_to_js(&from));
         }
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -3702,7 +3702,7 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
             let _ = std::fs::rename(&tmp, &from);
             return Err(e.to_string());
         }
-        return Ok(dest.to_string_lossy().into_owned());
+        return Ok(path_to_js(&dest));
     }
     if dest.exists() {
         return Err(already_exists(&file_label(&dest, name)));
@@ -3714,7 +3714,7 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     std::fs::rename(&from, &dest).map_err(|e| e.to_string())?;
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(path_to_js(&dest))
 }
 
 /// Rename `path` to `name` (relative to the current parent; `/` nests).
@@ -3762,7 +3762,7 @@ fn copy_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
     );
     let dest = dest_parent.join(&name);
     copy_recursive(&from, &dest)?;
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(path_to_js(&dest))
 }
 
 #[tauri::command]
@@ -3787,13 +3787,13 @@ fn move_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
     let name = file_label(&from, from.to_str().unwrap_or("item"));
     let dest = dest_parent.join(&name);
     if same_entry(&from, &dest) {
-        return Ok(from.to_string_lossy().into_owned());
+        return Ok(path_to_js(&from));
     }
     if dest.exists() {
         return Err(already_exists(&name));
     }
     std::fs::rename(&from, &dest).map_err(|e| e.to_string())?;
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(path_to_js(&dest))
 }
 
 #[tauri::command]
