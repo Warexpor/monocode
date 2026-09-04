@@ -4840,6 +4840,9 @@ export default function App({
                               ? tab.focusedId
                               : ""
                           }
+                          addToChatSessionId={
+                            tab.id === activeTabId ? active?.id : undefined
+                          }
                           composerFocused={
                             composerFocused && !projectTerminalFocused
                           }
