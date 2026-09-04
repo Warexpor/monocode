@@ -66,6 +66,9 @@ pub struct CursorBinary {
 struct LiveChild {
     stdin: Mutex<ChildStdin>,
     pid: u32,
+    #[cfg(windows)]
+    #[allow(dead_code)]
+    job: Option<crate::windows_job::Job>,
 }
 
 struct LiveSse {
@@ -351,6 +354,15 @@ pub fn harness_spawn(
         .map_err(|e| format!("Failed to start {command}: {e}"))?;
     let pid = child.id();
 
+    #[cfg(windows)]
+    let job = {
+        let job = crate::windows_job::Job::new();
+        if let Some(job) = job.as_ref() {
+            let _ = job.assign_child(&child);
+        }
+        job
+    };
+
     let stdin = child
         .stdin
         .take()
@@ -367,6 +379,8 @@ pub fn harness_spawn(
     let live = Arc::new(LiveChild {
         stdin: Mutex::new(stdin),
         pid,
+        #[cfg(windows)]
+        job,
     });
     if let Some(rejected) = host.install_spawn(session_id.clone(), epoch, kill_all, live) {
         // A kill, or a newer spawn, won the race while this one was forking.
@@ -965,6 +979,8 @@ pub(crate) fn reap_orphaned_harness_processes() {
         let our_pid = std::process::id();
         thread::spawn(move || reap_snapshots(&snapshot_processes(), our_pid));
     }
+    // Windows: harness children are assigned to Job Objects with kill-on-close,
+    // so MonoCode exit tears the tree down without a ps-style sweep.
 }
 
 #[cfg(unix)]

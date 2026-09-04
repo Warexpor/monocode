@@ -42,6 +42,9 @@ struct LivePty {
     #[cfg(windows)]
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
     pid: u32,
+    #[cfg(windows)]
+    #[allow(dead_code)]
+    job: Option<crate::windows_job::Job>,
 }
 
 pub struct PtyHost {
@@ -413,10 +416,19 @@ fn spawn_windows(
         .take_writer()
         .map_err(|err| format!("Failed to write to terminal: {err}"))?;
 
+    let job = crate::windows_job::Job::new().and_then(|job| {
+        if job.assign_pid(pid) {
+            Some(job)
+        } else {
+            None
+        }
+    });
+
     let live = Arc::new(LivePty {
         writer: Mutex::new(Box::new(writer)),
         master: Mutex::new(pair.master),
         pid,
+        job,
     });
     host.insert(id.clone(), live);
 
