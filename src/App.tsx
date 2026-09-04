@@ -178,6 +178,7 @@ import {
   mergeModelSettings,
   preferredModelSettings,
   resolveModel,
+  saveLastModelChoice,
   saveLastModelSettings,
 } from "./lib/models";
 import {
@@ -3059,6 +3060,9 @@ export default function App({
       if (!current) return;
       if (isPreparingHandoff(current)) return;
       const resolved = resolveModel(harness, model);
+      // Picking in the composer is the same intent as picking in Settings, so
+      // new sessions start here too instead of on the built-in default.
+      saveLastModelChoice(harness, resolved.id);
       if (current.modelSettings) {
         saveLastModelSettings(current.modelSettings, "fill");
       }
