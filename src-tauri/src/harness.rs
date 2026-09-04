@@ -352,7 +352,7 @@ pub fn harness_spawn(
         ));
     }
 
-    let mut cmd = Command::new(&command);
+    let mut cmd = command_for(&command);
     cmd.args(&args)
         .current_dir(&workdir)
         .stdin(Stdio::piped())
@@ -704,7 +704,7 @@ pub async fn harness_exec(
 }
 
 fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<String, String> {
-    let mut cmd = Command::new(command);
+    let mut cmd = command_for(command);
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1549,7 +1549,7 @@ fn file_mentions_pi_coding_agent(path: &Path) -> bool {
 }
 
 fn help_mentions_rpc_mode(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
+    let mut cmd = command_for(path);
     cmd.arg("--help")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1640,7 +1640,7 @@ fn file_mentions_fx_agent(path: &Path) -> bool {
 }
 
 fn fx_help_mentions_acp(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
+    let mut cmd = command_for(path);
     cmd.arg("--help")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1703,7 +1703,7 @@ fn file_mentions_grok_agent(path: &Path) -> bool {
 }
 
 fn grok_help_mentions_agent(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
+    let mut cmd = command_for(path);
     cmd.arg("--help")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1793,6 +1793,26 @@ fn first_binary_matching(
         let path = existing_binary(path)?;
         pred(&path).then_some(path)
     })
+}
+
+/// `CreateProcess` cannot launch `.cmd`/`.bat` with `CREATE_NO_WINDOW`.
+/// npm global shims on Windows are almost always `.cmd`; wrap them in `cmd.exe /D /C`.
+pub(crate) fn command_for(program: impl AsRef<Path>) -> Command {
+    let program = program.as_ref();
+    #[cfg(windows)]
+    if is_windows_batch(program) {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg("/D").arg("/C").arg(program);
+        return cmd;
+    }
+    Command::new(program)
+}
+
+#[cfg(windows)]
+fn is_windows_batch(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
 }
 
 fn existing_binary(path: PathBuf) -> Option<PathBuf> {
@@ -2896,6 +2916,35 @@ mod login_env_tests {
             ),
             r"C:\Users\n\bin;C:\Windows;C:\UserTools;C:\Windows\System32"
         );
+    }
+
+    #[test]
+    fn command_for_passthrough_is_the_program_itself() {
+        let cmd = command_for("/usr/bin/opencode");
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new("/usr/bin/opencode"));
+        assert_eq!(cmd.get_args().count(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_for_wraps_npm_cmd_shims() {
+        let shim = r"C:\Users\n\AppData\Roaming\npm\opencode.cmd";
+        let cmd = command_for(shim);
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new("cmd.exe"));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["/D".into(), "/C".into(), shim.into()]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_for_passthrough_exe() {
+        let exe = r"C:\Program Files\Git\cmd\git.exe";
+        let cmd = command_for(exe);
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new(exe));
+        assert_eq!(cmd.get_args().count(), 0);
     }
 }
 
