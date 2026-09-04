@@ -774,14 +774,18 @@ fn foreground_label(shell_pid: u32) -> Option<String> {
 }
 
 /// pid, parent pid, image name. Unix TIOCGPGRP has no Toolhelp analog, so we
-/// walk two parent levels and skip conhost / the shell itself.
+/// walk nested shells (Git bash under pwsh under conhost) and skip conhost /
+/// the shell itself.
+#[cfg(any(windows, test))]
+const FOREGROUND_WALK_DEPTH: usize = 8;
+
 #[cfg(any(windows, test))]
 fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> Option<String> {
     if shell_pid == 0 {
         return None;
     }
     let mut frontier = vec![shell_pid];
-    for _ in 0..2 {
+    for _ in 0..FOREGROUND_WALK_DEPTH {
         let mut next = Vec::new();
         for parent in frontier {
             for (pid, ppid, name) in rows {
@@ -974,6 +978,16 @@ mod label_tests {
         assert_eq!(
             foreground_from_process_tree(20, &nested),
             Some("git".into())
+        );
+        let wrapped = [
+            (30, 1, "pwsh.exe".into()),
+            (31, 30, "bash.exe".into()),
+            (32, 31, "sh.exe".into()),
+            (33, 32, "cargo.exe".into()),
+        ];
+        assert_eq!(
+            foreground_from_process_tree(30, &wrapped),
+            Some("cargo".into())
         );
     }
 }
