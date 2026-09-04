@@ -67,6 +67,7 @@ import {
 } from "../lib/sessionFolders";
 import { SESSION_LIST_PAGE, sessionListWindow } from "../lib/sessionListWindow";
 import {
+  DEFAULT_SESSION_SIDEBAR_FILTERS,
   filterSessionsByHarness,
   filterSessionsByStatus,
   filterSessionsByTime,
@@ -407,7 +408,6 @@ function SidebarComponent({
   const sessionHarnesses = harnessesInSessions(sessions);
   const filtersActive = hasActiveSessionFilters(sessionFilters);
   const searchNarrowed = Boolean(searchQuery.trim());
-  const narrowedByUser = searchNarrowed || filtersActive;
   const sortable = useSortable(tabOrder, (ids) => {
     const next = ids as SidebarTab[];
     setTabOrder(next);
@@ -1046,11 +1046,24 @@ function SidebarComponent({
                 // A narrowed-down result is a transient answer to what the user
                 // just typed, so it stays a quiet line of text. Only the genuine
                 // "this project has nothing in it" case earns the illustration.
-                narrowedByUser ? (
+                filtersActive ? (
+                  <div className="px-3 py-2">
+                    <p className="text-[12px] text-content/50">
+                      Filters hid all sessions
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSessionFiltersChange(DEFAULT_SESSION_SIDEBAR_FILTERS)
+                      }
+                      className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                ) : searchNarrowed ? (
                   <p className="px-3 py-2 text-[12px] text-content/50">
-                    {searchNarrowed
-                      ? "No matching sessions"
-                      : "No sessions match these filters"}
+                    No matching sessions
                   </p>
                 ) : (
                   <SessionsEmpty message="Sessions you start will show up here" />
