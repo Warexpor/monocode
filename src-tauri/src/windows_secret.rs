@@ -63,10 +63,8 @@ mod tests {
 
     #[test]
     fn restrict_owner_acl_succeeds_on_a_temp_file() {
-        let path = std::env::temp_dir().join(format!(
-            "monocode-secret-acl-{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("monocode-secret-acl-{}.txt", std::process::id()));
         std::fs::write(&path, b"secret").unwrap();
         restrict_owner_acl(&path).expect("owner ACL");
         let _ = std::fs::remove_file(&path);
