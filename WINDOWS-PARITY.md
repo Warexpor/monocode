@@ -18,16 +18,15 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
 | Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` passed on GitHub `windows-latest` | 1TO1 (CI) |
-| NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI job `Windows NSIS` ran `npm run build:windows` on `f78e490` and uploaded `windows-nsis` (~8.4 MiB) | 1TO1 (CI) |
+| NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI `Windows NSIS` on `c491513` (`33872243241`) built `MonoCode_0.1.32_x64-setup.exe`, silent-installed, launched `monocode.exe`, process still alive after 20s | 1TO1 (CI) |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
 
-## Still needs a Windows machine
+## Still needs a Windows desktop (not GHA Server)
 
-- First-run of the NSIS installer (CI built and uploaded it; it did not install or launch the app).
-- Acrylic vs Mica vs solid fallback on a real DWM session.
+- Acrylic vs Mica vs solid on a real DWM session (CI first-run only proved the process stayed up).
 - Live harness session (`ocx` is machine-local; this Linux VM is not that proof).
 
-GitHub Actions on `origin/main` `e81f999` (`33868756420`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` green, `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` and `job_kill_on_close_reaps_the_child` both ok. That is CI proof of build/kill/orphan-reap, not a desktop DWM/`ocx` session.
+GitHub Actions on `origin/main` `c491513` (`33872243241`): `check` green on macOS/Ubuntu/Windows, `Windows NSIS` green including silent-install + 20s live `monocode.exe`. That is CI proof of build/install/launch/kill/orphan-reap, not a desktop DWM/`ocx` session.
 
 ## Upstream drift (dry-run)
 
