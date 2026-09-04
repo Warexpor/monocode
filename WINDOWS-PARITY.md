@@ -10,6 +10,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Harness/PTY kill | process group SIGTERM then SIGKILL | TERM via `taskkill /T`; SIGKILL via Toolhelp descendants + `TerminateProcess`; Job drop still covers assigned trees | 1TO1 (CI) |
 | Git PATH | `Command::new("git")` | `git_cmd()` uses `resolve_gui_binary("git")` + `apply_gui_env` (search + checkpoint too) | 1TO1 |
 | Harness CLI resolve | login-shell PATH after POSIX install dirs | Same `gui_search_path` as PTY/git (login PATH plus `AppData\Roaming\npm`, scoop shims, Git, Node) so Explorer-launched MonoCode finds `opencode.exe` | 1TO1 (code) |
+| npm `.cmd` shims | shebang scripts | `command_for_args` runs `.cmd`/`.bat` via `cmd.exe /D /S /C` with program and args in one string so `CREATE_NO_WINDOW` can start npm-global `opencode.cmd serve` | 1TO1 (code) |
 | Default terminal | `$SHELL` else zsh/bash, `-l` for bash/zsh | `$SHELL` if it exists; else Git `bash.exe` (`-l`) as the Linux `/bin/bash` analog; else pwsh/powershell (`-NoLogo`); else `COMSPEC`. `Git\\bin` on search PATH | 1TO1 (code) |
 | Terminal Ctrl | Mac skips every `tabCommand` for Ctrl in `.monocode-terminal` | `shouldIgnoreTerminalCtrlChord` does the same | 1TO1 |
 | Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |

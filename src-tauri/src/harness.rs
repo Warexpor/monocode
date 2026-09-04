@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 #[cfg(any(windows, test))]
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -352,9 +353,8 @@ pub fn harness_spawn(
         ));
     }
 
-    let mut cmd = Command::new(&command);
-    cmd.args(&args)
-        .current_dir(&workdir)
+    let mut cmd = command_for_args(&command, &args);
+    cmd.current_dir(&workdir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -704,9 +704,8 @@ pub async fn harness_exec(
 }
 
 fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<String, String> {
-    let mut cmd = Command::new(command);
-    cmd.args(args)
-        .stdin(Stdio::null())
+    let mut cmd = command_for_args(command, args);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, command);
@@ -1549,9 +1548,8 @@ fn file_mentions_pi_coding_agent(path: &Path) -> bool {
 }
 
 fn help_mentions_rpc_mode(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let mut cmd = command_for_args(path, ["--help"]);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
@@ -1640,9 +1638,8 @@ fn file_mentions_fx_agent(path: &Path) -> bool {
 }
 
 fn fx_help_mentions_acp(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let mut cmd = command_for_args(path, ["--help"]);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
@@ -1703,9 +1700,8 @@ fn file_mentions_grok_agent(path: &Path) -> bool {
 }
 
 fn grok_help_mentions_agent(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let mut cmd = command_for_args(path, ["--help"]);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
@@ -1794,6 +1790,57 @@ fn first_binary_matching(
         let path = existing_binary(path)?;
         pred(&path).then_some(path)
     })
+}
+
+/// `CreateProcess` cannot launch `.cmd`/`.bat` with `CREATE_NO_WINDOW`.
+/// npm global shims on Windows are almost always `.cmd`; wrap them in
+/// `cmd.exe /D /S /C` with the program *and* args in one string so `serve`
+/// is not parsed as a second cmd.exe token.
+pub(crate) fn command_for(program: impl AsRef<Path>) -> Command {
+    command_for_args(program, [] as [&OsStr; 0])
+}
+
+pub(crate) fn command_for_args<I, S>(program: impl AsRef<Path>, args: I) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let program = program.as_ref();
+    #[cfg(windows)]
+    if is_windows_batch(program) {
+        let mut line = quote_cmd_token(program.as_os_str());
+        for arg in args {
+            line.push(' ');
+            line.push_str(&quote_cmd_token(arg.as_ref()));
+        }
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg("/D").arg("/S").arg("/C").arg(line);
+        return cmd;
+    }
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    cmd
+}
+
+#[cfg(windows)]
+fn quote_cmd_token(arg: &OsStr) -> String {
+    let text = arg.to_string_lossy();
+    let mut out = String::from("\"");
+    for ch in text.chars() {
+        if ch == '"' {
+            out.push('"');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(windows)]
+fn is_windows_batch(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
 }
 
 fn existing_binary(path: PathBuf) -> Option<PathBuf> {
@@ -2897,6 +2944,63 @@ mod login_env_tests {
             ),
             r"C:\Users\n\bin;C:\Windows;C:\UserTools;C:\Windows\System32"
         );
+    }
+
+    #[test]
+    fn command_for_passthrough_is_the_program_itself() {
+        let cmd = command_for("/usr/bin/opencode");
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new("/usr/bin/opencode"));
+        assert_eq!(cmd.get_args().count(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_for_wraps_npm_cmd_shims() {
+        let shim = r"C:\Users\n\AppData\Roaming\npm\opencode.cmd";
+        let cmd = command_for(shim);
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new("cmd.exe"));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "/D",
+                "/S",
+                "/C",
+                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd""#
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_for_args_keeps_serve_inside_the_cmd_string() {
+        let shim = r"C:\Users\n\AppData\Roaming\npm\opencode.cmd";
+        let cmd = command_for_args(shim, ["serve", "--port=4096"]);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "/D",
+                "/S",
+                "/C",
+                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd" "serve" "--port=4096""#
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_for_passthrough_exe() {
+        let exe = r"C:\Program Files\Git\cmd\git.exe";
+        let cmd = command_for(exe);
+        assert_eq!(cmd.get_program(), std::ffi::OsStr::new(exe));
+        assert_eq!(cmd.get_args().count(), 0);
     }
 }
 
