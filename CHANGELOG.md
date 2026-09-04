@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Diff reviews can be annotated line by line in both Unified and Editor views. Use the comment action on a changed line to write a note and add its file, line number, and code context to the active composer; collect multiple comments and send them to the agent in one prompt.
 
+### Fixed
+
+- The model you pick in the composer now carries to new sessions. Previously only Settings → Providers wrote the default, so a session started from the built-in default no matter what you had switched to while working.
+
 ## [0.1.32] - 2026-09-04
 
 ### Added
