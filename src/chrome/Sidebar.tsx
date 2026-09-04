@@ -58,6 +58,7 @@ import {
   renameFolder,
   reorderSessionFolders,
   saveSessionFolders,
+  sessionListNavigationIds,
   setFolderCollapsed,
   setFolderColor,
   setFolderCustomColor,
@@ -164,6 +165,7 @@ type Props = {
   /** First listing for this project has not arrived yet. */
   pending: boolean;
   onSelectSession: (sessionId: string) => void;
+  onSessionNavigationOrder?: (ids: readonly string[]) => void;
   onPrefetchSession?: (sessionId: string) => void;
   onPlaceSessionOnPane?: (
     sessionId: string,
@@ -236,6 +238,7 @@ function SidebarComponent({
   status,
   pending,
   onSelectSession,
+  onSessionNavigationOrder,
   onPrefetchSession,
   onPlaceSessionOnPane,
   onRenameSession,
@@ -398,16 +401,29 @@ function SidebarComponent({
     activeUngroupedIndex,
   );
   const shownUngrouped = ungroupedVisible.slice(0, shownUngroupedCount);
+  const filtersActive = hasActiveSessionFilters(sessionFilters);
+  const searchNarrowed = Boolean(searchQuery.trim());
+  const fullSessionListEntries = buildSessionList(
+    visibleSessions,
+    sessionFolders,
+    ungroupedVisible,
+  );
   const sessionListEntries = buildSessionList(
     visibleSessions,
     sessionFolders,
     shownUngrouped,
   );
+  const sessionNavigationIds = sessionListNavigationIds(
+    fullSessionListEntries,
+    searchNarrowed,
+  );
+  const sessionNavigationKey = sessionNavigationIds.join("\0");
+  useEffect(() => {
+    onSessionNavigationOrder?.(sessionNavigationIds);
+  }, [onSessionNavigationOrder, sessionNavigationKey]);
   const hasMoreSessions = shownUngroupedCount < ungroupedVisible.length;
   const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
   const sessionHarnesses = harnessesInSessions(sessions);
-  const filtersActive = hasActiveSessionFilters(sessionFilters);
-  const searchNarrowed = Boolean(searchQuery.trim());
   const sortable = useSortable(tabOrder, (ids) => {
     const next = ids as SidebarTab[];
     setTabOrder(next);
