@@ -17,7 +17,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp walk (8 nested shells), `NtQuery` command line with `ReadProcessMemory` when the buffer is remote, PEB `CommandLine` fallback; else image name | 1TO1 (code) |
 | Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` (Settings, Quit, terminal tab, Sidebar Appearance) plus `App.tsx` (`Ctrl+Q` / `Ctrl+O` / `Ctrl+Shift+N`; terminal Ctrl skipped like Mac) | 1TO1 (code) |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
-| Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
+| Claude usage Keychain | `security` CLI | file store under user config (same as Linux); Windows applies owner+SYSTEM DACL (`restrict_owner_acl`) as the `0o600` analog used for Linear tokens | 1TO1 (code) |
 | Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` passed on GitHub `windows-latest` | 1TO1 (CI) |
 | NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI `Windows NSIS` on `c491513` (`33872243241`) built `MonoCode_0.1.32_x64-setup.exe`, silent-installed, launched `monocode.exe`, process still alive after 20s | 1TO1 (CI) |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |

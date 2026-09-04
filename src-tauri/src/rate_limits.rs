@@ -197,6 +197,10 @@ fn write_credentials_file(path: &Path, raw: &str) -> bool {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     }
+    #[cfg(windows)]
+    {
+        let _ = crate::windows_secret::restrict_owner_acl(path);
+    }
     true
 }
 
