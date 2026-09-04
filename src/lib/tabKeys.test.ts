@@ -3,6 +3,7 @@ import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
   shouldIgnoreTerminalCtrlChord,
+  isQuitChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./tabKeys";
@@ -107,6 +108,17 @@ describe("shouldIgnoreTerminalCtrlChord", () => {
     expect(
       shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), false),
     ).toBe(false);
+  });
+});
+
+describe("isQuitChord", () => {
+  it("matches cmd/ctrl-q without other modifiers", () => {
+    expect(isQuitChord(key({ key: "q", metaKey: true }))).toBe(true);
+    expect(isQuitChord(key({ key: "Q", ctrlKey: true }))).toBe(true);
+    expect(isQuitChord(key({ key: "q", ctrlKey: true, shiftKey: true }))).toBe(
+      false,
+    );
+    expect(isQuitChord(key({ key: "q" }))).toBe(false);
   });
 });
 

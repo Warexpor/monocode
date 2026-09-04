@@ -261,6 +261,7 @@ import { playCue } from "./lib/sounds";
 import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
+  isQuitChord,
   shouldIgnoreTerminalCtrlChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
@@ -339,6 +340,7 @@ import {
 import type { InstalledUpdate } from "./lib/updateNotice";
 import {
   bindResumedSessions,
+  handleQuitRequested,
   hasInFlightSessions,
   hideCurrentWindow,
   closeCurrentWindow,
@@ -4447,6 +4449,23 @@ export default function App({
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
+      if (isQuitChord(e)) {
+        const target = e.target instanceof Element ? e.target : null;
+        if (
+          shouldIgnoreTerminalCtrlChord(
+            e,
+            Boolean(target?.closest(".monocode-terminal")),
+          )
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        run("quit", () => {
+          void handleQuitRequested();
+        });
+        return;
+      }
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         e.stopPropagation();
@@ -4706,6 +4725,7 @@ export default function App({
             <MenuBar
               onNew={onNew}
               onNewTerminal={onNewTerminal}
+              onNewTerminalTab={onNewTerminalTab}
               onToggleTerminal={onToggleProjectTerminal}
               onGoToFile={onGoToFile}
               onToggleSidebar={onToggleSidebar}
@@ -4719,6 +4739,11 @@ export default function App({
               onSearch={onOpenSearch}
               onOpenInbox={onOpenInbox}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+              onOpenSettings={onOpenSettings}
+              onSidebarAppearance={() => openSettings("appearance")}
+              onQuit={() => {
+                void handleQuitRequested();
+              }}
             />
           ) : null}
           <TitleBar

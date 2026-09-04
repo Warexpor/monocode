@@ -89,6 +89,13 @@ export function tabCommand(e: KeyboardEvent): TabCommand | null {
   return null;
 }
 
+export function isQuitChord(
+  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+): boolean {
+  const mod = e.metaKey || e.ctrlKey;
+  return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "q";
+}
+
 type EscapeKeyEvent = Pick<
   KeyboardEvent,
   | "key"

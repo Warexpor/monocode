@@ -14,7 +14,7 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Path separators to JS | POSIX | `path_to_js` on list/git/search and create/rename/copy/move/clone/attach | 1TO1 |
 | Harness Job assign | Unix `process_group(0)` | `CREATE_BREAKAWAY_FROM_JOB` plus kill-on-close Job. `job_kill_on_close_reaps_the_child` passed on GitHub `windows-latest` | 1TO1 (CI) |
 | Terminal titles | `TIOCGPGRP` + `ps -o args=` | Toolhelp walk, then `NtQueryInformationProcess` command line when allowed; else image name | PARTIAL until Windows smoke |
-| Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` plus `App.tsx` (`Ctrl+O`, `Ctrl+Shift+N` included) | PARTIAL |
+| Cmd/Ctrl accelerators | native `menu.rs` plus `App.tsx` | HTML `MenuBar` (Settings, Quit, terminal tab, Sidebar Appearance) plus `App.tsx` (`Ctrl+Q` / `Ctrl+O` / `Ctrl+Shift+N`; terminal Ctrl skipped like Mac) | 1TO1 (code) |
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
 | Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; `windows_reap_tests::reap_snapshots_kills_a_marked_orphan` passed on GitHub `windows-latest` | 1TO1 (CI) |

@@ -1915,6 +1915,9 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
         if std::env::var_os("HOME").is_none() {
             cmd.env("HOME", &id.home);
         }
+        if std::env::var_os("USERPROFILE").is_none() {
+            cmd.env("USERPROFILE", &id.home);
+        }
         if std::env::var_os("USER").is_none() {
             cmd.env("USER", &id.user);
             cmd.env("LOGNAME", &id.user);
@@ -1932,13 +1935,14 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
                 cmd.env("USER", username);
             }
         }
-        if std::env::var_os("SHELL").is_none() {
-            if let Some(shell) = resolve_gui_binary("bash.exe")
-                .or_else(|| resolve_gui_binary("pwsh.exe"))
-                .or_else(|| resolve_gui_binary("powershell.exe"))
-            {
-                cmd.env("SHELL", shell);
-            }
+    }
+    #[cfg(windows)]
+    if std::env::var_os("SHELL").is_none() {
+        if let Some(shell) = resolve_gui_binary("bash.exe")
+            .or_else(|| resolve_gui_binary("pwsh.exe"))
+            .or_else(|| resolve_gui_binary("powershell.exe"))
+        {
+            cmd.env("SHELL", shell);
         }
     }
     if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
@@ -2945,6 +2949,13 @@ mod windows_reap_tests {
 #[cfg(all(test, windows))]
 mod windows_resolve_tests {
     use super::*;
+
+    #[test]
+    fn passwd_identity_uses_userprofile() {
+        let id = passwd_identity().expect("windows identity");
+        assert!(!id.user.is_empty());
+        assert!(PathBuf::from(&id.home).is_dir());
+    }
 
     #[test]
     fn resolve_claude_finds_local_bin_exe_when_present() {

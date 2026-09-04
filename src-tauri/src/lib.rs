@@ -82,8 +82,9 @@ pub(crate) fn hide_window_console(cmd: &mut std::process::Command) {
     let _ = cmd;
 }
 
-/// Finder-launched .app bundles often omit HOME/USER/SHELL. Fall back to the
-/// passwd database so harness CLIs still find `~/.fx` and the login keychain.
+/// Finder-launched .app bundles often omit HOME/USER/SHELL. Windows GUI
+/// launches omit SHELL and sometimes HOME. Fall back to passwd / USERPROFILE
+/// so harness CLIs still find `~/.fx` and the login keychain / config dir.
 pub(crate) fn passwd_identity() -> Option<PasswdIdentity> {
     #[cfg(unix)]
     {
@@ -121,7 +122,29 @@ pub(crate) fn passwd_identity() -> Option<PasswdIdentity> {
     }
     #[cfg(not(unix))]
     {
-        None
+        // Analog of getpwuid: USERPROFILE + USERNAME. Do not call dirs_home()
+        // (that function falls back here).
+        let home = std::env::var("USERPROFILE")
+            .ok()
+            .filter(|home| !home.is_empty())
+            .or_else(|| std::env::var("HOME").ok().filter(|home| !home.is_empty()))
+            .or_else(
+                || match (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+                    (Ok(drive), Ok(path)) if !drive.is_empty() && !path.is_empty() => {
+                        Some(format!("{drive}{path}"))
+                    }
+                    _ => None,
+                },
+            )?;
+        let user = std::env::var("USERNAME")
+            .ok()
+            .filter(|user| !user.is_empty())
+            .or_else(|| std::env::var("USER").ok().filter(|user| !user.is_empty()))?;
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|shell| !shell.is_empty())
+            .unwrap_or_default();
+        Some(PasswdIdentity { home, user, shell })
     }
 }
 

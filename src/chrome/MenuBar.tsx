@@ -9,6 +9,7 @@ type MenuKey = "file" | "view" | "terminal";
 type Props = {
   onNew: () => void;
   onNewTerminal?: () => void;
+  onNewTerminalTab?: () => void;
   onToggleTerminal?: () => void;
   onGoToFile?: () => void;
   onToggleSidebar: () => void;
@@ -20,11 +21,15 @@ type Props = {
   onSearch?: () => void;
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
+  onOpenSettings?: () => void;
+  onSidebarAppearance?: () => void;
+  onQuit?: () => void;
 };
 
 export function MenuBar({
   onNew,
   onNewTerminal,
+  onNewTerminalTab,
   onToggleTerminal,
   onGoToFile,
   onToggleSidebar,
@@ -36,6 +41,9 @@ export function MenuBar({
   onSearch,
   onOpenInbox,
   onOpenNotes,
+  onOpenSettings,
+  onSidebarAppearance,
+  onQuit,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
@@ -105,6 +113,9 @@ export function MenuBar({
         case "new_terminal":
           onNewTerminal?.();
           break;
+        case "new_terminal_tab":
+          onNewTerminalTab?.();
+          break;
         case "toggle_terminal":
           onToggleTerminal?.();
           break;
@@ -122,6 +133,15 @@ export function MenuBar({
           break;
         case "open_notes":
           onOpenNotes?.();
+          break;
+        case "open_settings":
+          onOpenSettings?.();
+          break;
+        case "sidebar_opacity":
+          onSidebarAppearance?.();
+          break;
+        case "quit":
+          onQuit?.();
           break;
         case "go_to_file":
           onGoToFile?.();
@@ -157,11 +177,15 @@ export function MenuBar({
       onGoToFile,
       onNew,
       onNewTerminal,
+      onNewTerminalTab,
       onToggleTerminal,
       onPickProject,
       onSearch,
       onOpenInbox,
       onOpenNotes,
+      onOpenSettings,
+      onSidebarAppearance,
+      onQuit,
       onShowSourceControl,
       onToggleSidebar,
     ],
@@ -173,6 +197,12 @@ export function MenuBar({
         return [
           { kind: "item", id: "new_tab", label: "New Tab", shortcut: `${MOD}T` },
           { kind: "item", id: "new_terminal", label: "New Terminal", shortcut: `${MOD}\`` },
+          {
+            kind: "item",
+            id: "new_terminal_tab",
+            label: "New Terminal Tab",
+            shortcut: `${MOD}${SHIFT}\``,
+          },
           { kind: "item", id: "new_window", label: "New Window", shortcut: `${MOD}${SHIFT}N` },
           { kind: "sep" },
           { kind: "item", id: "open_project", label: "Open Project…", shortcut: `${MOD}O` },
@@ -188,7 +218,10 @@ export function MenuBar({
             shortcut: `${MOD}${ALT}T`,
           },
           { kind: "sep" },
+          { kind: "item", id: "open_settings", label: "Settings…", shortcut: `${MOD},` },
           { kind: "item", id: "check_for_updates", label: "Check for Updates…" },
+          { kind: "sep" },
+          { kind: "item", id: "quit", label: "Quit MonoCode", shortcut: `${MOD}Q` },
         ];
       case "view":
         return [
@@ -200,6 +233,11 @@ export function MenuBar({
           { kind: "item", id: "toggle_terminal", label: "Toggle Terminal", shortcut: `${MOD}J` },
           { kind: "item", id: "open_model_picker", label: "Switch Model…", shortcut: `${MOD}.` },
           { kind: "item", id: "toggle_diff", label: "Toggle Changes" },
+          {
+            kind: "item",
+            id: "sidebar_opacity",
+            label: "Sidebar Appearance…",
+          },
         ];
       case "terminal":
         return [
