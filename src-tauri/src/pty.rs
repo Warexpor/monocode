@@ -784,7 +784,7 @@ fn foreground_label(shell_pid: u32) -> Option<String> {
 #[cfg(any(windows, test))]
 const FOREGROUND_WALK_DEPTH: usize = 8;
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 fn foreground_from_process_tree(shell_pid: u32, rows: &[(u32, u32, String)]) -> Option<String> {
     let (_pid, image) = foreground_child_from_process_tree(shell_pid, rows)?;
     Some(prefer_command_line_or_image(None, image))
