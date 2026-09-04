@@ -11,9 +11,14 @@ describe("ModelPicker portal contract", () => {
     const source = readFileSync(join(root, "ModelPicker.tsx"), "utf8");
     const popover = readFileSync(join(root, "Popover.tsx"), "utf8");
 
+    // Fork chrome: menu escapes composer stacking via shared Popover (upstream
+    // hardbeat920/monocode#31 used a local createPortal; same outcome).
     expect(source).toContain('from "./Popover"');
     expect(source).toContain("layer={LAYER.popover}");
     expect(source).toContain("<Popover");
+    expect(source).not.toContain("createPortal");
+    expect(source).not.toMatch(/function\s+menuStyle\b/);
+
     expect(popover).toContain('from "react-dom"');
     expect(popover).toContain("createPortal");
     expect(popover).toContain("document.body");
