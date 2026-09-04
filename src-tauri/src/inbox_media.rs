@@ -263,9 +263,8 @@ fn path_has_dotdot(path: &str) -> bool {
 fn github_auth_token() -> Option<String> {
     let program = crate::harness::resolve_gui_binary("gh")?;
     let home = dirs_home()?;
-    let mut cmd = crate::harness::command_for(&program);
+    let mut cmd = crate::harness::command_for_args(&program, ["auth", "token"]);
     cmd.current_dir(&home)
-        .args(["auth", "token"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GH_PAGER", "cat");
     crate::harness::apply_gui_env(&mut cmd);

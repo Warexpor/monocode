@@ -2487,9 +2487,8 @@ fn gh_checked(root: &Path, args: &[&str]) -> Result<String, String> {
 fn gh_run(root: &Path, args: &[&str], allow_empty: bool) -> Result<String, String> {
     let program = crate::harness::resolve_gui_binary("gh")
         .ok_or_else(|| "GitHub CLI (`gh`) is not installed.".to_string())?;
-    let mut cmd = crate::harness::command_for(&program);
+    let mut cmd = crate::harness::command_for_args(&program, args);
     cmd.current_dir(root)
-        .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GH_PAGER", "cat")
         .env("GIT_PAGER", "cat");
