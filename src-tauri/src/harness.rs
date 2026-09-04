@@ -2964,11 +2964,11 @@ mod login_env_tests {
             .collect();
         assert_eq!(
             args,
-            vec![
-                "/D".into(),
-                "/S".into(),
-                "/C".into(),
-                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd""#.into()
+            [
+                "/D",
+                "/S",
+                "/C",
+                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd""#
             ]
         );
     }
@@ -2984,11 +2984,11 @@ mod login_env_tests {
             .collect();
         assert_eq!(
             args,
-            vec![
-                "/D".into(),
-                "/S".into(),
-                "/C".into(),
-                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd" "serve" "--port=4096""#.into()
+            [
+                "/D",
+                "/S",
+                "/C",
+                r#""C:\Users\n\AppData\Roaming\npm\opencode.cmd" "serve" "--port=4096""#
             ]
         );
     }
