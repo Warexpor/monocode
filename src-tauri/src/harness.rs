@@ -2617,3 +2617,30 @@ mod reap_logic_tests {
         ));
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_resolve_tests {
+    use super::*;
+
+    #[test]
+    fn resolve_claude_finds_local_bin_exe_when_present() {
+        let Some(home) = dirs_home() else {
+            return;
+        };
+        let expected = PathBuf::from(&home).join(r".local\bin\claude.exe");
+        if !expected.is_file() {
+            return;
+        }
+        let found = resolve_claude().expect("claude.exe is installed under ~/.local/bin");
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn resolve_gui_binary_claude_matches_path_lookup() {
+        let Some(from_path) = which_in_path(&gui_search_path(), "claude") else {
+            return;
+        };
+        let found = resolve_claude().expect("PATH hit implies resolve_claude succeeds");
+        assert_eq!(found, from_path);
+    }
+}
