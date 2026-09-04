@@ -18,12 +18,12 @@ Reference for the 1:1 Windows port against [hardbeat920/monocode](https://github
 | Dock badge / reopen | `NSApplication` dock + `RunEvent::Reopen` | Last window close quits (`lib.rs` `ExitRequested`) | N/A |
 | Claude usage Keychain | `security` CLI | file store under user config (same as Linux) | N/A |
 | Orphan harness sweep | `/proc` or `ps` + `MONOCODE_HARNESS_PARENT` | Same marker via PEB environ + Toolhelp; Job kill-on-close still covers in-process trees | PARTIAL until Windows smoke |
-| NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis` | NOT_1TO1 until Windows smoke |
+| NSIS installer | n/a | `tauri.windows.conf.json` bundle `nsis`; CI job `Windows NSIS` runs `npm run build:windows` | PARTIAL until that job is green |
 | Live Claude via `ocx` | n/a | Proven only on the Warexpor Windows PC | NOT_1TO1 until Windows smoke |
 
 ## Still needs a Windows machine
 
-- `npm run build:windows` NSIS artifact and first-run (CI `check` does not bundle NSIS).
+- `npm run build:windows` NSIS artifact and first-run. CI now builds NSIS on `windows-latest`; first-run of the installer is still desktop-only.
 - Acrylic vs Mica vs solid fallback on a real DWM session.
 - Live harness session (`ocx` is machine-local; this Linux VM is not that proof).
 
