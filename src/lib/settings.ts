@@ -328,6 +328,8 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
   { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
+  { command: "App: Settings", keys: `${MOD},`, when: "Always" },
+  { command: "App: Quit", keys: `${MOD}Q`, when: "Always" },
   { command: "Tab: New", keys: `${MOD}T`, when: "Always" },
   { command: "Tab: Close Others", keys: `${MOD}${ALT}T`, when: "Always" },
   { command: "Tab: Next", keys: `${MOD}${SHIFT}]`, when: "Always" },
@@ -356,6 +358,11 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Terminal: New", keys: `${MOD}\``, when: "Always" },
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
   { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
+  {
+    command: "Agent: Stop focused turn",
+    keys: "Esc",
+    when: "focusedBusy && !terminalFocus",
+  },
   { command: "Editor: Find", keys: `${MOD}F`, when: "editorFocus" },
   { command: "Editor: Replace", keys: `${MOD}${ALT}F`, when: "editorFocus" },
 ];

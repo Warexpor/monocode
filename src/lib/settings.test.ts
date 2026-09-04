@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ALT, MOD, SHIFT } from "./platform";
 import {
   COMPOSER_RUNNER_DEFAULT,
   DIFF_VIEWER_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
   GRID_ARCADE_ENABLED_DEFAULT,
+  KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
+  filterKeybindings,
   loadComposerRunner,
   loadDiffViewer,
   loadFollowUpBehavior,
@@ -150,6 +153,23 @@ describe("grid arcade enabled setting", () => {
     expect(loadGridArcadeEnabled()).toBe(false);
     saveGridArcadeEnabled(true);
     expect(loadGridArcadeEnabled()).toBe(true);
+  });
+});
+
+describe("keybindings catalog", () => {
+  it("lists File menu shortcuts the workspace already handles", () => {
+    const keys = KEYBINDINGS.map((row) => row.keys);
+    expect(keys).toContain(`${MOD},`);
+    expect(keys).toContain(`${MOD}Q`);
+    expect(keys).toContain("Esc");
+    expect(keys).toContain(`${MOD}${ALT}T`);
+    expect(keys).toContain(`${MOD}${SHIFT}F`);
+  });
+
+  it("finds the stop-turn binding by its advertised key", () => {
+    expect(filterKeybindings(KEYBINDINGS, "esc").map((row) => row.command)).toEqual(
+      ["Agent: Stop focused turn"],
+    );
   });
 });
 
