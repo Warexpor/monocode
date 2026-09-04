@@ -94,9 +94,9 @@ impl PtyHost {
             map.drain().map(|(_, live)| live).collect()
         };
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
-        for live in &kids {
-            #[cfg(unix)]
-            {
+        #[cfg(unix)]
+        {
+            for live in &kids {
                 hangup(live.pid);
                 close_fd(live.master_fd);
             }
