@@ -2982,10 +2982,8 @@ mod windows_resolve_tests {
 
     #[test]
     fn gui_search_path_finds_opencode_exe_in_roaming_npm() {
-        let dir = std::env::temp_dir().join(format!(
-            "monocode-opencode-npm-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("monocode-opencode-npm-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let npm = dir.join(r"AppData\Roaming\npm");
         std::fs::create_dir_all(&npm).unwrap();
@@ -2998,10 +2996,8 @@ mod windows_resolve_tests {
 
     #[test]
     fn gui_search_path_finds_opencode_exe_in_scoop_shims() {
-        let dir = std::env::temp_dir().join(format!(
-            "monocode-opencode-scoop-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("monocode-opencode-scoop-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let shims = dir.join(r"scoop\shims");
         std::fs::create_dir_all(&shims).unwrap();
