@@ -282,6 +282,13 @@ export function harnessSupportsAttachments(id: HarnessId): boolean {
   return id !== "fx";
 }
 
+/** Short composer copy — Grok embeds images; other files go as path links. */
+export function harnessAttachmentHint(id: HarnessId): string {
+  if (id === "fx") return `${HARNESS_TITLE[id]} does not support attachments`;
+  if (id === "grok") return "Images embed; other files attach as paths";
+  return "Attach files or images to this message";
+}
+
 export function newSession(
   harness: HarnessId = "claude",
   cwd = "~",

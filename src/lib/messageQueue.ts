@@ -60,3 +60,22 @@ export function queuedMessageForSubmit(
   if (!canDispatchQueuedHead(session)) return undefined;
   return message;
 }
+
+/** Move a queued follow-up up (earlier) or down (later) in the list. */
+export function reorderQueuedMessage(
+  session: Session,
+  messageId: string,
+  direction: "up" | "down",
+): Session {
+  const queued = session.queuedMessages;
+  if (!queued || queued.length < 2) return session;
+  const index = queued.findIndex((message) => message.id === messageId);
+  if (index < 0) return session;
+  const target = direction === "up" ? index - 1 : index + 1;
+  if (target < 0 || target >= queued.length) return session;
+  const next = queued.slice();
+  const [row] = next.splice(index, 1);
+  if (!row) return session;
+  next.splice(target, 0, row);
+  return { ...session, queuedMessages: next };
+}

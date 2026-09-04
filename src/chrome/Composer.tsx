@@ -2,12 +2,15 @@ import {
   ArrowUp,
   AiIdea,
   Check,
+  ChevronDown,
+  ChevronUp,
   CornerDownRight,
   FilePlus,
   ListEnd,
   Pause,
   Pencil,
   Play,
+  Maximize2,
   Plus,
   Square,
   StickyNote,
@@ -58,6 +61,17 @@ import {
 } from "../lib/githubTasks";
 import type { HandoffComposerCard } from "../lib/handoff";
 import { looksLikeProject, type RecentProject } from "../lib/recents";
+import { canSteerHarness } from "../lib/harness";
+import {
+  clearComposerDraft,
+  loadComposerDraft,
+  saveComposerDraft,
+} from "../custom/composerDraft";
+import {
+  loadPromptHistory,
+  pushPromptHistory,
+  stepPromptHistory,
+} from "../custom/promptHistory";
 import type {
   Attachment,
   HarnessId,
@@ -66,7 +80,11 @@ import type {
   RuntimeMode,
   TurnIntent,
 } from "../lib/session";
-import { HARNESS_TITLE, harnessSupportsAttachments } from "../lib/session";
+import {
+  HARNESS_TITLE,
+  harnessAttachmentHint,
+  harnessSupportsAttachments,
+} from "../lib/session";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
@@ -136,6 +154,8 @@ type Props = {
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
   initialDraft?: string;
+  /** Session id for draft persistence / prompt history scope. */
+  sessionId?: string;
   inboxCard?: InboxComposerCard;
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
@@ -167,6 +187,10 @@ type Props = {
   onEditQueuedMessage?: (messageId: string, text: string) => void;
   onQueuedMessageEditingChange?: (messageId?: string) => void;
   onSteerQueuedMessage?: (messageId: string) => void;
+  onReorderQueuedMessage?: (
+    messageId: string,
+    direction: "up" | "down",
+  ) => void;
   onResumeQueue?: () => void;
   onOpenFile?: (path: string) => void;
   children?: ReactNode;
@@ -206,18 +230,22 @@ function ToolButton({
 function MessageQueue({
   messages,
   status,
+  canSteer = true,
   onDelete,
   onEdit,
   onEditingChange,
   onSteer,
+  onReorder,
   onResume,
 }: {
   messages: QueuedMessage[];
   status?: MessageQueueStatus;
+  canSteer?: boolean;
   onDelete?: (messageId: string) => void;
   onEdit?: (messageId: string, text: string) => void;
   onEditingChange?: (messageId?: string) => void;
   onSteer?: (messageId: string) => void;
+  onReorder?: (messageId: string, direction: "up" | "down") => void;
   onResume?: () => void;
 }) {
   const [editingId, setEditingId] = useState<string>();
@@ -332,14 +360,40 @@ function MessageQueue({
                   <span className="min-w-0 flex-1 truncate text-content/80">
                     {label}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onSteer?.(message.id)}
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
-                  >
-                    <CornerDownRight className="size-3.5" />
-                    Steer
-                  </button>
+                  {onReorder && messages.length > 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        title="Move up in queue"
+                        aria-label="Move up in queue"
+                        disabled={index === 0}
+                        onClick={() => onReorder(message.id, "up")}
+                        className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Move down in queue"
+                        aria-label="Move down in queue"
+                        disabled={index === messages.length - 1}
+                        onClick={() => onReorder(message.id, "down")}
+                        className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </button>
+                    </>
+                  ) : null}
+                  {canSteer && onSteer ? (
+                    <button
+                      type="button"
+                      onClick={() => onSteer(message.id)}
+                      className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
+                    >
+                      <CornerDownRight className="size-3.5" />
+                      Steer
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     title="Edit queued message"
@@ -386,6 +440,7 @@ export function Composer({
   compactSupported = false,
   quoteRequest,
   initialDraft,
+  sessionId,
   inboxCard,
   noteCard,
   handoffCard,
@@ -412,6 +467,7 @@ export function Composer({
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
   onSteerQueuedMessage,
+  onReorderQueuedMessage,
   onResumeQueue,
   onOpenFile,
   children,
@@ -424,10 +480,15 @@ export function Composer({
   const consumedQuoteId = useRef<number | null>(null);
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
-  const [draft, setDraft] = useState(initialDraft ?? "");
+  const [draft, setDraft] = useState(() => {
+    if (initialDraft) return initialDraft;
+    if (sessionId) return loadComposerDraft(sessionId);
+    return "";
+  });
   const [hasValue, setHasValue] = useState(
     () =>
-      (initialDraft ?? "").trim().length > 0 ||
+      (initialDraft ?? (sessionId ? loadComposerDraft(sessionId) : "")).trim()
+        .length > 0 ||
       !!inboxCard ||
       !!noteCard ||
       !!handoffCard,
@@ -436,6 +497,9 @@ export function Composer({
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const historyLiveDraft = useRef("");
   const [slash, setSlash] = useState<SlashToken | null>(null);
   const [skillActive, setSkillActive] = useState(0);
   const [creatingSkill, setCreatingSkill] = useState(false);
@@ -488,6 +552,8 @@ export function Composer({
   const skillLimit = harness === "pi" ? Number.POSITIVE_INFINITY : undefined;
   const rankedSkills = rankSkills(slashItems, slash?.query ?? "", skillLimit);
   const attachmentsSupported = harnessSupportsAttachments(harness);
+  const attachmentHint = harnessAttachmentHint(harness);
+  const steerSupported = canSteerHarness(harness);
   const skillNames = useMemo(
     () => new Set(slashItems.map((skill) => skill.invocation)),
     [slashItems],
@@ -634,8 +700,18 @@ export function Composer({
 
   const resizeTextarea = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    const max = composerExpanded ? 420 : 160;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   };
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const handle = window.setTimeout(() => {
+      if (initialDraft) return;
+      saveComposerDraft(sessionId, draft);
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [draft, initialDraft, sessionId]);
 
   useEffect(() => {
     const el = ref.current;
@@ -874,6 +950,10 @@ export function Composer({
     onSubmit(text, files, {
       intent: planSelected || command.planning ? "plan" : "default",
     });
+    if (text.trim()) pushPromptHistory(text);
+    if (sessionId) clearComposerDraft(sessionId);
+    setHistoryIndex(-1);
+    historyLiveDraft.current = "";
     if (!ref.current) return;
     ref.current.value = "";
     ref.current.style.height = "auto";
@@ -890,6 +970,39 @@ export function Composer({
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (creatingSkill) return;
+
+    if (
+      !mentionOpen &&
+      !slash &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown")
+    ) {
+      const el = e.currentTarget;
+      const atStart = (el.selectionStart ?? 0) === 0;
+      const atEnd = (el.selectionStart ?? 0) === el.value.length;
+      const emptyish = el.value.trim().length === 0;
+      if (
+        (e.key === "ArrowUp" && (emptyish || atStart)) ||
+        (e.key === "ArrowDown" && historyIndex >= 0 && (emptyish || atEnd))
+      ) {
+        e.preventDefault();
+        if (historyIndex < 0) historyLiveDraft.current = el.value;
+        const stepped = stepPromptHistory(
+          loadPromptHistory(),
+          historyIndex,
+          e.key === "ArrowUp" ? "older" : "newer",
+          historyLiveDraft.current,
+        );
+        setHistoryIndex(stepped.index);
+        el.value = stepped.text;
+        resizeTextarea(el);
+        setDraft(stepped.text);
+        syncHasValue(stepped.text, attachmentsRef.current);
+        const cursor =
+          e.key === "ArrowUp" ? 0 : stepped.text.length;
+        el.setSelectionRange(cursor, cursor);
+        return;
+      }
+    }
 
     if (mentionOpen) {
       if (e.key === "ArrowDown") {
@@ -1014,10 +1127,12 @@ export function Composer({
       <MessageQueue
         messages={queuedMessages}
         status={queueStatus}
+        canSteer={steerSupported}
         onDelete={onDeleteQueuedMessage}
         onEdit={onEditQueuedMessage}
         onEditingChange={onQueuedMessageEditingChange}
         onSteer={onSteerQueuedMessage}
+        onReorder={onReorderQueuedMessage}
         onResume={onResumeQueue}
       />
       <div className="relative overflow-visible">
@@ -1165,8 +1280,9 @@ export function Composer({
             <div
               ref={highlightRef}
               aria-hidden
-              className={`composer-highlight pointer-events-none absolute inset-0 max-h-40 overflow-hidden whitespace-pre-wrap break-words px-3 text-sm leading-5.5 text-content font-sans ${
-                shell ? "py-4" : "py-3"
+              className={`composer-highlight pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-3 text-sm leading-5.5 text-content font-sans ${
+                composerExpanded ? "max-h-[420px]" : "max-h-40"
+              } ${                shell ? "py-4" : "py-3"
               }`}
             >
               <ComposerHighlight
@@ -1191,8 +1307,9 @@ export function Composer({
                         ? "How can I help you today?"
                         : "Ask, build, / for commands, @ for references... "
               }
-              className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
-                shell ? "py-4" : "py-3"
+              className={`composer-field scrollbar-none relative w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
+                composerExpanded ? "max-h-[420px]" : "max-h-40"
+              } ${                shell ? "py-4" : "py-3"
               }`}
               onFocus={onFocus}
               onKeyDown={onKeyDown}
@@ -1248,7 +1365,7 @@ export function Composer({
                       <span className="block text-[13px]">Upload file</span>
                       <span className="block text-[11px] leading-4 text-content/45">
                         {attachmentsSupported
-                          ? "Attach files or images to this message"
+                          ? attachmentHint
                           : `${HARNESS_TITLE[harness]} does not support attachments`}
                       </span>
                     </span>
@@ -1336,6 +1453,21 @@ export function Composer({
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
+              <ToolButton
+                active={composerExpanded}
+                label={
+                  composerExpanded ? "Collapse composer" : "Expand composer"
+                }
+                onClick={() => {
+                  setComposerExpanded((open) => !open);
+                  window.requestAnimationFrame(() => {
+                    const el = ref.current;
+                    if (el) resizeTextarea(el);
+                  });
+                }}
+              >
+                <Maximize2 className="size-3.5" />
+              </ToolButton>
               <ComposerAction
                 busy={busy}
                 hasValue={hasValue}

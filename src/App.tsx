@@ -178,6 +178,7 @@ import {
   mergeModelSettings,
   preferredModelSettings,
   resolveModel,
+  saveLastModelChoice,
   saveLastModelSettings,
 } from "./lib/models";
 import {
@@ -218,7 +219,6 @@ import {
   canReplaceSessionTitle,
   formatSessionTitle,
   sessionNeedsInput,
-  newDefaultSession,
   newSession,
   sessionDisplayTitle,
   sessionWorkCwd,
@@ -238,6 +238,7 @@ import {
   canDispatchQueuedHead,
   dequeueQueuedMessage,
   queuedMessageForSubmit,
+  reorderQueuedMessage,
 } from "./lib/messageQueue";
 import { dropContextWindow } from "./lib/contextUsage";
 import {
@@ -267,6 +268,17 @@ import {
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./lib/tabKeys";
+import { handleUiZoomChord, uiZoomActionFromEvent } from "./custom/uiZoom";
+import { rewindSessionToUserBlock } from "./custom/rewindSession";
+import { createComfortSession } from "./custom/createSession";
+import { savePreferredRuntimeMode } from "./custom/preferredRuntimeMode";
+import { saveProjectDefault } from "./custom/projectDefaults";
+import {
+  loadPersistedQueue,
+  savePersistedQueue,
+} from "./custom/queuePersist";
+import { sessionTranscriptMarkdown } from "./custom/transcriptExport";
+import { copyText } from "./lib/clipboard";
 import {
   canTabVisitBack,
   canTabVisitForward,
@@ -534,7 +546,7 @@ export default function App({
   );
   const [seed] = useState(() => {
     const cwd = lastProjectPath() ?? "~";
-    const session = newDefaultSession(cwd);
+    const session = createComfortSession(cwd);
     const tab = newTab(session.id);
     return { session, tab };
   });
@@ -578,6 +590,8 @@ export default function App({
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [searchViewOpen, setSearchViewOpen] = useState(false);
   const [searchViewFocusToken, setSearchViewFocusToken] = useState(0);
+  const [focusBlockId, setFocusBlockId] = useState<string>();
+  const [focusBlockSessionId, setFocusBlockSessionId] = useState<string>();
   const [inboxViewOpen, setInboxViewOpen] = useState(false);
   const [notesViewOpen, setNotesViewOpen] = useState(false);
   const notesEnabled = useSyncExternalStore(
@@ -1289,7 +1303,7 @@ export default function App({
     setInboxViewOpen(false);
     setNotesViewOpen(false);
     const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
-    const session = newDefaultSession(cwd, sessionDefaults?.runtimeMode);
+    const session = createComfortSession(cwd, sessionDefaults?.runtimeMode);
     const tab = newTab(session.id);
     setSessions((prev) => [...prev, session]);
     appendTab(tab, cwd);
@@ -1317,7 +1331,7 @@ export default function App({
             ? item.identifier?.trim() || `#${item.number}`
             : `#${item.number}`;
         const session = {
-          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          ...createComfortSession(cwd, sessionDefaults?.runtimeMode),
           title: `${ref} ${item.title}`,
           inboxCard: inboxComposerCard(item, description),
         };
@@ -1372,7 +1386,7 @@ export default function App({
         projectCwd;
       const title = card.title.trim();
       const session = {
-        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        ...createComfortSession(cwd, sessionDefaults?.runtimeMode),
         ...(title ? { title } : {}),
         noteCard: card,
       };
@@ -1434,7 +1448,7 @@ export default function App({
   const onSplit = useCallback(
     (dir: SplitDir) => {
       if (!activeTab) return;
-      const session = newDefaultSession(
+      const session = createComfortSession(
         sessionDefaults?.cwd ?? projectCwd,
         sessionDefaults?.runtimeMode,
       );
@@ -2365,27 +2379,40 @@ export default function App({
         return null;
       }
       const restored = await restoreSessionCheckout(loaded);
-      if (restored.providerSessionId && isLiveHarness(restored.harness)) {
+      const queue = loadPersistedQueue(restored.id);
+      const withQueue =
+        queue && !restored.queuedMessages?.length
+          ? {
+              ...restored,
+              queuedMessages: queue.messages,
+              queueStatus: queue.status,
+            }
+          : restored;
+      if (withQueue.providerSessionId && isLiveHarness(withQueue.harness)) {
         bindHarnessSession(
-          restored.harness,
-          restored.id,
-          restored.providerSessionId,
-          sessionWorkCwd(restored),
+          withQueue.harness,
+          withQueue.id,
+          withQueue.providerSessionId,
+          sessionWorkCwd(withQueue),
         );
       }
-      lastPersisted.current.set(restored.id, persistFingerprint(restored));
-      if (!sessionsRef.current.some((session) => session.id === restored.id)) {
-        const next = [...sessionsRef.current, restored];
+      lastPersisted.current.set(withQueue.id, persistFingerprint(withQueue));
+      if (!sessionsRef.current.some((session) => session.id === withQueue.id)) {
+        const next = [...sessionsRef.current, withQueue];
         sessionsRef.current = next;
         setSessions(next);
       }
-      return restored;
+      return withQueue;
     },
     [refreshHistory, sidebarCwd],
   );
 
   const onSelectHistorySession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, blockId?: string) => {
+      if (blockId) {
+        setFocusBlockSessionId(sessionId);
+        setFocusBlockId(blockId);
+      }
       if (focusOpenSession(sessionId)) return;
       const session = await ensureOpenSession(sessionId);
       if (!session) return;
@@ -2443,7 +2470,7 @@ export default function App({
         replaceTarget,
         scope: tabCloseScope,
         createReplacement: (seed) =>
-          newDefaultSession(
+          createComfortSession(
             seed?.cwd ?? projectCwdRef.current,
             seed?.runtimeMode,
           ),
@@ -2861,7 +2888,7 @@ export default function App({
 
       if (nextTabs.length === 0) {
         const fallback = nextSessions[0];
-        const session = newDefaultSession("~", fallback?.runtimeMode);
+        const session = createComfortSession("~", fallback?.runtimeMode);
         const tab = newTab(session.id);
         nextSessions = [...nextSessions, session];
         nextTabs = [tab];
@@ -3097,6 +3124,8 @@ export default function App({
           return next;
         }),
       );
+      saveLastModelChoice(harness, resolved.id);
+      if (current.cwd) saveProjectDefault(current.cwd, harness, resolved.id);
     },
     [],
   );
@@ -3113,6 +3142,7 @@ export default function App({
 
   const onRuntimeModeChange = useCallback(
     (sessionId: string, runtimeMode: RuntimeMode) => {
+      savePreferredRuntimeMode(runtimeMode);
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, runtimeMode } : s)),
       );
@@ -3181,11 +3211,16 @@ export default function App({
           : null;
 
       if (current.busy && !pendingSwitch) {
-        const followUpBehavior =
-          intent === "plan"
-            ? "queue"
-            : (options?.followUpBehavior ?? loadFollowUpBehavior());
-        if (followUpBehavior === "queue") {
+        // Grok Build / fx cannot steer. Prefer queue over rejecting the follow-up
+        // even when Settings default to Steer.
+        const wantsSteer =
+          intent !== "plan" &&
+          (options?.followUpBehavior ?? loadFollowUpBehavior()) === "steer";
+        const canSteer =
+          wantsSteer &&
+          isLiveHarness(current.harness) &&
+          canSteerHarness(current.harness);
+        if (!canSteer) {
           setSessions((prev) =>
             prev.map((s) =>
               s.id === sessionId
@@ -3211,19 +3246,16 @@ export default function App({
                 : s,
             ),
           );
-          return;
-        }
-        if (
-          !isLiveHarness(current.harness) ||
-          !canSteerHarness(current.harness)
-        ) {
-          // Harnesses that cannot steer (fx) used to drop the message on the
-          // floor here, so a follow-up sent mid-turn just vanished. Say so.
-          enqueueHarnessEvent(sessionId, {
-            type: "status",
-            text: `${current.harness} cannot take a follow-up mid-turn — wait for this turn to finish, or stop it first.`,
-          });
-          flushHarnessEvents();
+          window.setTimeout(() => {
+            const latest = sessionsRef.current.find((s) => s.id === sessionId);
+            if (latest) {
+              savePersistedQueue(
+                sessionId,
+                latest.queuedMessages,
+                latest.queueStatus,
+              );
+            }
+          }, 0);
           return;
         }
         const visible = displayAttachments(attachments);
@@ -3263,7 +3295,7 @@ export default function App({
             const message =
               error instanceof Error
                 ? error.message
-                : `${current.harness} could not steer the active turn`;
+                : `${HARNESS_TITLE[current.harness]} could not steer the active turn`;
             enqueueHarnessEvent(sessionId, {
               type: "session.error",
               message,
@@ -3713,11 +3745,26 @@ export default function App({
   const onDeleteQueuedMessage = useCallback(
     (sessionId: string, messageId: string) => {
       setSessions((prev) =>
-        prev.map((session) =>
-          session.id === sessionId
-            ? dequeueQueuedMessage(session, messageId)
-            : session,
-        ),
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          const next = dequeueQueuedMessage(session, messageId);
+          savePersistedQueue(sessionId, next.queuedMessages, next.queueStatus);
+          return next;
+        }),
+      );
+    },
+    [],
+  );
+
+  const onReorderQueuedMessage = useCallback(
+    (sessionId: string, messageId: string, direction: "up" | "down") => {
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          const next = reorderQueuedMessage(session, messageId, direction);
+          savePersistedQueue(sessionId, next.queuedMessages, next.queueStatus);
+          return next;
+        }),
       );
     },
     [],
@@ -3760,10 +3807,9 @@ export default function App({
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
       );
-      const message = session
-        ? queuedMessageForSubmit(session, messageId, "steer")
-        : undefined;
-      if (!session || !message) return;
+      if (!session || !canSteerHarness(session.harness)) return;
+      const message = queuedMessageForSubmit(session, messageId, "steer");
+      if (!message) return;
       onSubmit(sessionId, message.text, message.attachments, {
         followUpBehavior: "steer",
         queuedMessageId: message.id,
@@ -4048,6 +4094,40 @@ export default function App({
     [flushHarnessEvents],
   );
 
+  const onRewindToMessage = useCallback(
+    (sessionId: string, blockId: string) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (!session) return;
+      const next = rewindSessionToUserBlock(session, blockId);
+      if (!next) return;
+
+      turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
+      flushHarnessEvents();
+      for (const id of sessionChildHarnesses(session)) {
+        if (session.busy) void cancelHarnessTurn(id, sessionId);
+        void forgetHarnessSession(id, sessionId);
+      }
+      lastBoundProvider.current.delete(sessionId);
+
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? next : s)),
+      );
+      persistSession(next);
+      // One-shot seed: leave the draft in the composer, drop it from session.
+      window.setTimeout(() => {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === sessionId && s.composerSeed === next.composerSeed
+              ? { ...s, composerSeed: undefined }
+              : s,
+          ),
+        );
+      }, 0);
+      notifyReviewChanged(sessionId);
+    },
+    [flushHarnessEvents, persistSession],
+  );
+
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -4100,6 +4180,83 @@ export default function App({
     },
     [],
   );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== "y" && key !== "n") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+      const focusedId =
+        tabsRef.current.find((tab) => tab.id === activeTabIdRef.current)
+          ?.focusedId ?? active?.id;
+      const session = sessionsRef.current.find((entry) => entry.id === focusedId);
+      if (!session) return;
+      const pending = session.blocks.find(
+        (block) => block.approval && !block.approval.decided,
+      )?.approval;
+      if (!pending) return;
+      event.preventDefault();
+      onApproval(session.id, pending.requestId, key === "y" ? "allow" : "deny");
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [active?.id, onApproval]);
+
+  const onDuplicateSession = useCallback(
+    (sessionId: string) => {
+      const source = sessionsRef.current.find((entry) => entry.id === sessionId);
+      if (!source) return;
+      const copy: Session = {
+        ...source,
+        id: crypto.randomUUID(),
+        title: `${sessionDisplayTitle(source.title, source.harness)} (copy)`,
+        busy: false,
+        providerSessionId: undefined,
+        pendingQuestion: undefined,
+        pendingSwitch: undefined,
+        queuedMessages: undefined,
+        queueStatus: undefined,
+        editingQueuedMessageId: undefined,
+        handoffCard: undefined,
+        composerSeed: undefined,
+        blocks: source.blocks.map((block) => ({
+          ...block,
+          id: crypto.randomUUID(),
+          streaming: false,
+          approval: block.approval
+            ? { ...block.approval, decided: block.approval.decided ?? "deny" }
+            : undefined,
+        })),
+      };
+      const next = [...sessionsRef.current, copy];
+      sessionsRef.current = next;
+      setSessions(next);
+      const tab = newTab(copy.id);
+      appendTab(tab, copy.cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+    },
+    [appendTab],
+  );
+
+  const onCopySessionTranscript = useCallback((sessionId: string) => {
+    const session = sessionsRef.current.find((entry) => entry.id === sessionId);
+    if (!session) return;
+    void copyText(sessionTranscriptMarkdown(session)).then(() => {
+      playCue("copy");
+    });
+  }, []);
 
   const onQuestionReply = useCallback(
     (sessionId: string, requestId: number, reply: UserQuestionReply) => {
@@ -4517,6 +4674,21 @@ export default function App({
         run("find_in_project", actions.current.onFindInProject);
         return;
       }
+      {
+        const target = e.target instanceof Element ? e.target : null;
+        if (
+          uiZoomActionFromEvent(e) &&
+          !shouldIgnoreTerminalCtrlChord(
+            e,
+            Boolean(target?.closest(".monocode-terminal")),
+          )
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleUiZoomChord(e);
+          return;
+        }
+      }
       if (isModelPickerChord(e)) {
         const target = e.target instanceof Element ? e.target : null;
         if (
@@ -4666,6 +4838,8 @@ export default function App({
         onArchiveSession={onArchiveHistorySession}
         onPinSession={onPinHistorySession}
         onDeleteSession={onDeleteHistorySession}
+        onDuplicateSession={onDuplicateSession}
+        onCopySessionTranscript={onCopySessionTranscript}
         onOpenFile={onOpenFile}
         onOpenTerminal={(cwd) => onOpenTerminal(cwd)}
         onFileMoved={onFileMoved}
@@ -4893,6 +5067,7 @@ export default function App({
                           onRuntimeModeChange={onRuntimeModeChange}
                           onSubmit={onSubmit}
                           onStop={onStop}
+                          onRewindToMessage={onRewindToMessage}
                           onCompactContext={onCompactContext}
                           onDeleteQueuedMessage={onDeleteQueuedMessage}
                           onEditQueuedMessage={onEditQueuedMessage}
@@ -4900,12 +5075,22 @@ export default function App({
                             onQueuedMessageEditingChange
                           }
                           onSteerQueuedMessage={onSteerQueuedMessage}
+                          onReorderQueuedMessage={onReorderQueuedMessage}
                           onResumeQueue={onResumeQueue}
                           onInboxCardDismiss={onInboxCardDismiss}
                           onNoteCardDismiss={onNoteCardDismiss}
                           onHandoffCardDismiss={onHandoffCardDismiss}
                           onApproval={onApproval}
                           onQuestionReply={onQuestionReply}
+                          focusBlockId={
+                            focusBlockSessionId === active?.id
+                              ? focusBlockId
+                              : undefined
+                          }
+                          onFocusBlockConsumed={() => {
+                            setFocusBlockId(undefined);
+                            setFocusBlockSessionId(undefined);
+                          }}
                           onOpenFile={onOpenFile}
                           editorNavigation={editorNavigation}
                           onOpenDiff={onOpenDiff}

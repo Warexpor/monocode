@@ -22,7 +22,7 @@ Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCod
 > - [Claude Code](https://claude.com/product/claude-code) - `claude auth login`
 > - [Codex](https://developers.openai.com/codex/cli) - `codex login`
 > - [Cursor CLI](https://cursor.com/cli) - `agent login`
-> - [Grok Build](https://docs.x.ai/build/overview) - `curl -fsSL https://x.ai/cli/install.sh | bash` then `grok login`
+> - [Grok Build](https://docs.x.ai/build/overview) - macOS/Linux: `curl -fsSL https://x.ai/cli/install.sh | bash`; Windows: `irm https://x.ai/cli/install.ps1 | iex`; then `grok login`
 > - [OpenCode](https://opencode.ai) - `opencode auth login`
 > - [Pi](https://pi.dev/) - `npm install -g @earendil-works/pi-coding-agent`
 > - [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`

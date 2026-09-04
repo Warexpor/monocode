@@ -88,7 +88,10 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
 
     let _ = window.set_focus();
     #[cfg(target_os = "windows")]
-    apply_windows_glass(&window);
+    {
+        apply_windows_window_icon(&window);
+        apply_windows_glass(&window);
+    }
     Ok(())
 }
 
@@ -152,11 +155,21 @@ fn record_windows_glass(kind: &str) {
     let _ = std::fs::write(path, kind);
 }
 
+/// Undecorated Windows windows often omit the taskbar icon even when the PE
+/// embeds one. Re-apply the bundle default onto the HWND.
+#[cfg(target_os = "windows")]
+pub fn apply_windows_window_icon(window: &WebviewWindow) {
+    if let Some(icon) = window.app_handle().default_window_icon() {
+        let _ = window.set_icon(icon.clone());
+    }
+}
+
 /// Apply DWM effects on every live webview. Called from `RunEvent::Ready` so the
 /// NSIS smoke sidecar is written even if the boot splash never invokes JS.
 #[cfg(target_os = "windows")]
 pub fn apply_windows_glass_all(app: &AppHandle) {
     for window in app.webview_windows().into_values() {
+        apply_windows_window_icon(&window);
         apply_windows_glass(&window);
     }
 }

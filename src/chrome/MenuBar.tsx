@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../lib/platform";
 import { runUpdateFlow } from "../lib/updater";
+import { resetUiZoom, zoomIn, zoomOut } from "../custom/uiZoom";
 
 type MenuKey = "file" | "view" | "terminal";
 
@@ -217,6 +218,15 @@ export function MenuBar({
         case "check_for_updates":
           void runUpdateFlow(true);
           break;
+        case "zoom_in":
+          void zoomIn();
+          break;
+        case "zoom_out":
+          void zoomOut();
+          break;
+        case "zoom_reset":
+          void resetUiZoom();
+          break;
       }
     },
     [
@@ -305,6 +315,15 @@ export function MenuBar({
           { kind: "item", id: "focus_right", label: "Focus Pane Right", shortcut: `${MOD}${ALT}→` },
           { kind: "item", id: "focus_up", label: "Focus Pane Up", shortcut: `${MOD}${ALT}↑` },
           { kind: "item", id: "focus_down", label: "Focus Pane Down", shortcut: `${MOD}${ALT}↓` },
+          { kind: "sep" },
+          { kind: "item", id: "zoom_in", label: "Zoom In", shortcut: `${MOD}=` },
+          { kind: "item", id: "zoom_out", label: "Zoom Out", shortcut: `${MOD}-` },
+          {
+            kind: "item",
+            id: "zoom_reset",
+            label: "Actual Size",
+            shortcut: `${MOD}0`,
+          },
           { kind: "sep" },
           {
             kind: "item",

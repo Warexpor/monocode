@@ -396,6 +396,20 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       grok.title ||
       toolLabel(update) ||
       toolLabel(tool);
+    const detail = cap(toolDetail(update, tool) ?? "") || undefined;
+    // Fresh tool_call rows start the tool in the transcript; updates patch it.
+    if (kind === "tool_call") {
+      return [
+        {
+          type: "tool.started",
+          callId,
+          title: title || "Tool",
+          kind: toolKind,
+          status: status ?? "pending",
+          preview,
+        },
+      ];
+    }
     return [
       {
         type: "tool.updated",
@@ -403,7 +417,7 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
         title,
         kind: toolKind,
         status,
-        detail: cap(toolDetail(update, tool) ?? "") || undefined,
+        detail,
         preview,
       },
     ];
@@ -415,7 +429,20 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
   }
 
   if (kind === "session_summary_generated") {
-    return [];
+    const events: HarnessEvent[] = [];
+    const summary =
+      stringField(update, "summary") ??
+      stringField(update, "text") ??
+      textFromContent(update.content ?? update.summary, "\n");
+    if (summary.trim()) {
+      events.push({
+        type: "status",
+        text: summary.trim().slice(0, 400),
+      });
+    }
+    const usage = usageFromUpdate(update);
+    if (usage) events.push(usage);
+    return events;
   }
 
   const usage = usageFromUpdate(update);

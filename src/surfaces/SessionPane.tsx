@@ -66,6 +66,7 @@ type Props = {
     options?: { intent?: TurnIntent },
   ) => void;
   onStop: (sessionId: string) => void;
+  onRewindToMessage?: (sessionId: string, blockId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
@@ -75,6 +76,11 @@ type Props = {
   ) => void;
   onQueuedMessageEditingChange: (sessionId: string, messageId?: string) => void;
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
+  onReorderQueuedMessage?: (
+    sessionId: string,
+    messageId: string,
+    direction: "up" | "down",
+  ) => void;
   onResumeQueue: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
@@ -112,6 +118,8 @@ type Props = {
     turn: Block[],
     model: string,
   ) => void;
+  focusBlockId?: string;
+  onFocusBlockConsumed?: () => void;
   onNewTerminal: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
@@ -135,11 +143,13 @@ export const SessionPane = memo(function SessionPane({
   onRuntimeModeChange,
   onSubmit,
   onStop,
+  onRewindToMessage,
   onCompactContext,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
   onSteerQueuedMessage,
+  onReorderQueuedMessage,
   onResumeQueue,
   onInboxCardDismiss,
   onNoteCardDismiss,
@@ -152,6 +162,8 @@ export const SessionPane = memo(function SessionPane({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  focusBlockId,
+  onFocusBlockConsumed,
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
@@ -178,10 +190,20 @@ export const SessionPane = memo(function SessionPane({
   const jumpToBottomRef = useRef<(() => void) | null>(null);
   const quoteRequestId = useRef(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [unseenCount, setUnseenCount] = useState(0);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
   }, []);
+  const onUnseenCountChange = useCallback((count: number) => {
+    setUnseenCount(count);
+  }, []);
+  const reorderQueued = useCallback(
+    (messageId: string, direction: "up" | "down") => {
+      onReorderQueuedMessage?.(session.id, messageId, direction);
+    },
+    [onReorderQueuedMessage, session.id],
+  );
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
       quoteRequestId.current += 1;
@@ -233,6 +255,7 @@ export const SessionPane = memo(function SessionPane({
       focused={focused && composerFocused}
       hotkeys={focused}
       shell={!dockComposer}
+      sessionId={session.id}
       harness={session.harness}
       model={session.model}
       modelSettings={session.modelSettings}
@@ -287,6 +310,9 @@ export const SessionPane = memo(function SessionPane({
       }
       onSteerQueuedMessage={(messageId) =>
         onSteerQueuedMessage(session.id, messageId)
+      }
+      onReorderQueuedMessage={
+        onReorderQueuedMessage ? reorderQueued : undefined
       }
       onResumeQueue={() => onResumeQueue(session.id)}
       onOpenFile={onOpenFile}
@@ -391,20 +417,42 @@ export const SessionPane = memo(function SessionPane({
                       onHandoff(session.id, harness, turn, model)
                   : undefined
               }
+              onRewindToMessage={
+                onRewindToMessage
+                  ? (blockId) => onRewindToMessage(session.id, blockId)
+                  : undefined
+              }
               onJumpToBottomChange={setShowJumpToBottom}
               onJumpToBottomReady={onJumpToBottomReady}
+              onUnseenCountChange={onUnseenCountChange}
+              focusBlockId={focusBlockId}
+              onFocusBlockConsumed={onFocusBlockConsumed}
+              hotkeys={focused && visible}
             />
             {showJumpToBottom ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
                 <button
                   type="button"
                   title="Jump to latest"
-                  aria-label="Jump to latest"
+                  aria-label={
+                    unseenCount > 0
+                      ? `Jump to latest, ${unseenCount} new`
+                      : "Jump to latest"
+                  }
                   data-jump-to-bottom
                   onClick={() => jumpToBottomRef.current?.()}
-                  className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
+                  className={
+                    unseenCount > 0
+                      ? "pointer-events-auto flex h-6 items-center gap-1 rounded-md border border-content/15 bg-content/10 px-2 font-sans text-[11px] text-content shadow-md backdrop-blur-md hover:bg-content/5"
+                      : "pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md backdrop-blur-md hover:bg-content/5"
+                  }
                 >
                   <ChevronDown className="size-4" strokeWidth={2} />
+                  {unseenCount > 0 ? (
+                    <span className="tabular-nums">
+                      {unseenCount} new
+                    </span>
+                  ) : null}
                 </button>
               </div>
             ) : null}

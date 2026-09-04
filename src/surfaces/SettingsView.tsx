@@ -135,7 +135,13 @@ import {
   type FollowUpBehavior,
   type SettingsSectionId,
 } from "../lib/settings";
-import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../lib/sounds";
+import {
+  loadSoundsEnabled,
+  loadSoundsUnfocusedOnly,
+  playCue,
+  saveSoundsEnabled,
+  saveSoundsUnfocusedOnly,
+} from "../lib/sounds";
 import {
   installPendingUpdate,
   readAppVersion,
@@ -276,6 +282,9 @@ function GeneralPage({
     loadLiveAgentsEnabled,
   );
   const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
+  const [soundsUnfocusedOnly, setSoundsUnfocusedOnly] = useState(
+    loadSoundsUnfocusedOnly,
+  );
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
 
   useEffect(() => {
@@ -332,6 +341,10 @@ function GeneralPage({
     saveSoundsEnabled(next);
     setSoundsEnabled(next);
   };
+  const onSoundsUnfocusedOnly = (next: boolean) => {
+    saveSoundsUnfocusedOnly(next);
+    setSoundsUnfocusedOnly(next);
+  };
 
   const onClaudeHooks = (next: boolean) => {
     saveClaudeHooks(next);
@@ -370,7 +383,7 @@ function GeneralPage({
       </Row>
       <Row
         label="Follow-up behavior"
-        description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
+        description="Queue follow-ups until the active turn finishes, or steer the active turn immediately. Grok Build and fx cannot steer — MonoCode queues their follow-ups even when Steer is selected."
       >
         <Segmented
           label="Follow-up behavior"
@@ -433,6 +446,16 @@ function GeneralPage({
         description="Short cues when a turn finishes, a new inbox item appears on the project rail, or an update is available. Switches and Copy on a finished turn also play."
       >
         <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      </Row>
+      <Row
+        label="Finished-turn sound only in background"
+        description="When Sounds are on, play the turn-finished cue only if MonoCode is unfocused or the window is hidden. Handy when you keep an eye on another app while agents run."
+      >
+        <Toggle
+          label="Finished-turn sound only in background"
+          on={soundsUnfocusedOnly}
+          onChange={onSoundsUnfocusedOnly}
+        />
       </Row>
       <Row
         label="Claude Code hooks"

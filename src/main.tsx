@@ -4,12 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import App from "./App";
 import { initAppearance } from "./lib/appearance";
+import { initUiZoom } from "./custom/uiZoom";
 import { initSounds } from "./lib/sounds";
 import { handleQuitRequested, loadBootWorkspace } from "./lib/appLifecycle";
 import { consumeInstalledUpdate } from "./lib/updateNotice";
 import "./index.css";
 
 initAppearance();
+initUiZoom();
 initSounds();
 
 function dismissBootSplash() {

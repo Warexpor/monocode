@@ -173,6 +173,8 @@ type Props = {
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onDuplicateSession?: (sessionId: string) => void;
+  onCopySessionTranscript?: (sessionId: string) => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal?: (cwd: string) => void;
   onFileMoved?: (from: string, to: string) => void;
@@ -241,6 +243,8 @@ function SidebarComponent({
   onArchiveSession,
   onPinSession,
   onDeleteSession,
+  onDuplicateSession,
+  onCopySessionTranscript,
   onOpenFile,
   onOpenTerminal,
   onFileMoved,
@@ -581,6 +585,24 @@ function SidebarComponent({
           },
         ]
       : []),
+    ...(onDuplicateSession
+      ? [
+          {
+            kind: "item" as const,
+            id: "duplicate",
+            label: "Duplicate",
+          },
+        ]
+      : []),
+    ...(onCopySessionTranscript
+      ? [
+          {
+            kind: "item" as const,
+            id: "copy-transcript",
+            label: "Copy transcript",
+          },
+        ]
+      : []),
     { kind: "sep" as const },
     { kind: "item" as const, id: "folder-new", label: "New folder" },
     ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
@@ -660,6 +682,14 @@ function SidebarComponent({
     }
     if (id === "rename") {
       setRenamingSessionId(sessionId);
+      return;
+    }
+    if (id === "duplicate") {
+      onDuplicateSession?.(sessionId);
+      return;
+    }
+    if (id === "copy-transcript") {
+      onCopySessionTranscript?.(sessionId);
       return;
     }
     if (id === "folder-new") {

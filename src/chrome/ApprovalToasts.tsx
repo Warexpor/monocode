@@ -88,6 +88,7 @@ function ApprovalToastCard({
         <div className="flex gap-2 border-t border-content/10 px-3.5 py-2.5">
           <button
             type="button"
+            title="Allow (Y)"
             className="flex-1 rounded-md bg-content px-2.5 py-1 text-[11px] font-medium text-background-base hover:bg-content/80"
             onClick={() => onApproval(session.id, requestId, "allow")}
           >
@@ -95,6 +96,7 @@ function ApprovalToastCard({
           </button>
           <button
             type="button"
+            title="Deny (N)"
             className="flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/70 hover:bg-content/20"
             onClick={() => onApproval(session.id, requestId, "deny")}
           >

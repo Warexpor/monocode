@@ -68,6 +68,7 @@ type Shared = {
     options?: { intent?: TurnIntent },
   ) => void;
   onStop: (sessionId: string) => void;
+  onRewindToMessage?: (sessionId: string, blockId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
@@ -77,6 +78,11 @@ type Shared = {
   ) => void;
   onQueuedMessageEditingChange: (sessionId: string, messageId?: string) => void;
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
+  onReorderQueuedMessage?: (
+    sessionId: string,
+    messageId: string,
+    direction: "up" | "down",
+  ) => void;
   onResumeQueue: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
@@ -119,6 +125,8 @@ type Shared = {
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  focusBlockId?: string;
+  onFocusBlockConsumed?: () => void;
 };
 
 type Props = Shared & { layout: LayoutNode };
@@ -158,11 +166,13 @@ function PaneTreeComponent({
   onRuntimeModeChange,
   onSubmit,
   onStop,
+  onRewindToMessage,
   onCompactContext,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
   onSteerQueuedMessage,
+  onReorderQueuedMessage,
   onResumeQueue,
   onInboxCardDismiss,
   onNoteCardDismiss,
@@ -180,6 +190,8 @@ function PaneTreeComponent({
   onMovePane,
   onNewTerminal,
   onTerminalMetaChange,
+  focusBlockId,
+  onFocusBlockConsumed,
 }: Props) {
   const treeRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef(layout);
@@ -363,11 +375,13 @@ function PaneTreeComponent({
                 onRuntimeModeChange={onRuntimeModeChange}
                 onSubmit={onSubmit}
                 onStop={onStop}
+                onRewindToMessage={onRewindToMessage}
                 onCompactContext={onCompactContext}
                 onDeleteQueuedMessage={onDeleteQueuedMessage}
                 onEditQueuedMessage={onEditQueuedMessage}
                 onQueuedMessageEditingChange={onQueuedMessageEditingChange}
                 onSteerQueuedMessage={onSteerQueuedMessage}
+                onReorderQueuedMessage={onReorderQueuedMessage}
                 onResumeQueue={onResumeQueue}
                 onInboxCardDismiss={onInboxCardDismiss}
                 onNoteCardDismiss={onNoteCardDismiss}
@@ -382,6 +396,12 @@ function PaneTreeComponent({
                 onHandoff={onHandoff}
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
+                focusBlockId={
+                  focusedId === session.id ? focusBlockId : undefined
+                }
+                onFocusBlockConsumed={
+                  focusedId === session.id ? onFocusBlockConsumed : undefined
+                }
               />
             ) : null}
           </div>

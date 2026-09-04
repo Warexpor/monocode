@@ -1,6 +1,8 @@
-import { MessageSquarePlus } from "../chrome/icons";
+import { Copy, MessageSquarePlus } from "../chrome/icons";
 import { useEffect, useRef } from "react";
 import { Popover } from "../chrome/Popover";
+import { copyText } from "../lib/clipboard";
+import { playCue } from "../lib/sounds";
 import { type TranscriptSelection } from "../lib/transcriptSelection";
 
 type Props = {
@@ -43,8 +45,26 @@ export function TranscriptSelectionMenu({
       }}
       role="toolbar"
       aria-label="Selected text actions"
-      className="p-1"
+      className="flex gap-0.5 p-1"
     >
+      <button
+        type="button"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          playCue("copy");
+          void copyText(selection.text).then(
+            () => {
+              window.getSelection()?.removeAllRanges();
+              onDismiss();
+            },
+            () => {},
+          );
+        }}
+        className="flex h-7 items-center gap-1.5 rounded-lg px-2 font-sans text-[13px] leading-none text-content outline-none ring-accent/40 hover:bg-content/5 focus-visible:ring-2"
+      >
+        <Copy aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+        Copy
+      </button>
       <button
         type="button"
         onMouseDown={(event) => event.preventDefault()}

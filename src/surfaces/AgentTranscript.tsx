@@ -1,12 +1,15 @@
 import {
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleDashed,
   Copy,
   FilePlusCorner,
   Minus,
   Bot,
   PenLine,
+  RotateCcw,
   Search,
   Terminal,
   Wrench,
@@ -64,6 +67,11 @@ import type { TranscriptLayout } from "../lib/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import {
+  applyTranscriptFindMarks,
+  clearTranscriptFindMarks,
+  setActiveTranscriptFindMark,
+} from "./transcriptFind";
+import {
   activityPhaseTitle,
   activityStillRunning,
   buildActivityPhases,
@@ -107,8 +115,15 @@ type Props = {
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
   onSecondOpinion?: (harness: HarnessId, turn: Block[], model: string) => void;
   onHandoff?: (harness: HarnessId, turn: Block[], model: string) => void;
+  onRewindToMessage?: (blockId: string) => void;
   onJumpToBottomChange?: (show: boolean) => void;
   onJumpToBottomReady?: (jump: () => void) => void;
+  onFindReady?: (open: () => void) => void;
+  onUnseenCountChange?: (count: number) => void;
+  focusBlockId?: string;
+  onFocusBlockConsumed?: () => void;
+  /** When true, Mod+F opens in-transcript find. */
+  hotkeys?: boolean;
   /** False while another tab is in front. Hidden tabs stay laid out. */
   visible?: boolean;
 };
@@ -129,8 +144,14 @@ export function AgentTranscript({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onRewindToMessage,
   onJumpToBottomChange,
   onJumpToBottomReady,
+  onFindReady,
+  onUnseenCountChange,
+  focusBlockId,
+  onFocusBlockConsumed,
+  hotkeys = false,
   visible = true,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -140,8 +161,16 @@ export function AgentTranscript({
   const distanceFromBottom = useRef(0);
   const prependHeight = useRef<number | null>(null);
   const wasVisible = useRef(false);
+  const blocksLenRef = useRef(blocks.length);
+  const findMarksRef = useRef<HTMLElement[]>([]);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
+  const [findCount, setFindCount] = useState(0);
+  const [focusRingId, setFocusRingId] = useState<string | null>(null);
   // Stretch the last turn after a send while this tab stays open. Closing
   // the tab is a new visit: the remount uses the true transcript height so
   // the latest reply sits on the composer instead of a hole of empty space.
@@ -186,14 +215,46 @@ export function AgentTranscript({
     [setShowJump],
   );
 
+  const unseenRef = useRef(0);
+  const setUnseen = useCallback(
+    (count: number) => {
+      if (unseenRef.current === count) return;
+      unseenRef.current = count;
+      onUnseenCountChange?.(count);
+    },
+    [onUnseenCountChange],
+  );
+
   const jumpToBottom = useCallback(() => {
     stickToBottom.current = true;
     distanceFromBottom.current = 0;
     setShowJump(false);
+    setUnseen(0);
     const el = scroller.current;
     syncTranscriptViewport(el);
     pinToBottom(el);
-  }, [setShowJump]);
+  }, [setShowJump, setUnseen]);
+
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    queueMicrotask(() => findInputRef.current?.select());
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindIndex(0);
+    setFindCount(0);
+    findMarksRef.current = [];
+    const el = scroller.current;
+    if (el) clearTranscriptFindMarks(el);
+  }, []);
+
+  const goFind = useCallback((delta: number) => {
+    const total = findMarksRef.current.length;
+    if (total === 0) return;
+    setFindIndex((index) => (index + delta + total) % total);
+  }, []);
 
   const setScroller = useCallback(
     (el: HTMLDivElement | null) => {
@@ -207,6 +268,80 @@ export function AgentTranscript({
   useEffect(() => {
     onJumpToBottomReady?.(jumpToBottom);
   }, [jumpToBottom, onJumpToBottomReady]);
+
+  useEffect(() => {
+    onFindReady?.(openFind);
+  }, [openFind, onFindReady]);
+
+  useEffect(() => {
+    const prev = blocksLenRef.current;
+    const next = blocks.length;
+    blocksLenRef.current = next;
+    if (next > prev && !stickToBottom.current) {
+      setUnseen(unseenRef.current + (next - prev));
+    }
+  }, [blocks.length, setUnseen]);
+
+  useEffect(() => {
+    if (!hotkeys) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      openFind();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hotkeys, openFind]);
+
+  useLayoutEffect(() => {
+    if (!focusBlockId || !scrollerEl) return;
+    const escaped =
+      typeof CSS !== "undefined" && "escape" in CSS
+        ? CSS.escape(focusBlockId)
+        : focusBlockId.replace(/"/g, '\\"');
+    const target = scrollerEl.querySelector<HTMLElement>(
+      `[data-block-id="${escaped}"]`,
+    );
+    if (target) {
+      stickToBottom.current = false;
+      setShowJump(true);
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFocusRingId(focusBlockId);
+      const timer = window.setTimeout(() => {
+        setFocusRingId(null);
+        onFocusBlockConsumed?.();
+      }, 1400);
+      return () => window.clearTimeout(timer);
+    }
+    onFocusBlockConsumed?.();
+  }, [focusBlockId, scrollerEl, setShowJump, onFocusBlockConsumed]);
+
+  useLayoutEffect(() => {
+    const el = scrollerEl;
+    if (!el || !findOpen) {
+      if (el) clearTranscriptFindMarks(el);
+      findMarksRef.current = [];
+      return;
+    }
+    const marks = applyTranscriptFindMarks(el, findQuery);
+    findMarksRef.current = marks;
+    setFindCount(marks.length);
+    setFindIndex((index) =>
+      marks.length === 0 ? 0 : Math.min(index, marks.length - 1),
+    );
+  }, [scrollerEl, findOpen, findQuery, blocks, visibleTurnCount]);
+
+  useLayoutEffect(() => {
+    if (!findOpen) return;
+    const active = setActiveTranscriptFindMark(
+      findMarksRef.current,
+      findIndex,
+    );
+    active?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [findOpen, findIndex, findCount]);
 
   useEffect(() => {
     if (!scrollerEl) return;
@@ -229,10 +364,11 @@ export function AgentTranscript({
   useLayoutEffect(() => {
     stickToBottom.current = true;
     setShowJump(false);
+    setUnseen(0);
     const el = scroller.current;
     syncTranscriptViewport(el);
     pinToBottom(el);
-  }, [lastUserId, setShowJump]);
+  }, [lastUserId, setShowJump, setUnseen]);
 
   useLayoutEffect(() => {
     const opened = visible && !wasVisible.current;
@@ -303,10 +439,78 @@ export function AgentTranscript({
   };
 
   return (
-    <div
-      ref={setScroller}
-      className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"
-    >
+    <div className="relative h-full min-h-0">
+      {findOpen ? (
+        <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-1 border-b border-content/10 bg-background-base/90 px-3 py-1.5 backdrop-blur-md">
+          <Search
+            className="size-3.5 shrink-0 text-content/40"
+            strokeWidth={1.75}
+          />
+          <input
+            ref={findInputRef}
+            type="search"
+            value={findQuery}
+            placeholder="Find in transcript"
+            aria-label="Find in transcript"
+            className="min-w-0 flex-1 rounded-md border border-content/10 bg-content/5 px-2 py-1 font-sans text-[12px] text-content outline-none ring-accent/40 focus:ring-1"
+            onChange={(event) => {
+              setFindQuery(event.target.value);
+              setFindIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeFind();
+                return;
+              }
+              if (event.key === "Enter") {
+                event.preventDefault();
+                goFind(event.shiftKey ? -1 : 1);
+              }
+            }}
+          />
+          <span className="shrink-0 font-sans text-[11px] text-content/45 tabular-nums">
+            {findQuery.trim()
+              ? findCount === 0
+                ? "No results"
+                : `${findIndex + 1}/${findCount}`
+              : null}
+          </span>
+          <button
+            type="button"
+            title="Previous match"
+            aria-label="Previous match"
+            disabled={findCount === 0}
+            className="grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-40"
+            onClick={() => goFind(-1)}
+          >
+            <ChevronUp className="size-3.5" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            title="Next match"
+            aria-label="Next match"
+            disabled={findCount === 0}
+            className="grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-40"
+            onClick={() => goFind(1)}
+          >
+            <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            title="Close find"
+            aria-label="Close find"
+            className="grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content"
+            onClick={closeFind}
+          >
+            <X className="size-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={setScroller}
+        className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"
+      >
       <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-1">
         {firstVisibleTurn > 0 ? (
           <div className="flex justify-center px-4 py-3">
@@ -380,6 +584,7 @@ export function AgentTranscript({
                     block={item.block}
                     layout={transcriptLayout}
                     stickyIndex={firstVisibleTurn + turnIndex + 1}
+                    focusRing={focusRingId === item.block.id}
                     afterActivity={
                       itemIndex > 0 &&
                       items[itemIndex - 1]?.type === "activity" &&
@@ -390,6 +595,7 @@ export function AgentTranscript({
                     onOpenDiff={onOpenDiff}
                     onOpenPlan={onOpenPlan}
                     onBuildPlan={onBuildPlan}
+                    onRewindToMessage={onRewindToMessage}
                     planBusy={!!busy}
                     planHarness={harness}
                     planModel={model}
@@ -444,6 +650,7 @@ export function AgentTranscript({
           onDismiss={dismissSelection}
         />
       ) : null}
+      </div>
     </div>
   );
 }
@@ -687,6 +894,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   block,
   layout,
   stickyIndex,
+  focusRing = false,
   afterActivity = false,
   cwd,
   onApproval,
@@ -694,6 +902,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onOpenDiff,
   onOpenPlan,
   onBuildPlan,
+  onRewindToMessage,
   planBusy,
   planHarness,
   planModel,
@@ -701,6 +910,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
+  focusRing?: boolean;
   afterActivity?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
@@ -708,6 +918,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
+  onRewindToMessage?: (blockId: string) => void;
   planBusy?: boolean;
   planHarness?: HarnessId;
   planModel?: string;
@@ -718,6 +929,10 @@ const TranscriptBlock = memo(function TranscriptBlock({
         block={block}
         layout={layout}
         stickyIndex={stickyIndex}
+        focusRing={focusRing}
+        onRewind={
+          onRewindToMessage ? () => onRewindToMessage(block.id) : undefined
+        }
       />
     );
   }
@@ -754,13 +969,23 @@ const TranscriptBlock = memo(function TranscriptBlock({
     const legacyTasks = legacyTaskListFromText(block.text);
     if (legacyTasks) {
       return (
-        <div className="px-4 py-1">
+        <div
+          data-block-id={block.id}
+          className={`px-4 py-1${
+            focusRing ? " rounded-lg ring-2 ring-accent/70 ring-offset-2 ring-offset-background-base" : ""
+          }`}
+        >
           <TaskListPreview items={legacyTasks} />
         </div>
       );
     }
     return (
-      <div className="px-4 py-1">
+      <div
+        data-block-id={block.id}
+        className={`px-4 py-1${
+          focusRing ? " rounded-lg ring-2 ring-accent/70 ring-offset-2 ring-offset-background-base" : ""
+        }`}
+      >
         <PlanPreview
           text={block.text}
           streaming={block.streaming}
@@ -807,8 +1032,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
 
   return (
     <div
+      data-block-id={block.id}
       data-selectable-agent-response={block.streaming ? undefined : block.id}
-      className={`min-w-0 px-4 pb-1 text-content ${afterActivity ? "pt-1" : "pt-3"}`}
+      className={`min-w-0 px-4 pb-1 text-content ${afterActivity ? "pt-1" : "pt-3"}${
+        focusRing ? " rounded-lg ring-2 ring-accent/70 ring-offset-2 ring-offset-background-base" : ""
+      }`}
     >
       <AgentMarkdown
         text={block.text}
@@ -824,10 +1052,14 @@ function UserMessageBlock({
   block,
   layout,
   stickyIndex,
+  focusRing = false,
+  onRewind,
 }: {
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
+  focusRing?: boolean;
+  onRewind?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -851,48 +1083,100 @@ function UserMessageBlock({
     if (overflows) setExpanded((value) => !value);
   };
 
+  const copyMessage = () => {
+    if (!text) return;
+    playCue("copy");
+    void copyText(text).then(
+      () => {},
+      () => {},
+    );
+  };
+
   return (
     <div
+      data-block-id={block.id}
       className={
-        chat ? "flex justify-end pt-1.5 pr-4 pb-4 pl-14" : "p-1.5 pb-3"
+        chat
+          ? `group/user flex justify-end pt-1.5 pr-4 pb-4 pl-14${
+              focusRing ? " rounded-lg ring-2 ring-accent/70 ring-offset-2 ring-offset-background-base" : ""
+            }`
+          : `group/user p-1.5 pb-3${
+              focusRing ? " rounded-lg ring-2 ring-accent/70 ring-offset-2 ring-offset-background-base" : ""
+            }`
       }
     >
-      <div
-        className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
-          chat
-            ? "w-fit max-w-xl rounded-xl"
-            : "rounded-lg border border-content/10"
-        }`}
-        style={{ zIndex: stickyIndex }}
-        onClick={overflows ? toggle : undefined}
-      >
-        {block.attachments?.length ? (
-          <div
-            className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
-          >
-            {block.attachments.map((file) => (
-              <AttachmentChip key={file.id} attachment={file} />
-            ))}
-          </div>
-        ) : null}
-        {note ? (
-          <div className={text || card ? "mb-2" : ""}>
-            <NoteMiniCard card={note} embedded />
-          </div>
-        ) : null}
-        {card ? (
-          <div className={text ? "mb-1.5" : undefined}>
-            <SecondOpinionCard card={card} />
-          </div>
-        ) : null}
-        {text ? (
-          <pre
-            ref={textRef}
-            className={`min-w-0 whitespace-pre-wrap break-words font-sans text-sm ${expanded ? "" : "line-clamp-4"}`}
-          >
-            {text}
-          </pre>
-        ) : null}
+      <div className="relative min-w-0">
+        <div
+          className={`absolute z-10 flex gap-0.5 opacity-0 transition-opacity group-hover/user:opacity-100 ${
+            chat ? "-top-1 -left-14" : "-top-1 -right-1"
+          }`}
+        >
+          {text ? (
+            <button
+              type="button"
+              title="Copy message"
+              aria-label="Copy message"
+              onClick={(event) => {
+                event.stopPropagation();
+                copyMessage();
+              }}
+              className="grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/55 shadow-sm backdrop-blur-md hover:bg-content/15 hover:text-content"
+            >
+              <Copy className="size-3.5" strokeWidth={1.75} />
+            </button>
+          ) : null}
+          {onRewind ? (
+            <button
+              type="button"
+              title="Rewind to this message"
+              aria-label="Rewind to this message"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRewind();
+              }}
+              className="grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/55 shadow-sm backdrop-blur-md hover:bg-content/15 hover:text-content"
+            >
+              <RotateCcw className="size-3.5" strokeWidth={1.75} />
+            </button>
+          ) : null}
+        </div>
+        <div
+          className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
+            chat
+              ? "w-fit max-w-xl rounded-xl"
+              : "rounded-lg border border-content/10"
+          }`}
+          style={{ zIndex: stickyIndex }}
+          onClick={overflows ? toggle : undefined}
+        >
+          {block.attachments?.length ? (
+            <div
+              className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
+            >
+              {block.attachments.map((file) => (
+                <AttachmentChip key={file.id} attachment={file} />
+              ))}
+            </div>
+          ) : null}
+          {note ? (
+            <div className={text || card ? "mb-2" : ""}>
+              <NoteMiniCard card={note} embedded />
+            </div>
+          ) : null}
+          {card ? (
+            <div className={text ? "mb-1.5" : undefined}>
+              <SecondOpinionCard card={card} />
+            </div>
+          ) : null}
+          {text ? (
+            <pre
+              ref={textRef}
+              className={`min-w-0 whitespace-pre-wrap break-words font-sans text-sm ${expanded ? "" : "line-clamp-4"}`}
+            >
+              {text}
+            </pre>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -1789,6 +2073,7 @@ function ApprovalControls({
     <div className="mt-1.5 flex gap-2">
       <button
         type="button"
+        title="Allow (Y)"
         className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
         onClick={() => onApproval?.(approval.requestId, "allow")}
       >
@@ -1796,6 +2081,7 @@ function ApprovalControls({
       </button>
       <button
         type="button"
+        title="Deny (N)"
         className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
         onClick={() => onApproval?.(approval.requestId, "deny")}
       >

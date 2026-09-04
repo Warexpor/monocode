@@ -34,6 +34,7 @@ These cannot be closed on this Linux cloud VM (no GPU DWM session, no machine-lo
 - **Interactive NSIS** — installer wizard, shortcuts, uninstaller UX. GHA already silent-installed and launched once.
 - **Job kill-on-close on a real desktop** — GHA unit test already passed; re-check only if a desktop spawn still orphans.
 - **Live `ocx` / Claude session** — `127.0.0.1:10100`, model `claude-opus-4-8-20261030`. Not transferable. Do not invent `SESSION_OK`.
+- **Taskbar icon** — ~~running window shows a blank/generic taskbar entry~~ **fixed on `custom/warexpor`**: `apply_windows_window_icon` re-applies `default_window_icon` on window create and Ready (undecorated HWND). Re-verify after `tauri dev` and NSIS install; promote to `main` when syncing.
 
 ## N/A (OS chrome, not a portability target)
 

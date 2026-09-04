@@ -19,12 +19,14 @@ import {
   planFromExitPlan,
   sessionIdFromResult,
 } from "./grokProtocol";
-import { harnessSupportsAttachments } from "../session";
+import { harnessAttachmentHint, harnessSupportsAttachments } from "../session";
 
 describe("grok protocol", () => {
   it("supports attachments despite Grok's stale advertised capability", () => {
     expect(harnessSupportsAttachments("grok")).toBe(true);
     expect(harnessSupportsAttachments("cursor")).toBe(true);
+    expect(harnessAttachmentHint("grok")).toMatch(/images/i);
+    expect(harnessAttachmentHint("fx")).toMatch(/does not support/i);
   });
 
   it("sends text and image prompt blocks", () => {
@@ -195,11 +197,24 @@ describe("grok protocol", () => {
       },
     });
     expect(tools[0]).toMatchObject({
-      type: "tool.updated",
+      type: "tool.started",
       callId: "call-1",
       kind: "read",
       preview: { kind: "read", path: "README.md", fileName: "README.md" },
     });
+  });
+
+  it("surfaces session_summary_generated as status + context", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+        summary: "Compacted prior turns into a short brief.",
+        usage: { totalTokens: 1200 },
+      }),
+    ).toEqual([
+      { type: "status", text: "Compacted prior turns into a short brief." },
+      { type: "context", used: 1200 },
+    ]);
   });
 
   it("maps turn_completed usage onto the context meter", () => {

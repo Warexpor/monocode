@@ -6,6 +6,7 @@ import {
   isEditingQueuedHead,
   queuedHead,
   queuedMessageForSubmit,
+  reorderQueuedMessage,
 } from "./messageQueue";
 import { newSession, type QueuedMessage, type Session } from "./session";
 
@@ -116,5 +117,20 @@ describe("queuedMessageForSubmit", () => {
       queuedMessageForSubmit(chat({ queueStatus: "paused" }), "a", "steer")?.id,
     ).toBe("a");
     expect(queuedMessageForSubmit(chat(), "missing", "steer")).toBeUndefined();
+  });
+});
+
+describe("reorderQueuedMessage", () => {
+  it("moves a row up and down", () => {
+    const down = reorderQueuedMessage(chat(), "a", "down");
+    expect(down.queuedMessages?.map((message) => message.id)).toEqual([
+      "b",
+      "a",
+    ]);
+    const up = reorderQueuedMessage(down, "a", "up");
+    expect(up.queuedMessages?.map((message) => message.id)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 });

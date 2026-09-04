@@ -228,6 +228,14 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     return existing;
   }
   if (existing) {
+    // Plan ↔ build and full-access flips change CLI permission flags. Resuming
+    // the prior ACP session keeps the old mode and breaks Build after Plan.
+    if (
+      existing.planning !== wantPlanning ||
+      existing.fullAccess !== wantFullAccess
+    ) {
+      resumeByThread.delete(input.sessionId);
+    }
     await stopGrokSession(input.sessionId);
   }
 

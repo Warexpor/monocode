@@ -8,7 +8,19 @@ Rules:
 3. After `.\scripts\sync-upstream.ps1`, merge `main` into this branch and resolve custom conflicts here.
 4. Prefer additive modules under `src/custom/` (or agreed paths) over editing core harness files when possible.
 
-Status: scaffold only. Feature work starts when the product brief lands.
+Status: QoL comfort pack + Grok Build GUI parity + UI zoom / rewind / taskbar icon.
+
+## Backlog
+
+- *(empty — QoL audit items shipped on this branch)*
+
+## Shipped here
+
+- **UI zoom** — `Ctrl+=` / `Ctrl+-` / `Ctrl+0` (+ View menu); WebView `setZoom`; persisted as `monocode.uiZoom`.
+- **Message rewind** — hover rewind on a user turn; truncates transcript, seeds composer, `forgetHarnessSession` so the next send is a fresh provider conversation. Does not undo file checkpoints.
+- **Taskbar icon** — Windows undecorated windows re-apply `default_window_icon` on create / Ready (see `WINDOWS-PARITY.md`).
+- **Grok Build GUI parity** — mid-turn follow-ups auto-queue when the harness cannot steer (Grok + fx); Steer control hidden for those harnesses; plan→build clears ACP resume so Build is not stuck in plan permission mode; `session_summary_generated` surfaces as status (+ context); `tool_call` emits `tool.started`; truthful Grok attachment hint; Windows PowerShell install string in availability hint + README; Settings copy explains non-steerable queue behavior.
+- **QoL comfort pack** — per-session composer drafts; prompt history (↑/↓); in-transcript find (`Mod+F`); search→scroll to message; selection + user-message Copy; Allow/Deny (`Y`/`N`); turn-finished sound only when unfocused (setting); remembered access mode + per-project model/harness; “N new” jump pill; expandable composer; copy/export transcript + duplicate session; queue reorder + persist; Esc/Stop + approval chords documented in KEYBINDINGS.
 
 ## Windows agent session (machine-local)
 

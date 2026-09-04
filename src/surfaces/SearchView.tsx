@@ -60,7 +60,7 @@ type Props = {
   onClose: () => void;
   onToggleSidebar?: () => void;
   onOpenFile: OpenFileFn;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: (sessionId: string, blockId?: string) => void;
   onOpenProject: (path: string) => void;
 };
 
@@ -283,7 +283,10 @@ export function SearchView({
     else if (hit.kind === "content") {
       onOpenFile(hit.path, { line: hit.line, column: hit.column });
     } else if (hit.kind === "conversation" || hit.kind === "message") {
-      onOpenSession(hit.sessionId);
+      onOpenSession(
+        hit.sessionId,
+        hit.kind === "message" ? hit.blockId : undefined,
+      );
     } else onOpenProject(hit.path);
     onClose();
   };

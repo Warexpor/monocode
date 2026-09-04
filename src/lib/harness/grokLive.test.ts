@@ -1,12 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const sent: string[] = [];
+const spawnArgHistory: string[][] = [];
 let onLine: ((line: string) => void) | undefined;
 let onExit: ((code: number | null) => void) | undefined;
 
 vi.mock("./child", () => ({
   resolveGrokBinary: async () => ({ path: "/fake/grok" }),
-  spawnChild: async () => undefined,
+  spawnChild: async (_id: string, _path: string, args: string[]) => {
+    spawnArgHistory.push(args);
+  },
   killChild: async () => undefined,
   unwatchChild: () => undefined,
   watchChild: (
@@ -62,7 +65,7 @@ const initResult = {
   },
 };
 
-async function handshake() {
+async function handshake(sessionId = "S1") {
   await waitFor(
     () => parse().some((m) => m.method === "initialize"),
     "initialize",
@@ -78,7 +81,7 @@ async function handshake() {
     "session/new",
   );
   reply(parse().find((m) => m.method === "session/new")!.id, {
-    sessionId: "S1",
+    sessionId,
     models: { currentModelId: "grok-4.6" },
   });
 }
@@ -86,6 +89,7 @@ async function handshake() {
 describe("grok live turn sequence", () => {
   beforeEach(() => {
     sent.length = 0;
+    spawnArgHistory.length = 0;
   });
 
   it("authenticates, selects the model, and prompts", async () => {
@@ -276,5 +280,55 @@ describe("grok live turn sequence", () => {
     reply(request.id, {});
     await compact;
     await stopGrokSession("t4");
+  });
+
+  it("starts a fresh ACP session when leaving plan mode", async () => {
+    const planTurn = sendGrokTurn({
+      sessionId: "t-plan",
+      cwd: "/repo",
+      model: "grok:grok-4.6",
+      runtimeMode: "supervised",
+      intent: "plan",
+      text: "plan a feature",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await handshake("S-plan");
+    expect(spawnArgHistory.at(-1)).toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
+    await waitFor(
+      () => parse().some((m) => m.method === "session/prompt"),
+      "plan prompt",
+    );
+    reply(parse().find((m) => m.method === "session/prompt")!.id, {
+      stopReason: "end_turn",
+    });
+    await planTurn;
+
+    sent.length = 0;
+    const buildTurn = sendGrokTurn({
+      sessionId: "t-plan",
+      cwd: "/repo",
+      model: "grok:grok-4.6",
+      runtimeMode: "supervised",
+      text: "Build approved plan",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await handshake("S-build");
+    const buildArgs = spawnArgHistory.at(-1) ?? [];
+    expect(buildArgs).not.toContain("plan");
+    expect(parse().some((m) => m.method === "session/resume")).toBe(false);
+    expect(parse().some((m) => m.method === "session/load")).toBe(false);
+    await waitFor(
+      () => parse().some((m) => m.method === "session/prompt"),
+      "build prompt",
+    );
+    reply(parse().find((m) => m.method === "session/prompt")!.id, {
+      stopReason: "end_turn",
+    });
+    await buildTurn;
+    await stopGrokSession("t-plan");
   });
 });

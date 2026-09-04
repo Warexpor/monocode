@@ -1,8 +1,10 @@
 import { play, setEnabled, setVolume, type SoundName } from "cuelume";
 
 const KEY = "monocode.sounds";
+const UNFOCUSED_KEY = "monocode.soundsUnfocusedOnly";
 
 export const SOUNDS_DEFAULT = true;
+export const SOUNDS_UNFOCUSED_ONLY_DEFAULT = false;
 
 /** Soft enough to sit in the background while a turn runs in another app. */
 export const SOUNDS_VOLUME = 0.55;
@@ -57,8 +59,44 @@ export function initSounds() {
   applySoundEngine();
 }
 
+export function loadSoundsUnfocusedOnly(): boolean {
+  try {
+    const raw = localStorage.getItem(UNFOCUSED_KEY);
+    if (raw == null) return SOUNDS_UNFOCUSED_ONLY_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return SOUNDS_UNFOCUSED_ONLY_DEFAULT;
+  }
+}
+
+export function saveSoundsUnfocusedOnly(value: boolean) {
+  try {
+    localStorage.setItem(UNFOCUSED_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(SOUNDS_CHANGE_EVENT, {
+      detail: loadSoundsEnabled(),
+    }),
+  );
+}
+
+function documentUnfocused(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState !== "visible" || !document.hasFocus();
+}
+
 export function playCue(cue: SoundCue) {
   if (!loadSoundsEnabled()) return;
+  if (
+    cue === "turnFinished" &&
+    loadSoundsUnfocusedOnly() &&
+    !documentUnfocused()
+  ) {
+    return;
+  }
   applySoundEngine();
   play(CUES[cue]);
 }

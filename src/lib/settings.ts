@@ -357,7 +357,14 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Terminal: New Tab", keys: `${MOD}${SHIFT}\``, when: "Always" },
   { command: "Terminal: Toggle Dock", keys: `${MOD}J`, when: "Always" },
   { command: "Editor: Find", keys: `${MOD}F`, when: "editorFocus" },
+  { command: "Chat: Find in Transcript", keys: `${MOD}F`, when: "chatFocus" },
+  { command: "Chat: Stop Turn", keys: "Esc", when: "busyAgentFocus" },
+  { command: "Chat: Allow Permission", keys: "Y", when: "pendingApproval" },
+  { command: "Chat: Deny Permission", keys: "N", when: "pendingApproval" },
   { command: "Editor: Replace", keys: `${MOD}${ALT}F`, when: "editorFocus" },
+  { command: "View: Zoom In", keys: `${MOD}=`, when: "Always" },
+  { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
+  { command: "View: Actual Size", keys: `${MOD}0`, when: "Always" },
 ];
 
 export function filterKeybindings(

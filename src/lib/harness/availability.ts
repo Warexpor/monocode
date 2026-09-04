@@ -1,3 +1,4 @@
+import { IS_WIN } from "../platform";
 import type { HarnessId } from "../session";
 import { HARNESSES } from "../session";
 import {
@@ -14,6 +15,10 @@ import { isLiveHarness } from "./registry";
 
 export type HarnessAvailability = Record<HarnessId, boolean>;
 
+const GROK_INSTALL = IS_WIN
+  ? "irm https://x.ai/cli/install.ps1 | iex"
+  : "curl -fsSL https://x.ai/cli/install.sh | bash";
+
 /**
  * We only ever check whether the binary exists, never whether it is
  * authenticated, so the hint must not blame a login.
@@ -24,7 +29,7 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   cursor: { name: "Cursor CLI" },
   grok: {
     name: "Grok Build CLI",
-    install: "curl -fsSL https://x.ai/cli/install.sh | bash",
+    install: GROK_INSTALL,
   },
   opencode: { name: "OpenCode CLI" },
   pi: { name: "Pi CLI", install: "npm i -g @earendil-works/pi-coding-agent" },
