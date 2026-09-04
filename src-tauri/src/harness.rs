@@ -741,7 +741,6 @@ const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
 /// An interactive shell has to source the user's whole rc file; nvm alone can
 /// take a second.
-#[cfg(not(windows))]
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A spawn that was cancelled mid-fork. The session it was starting is already
@@ -1941,16 +1940,71 @@ fn login_shell_env(name: &str) -> Option<String> {
 fn load_login_shell_env() -> HashMap<String, String> {
     #[cfg(windows)]
     {
-        LOGIN_SHELL_KEYS
-            .into_iter()
-            .filter_map(|key| {
-                let value = std::env::var(key).ok()?;
-                (!value.is_empty()).then(|| (key.to_string(), value))
-            })
-            .collect()
+        load_windows_powershell_env()
     }
     #[cfg(not(windows))]
-    load_unix_login_shell_env()
+    {
+        load_unix_login_shell_env()
+    }
+}
+
+#[cfg(windows)]
+fn load_windows_powershell_env() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for key in LOGIN_SHELL_KEYS {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                map.insert(key.to_string(), value);
+            }
+        }
+    }
+    let keys = LOGIN_SHELL_KEYS
+        .iter()
+        .map(|key| format!("'{key}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "foreach ($k in @({keys})) {{ $v = [Environment]::GetEnvironmentVariable($k, 'Process'); if ($v) {{ Write-Output ($k + '=' + $v) }} }}"
+    );
+    let mut cmd = Command::new("powershell.exe");
+    crate::hide_window_console(&mut cmd);
+    cmd.args(["-NoLogo", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    isolate_child(&mut cmd);
+    let Ok(child) = cmd.spawn() else {
+        return map;
+    };
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let output = match rx.recv_timeout(LOGIN_SHELL_TIMEOUT) {
+        Ok(Ok(output)) => output,
+        _ => {
+            terminate(pid);
+            return map;
+        }
+    };
+    for (key, value) in parse_login_env_output(&String::from_utf8_lossy(&output.stdout)) {
+        map.insert(key, value);
+    }
+    map
+}
+
+fn parse_login_env_output(stdout: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in stdout.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if LOGIN_SHELL_KEYS.contains(&key) && !value.is_empty() {
+            map.insert(key.to_string(), value.to_string());
+        }
+    }
+    map
 }
 
 /// Read the environment the user actually gets in a terminal.
@@ -1989,16 +2043,7 @@ fn load_unix_login_shell_env() -> HashMap<String, String> {
             return HashMap::new();
         }
     };
-    let mut map = HashMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if LOGIN_SHELL_KEYS.contains(&key) && !value.is_empty() {
-            map.insert(key.to_string(), value.to_string());
-        }
-    }
-    map
+    parse_login_env_output(&String::from_utf8_lossy(&output.stdout))
 }
 
 fn command_basename(command: &str) -> &str {
@@ -2665,6 +2710,24 @@ mod reap_logic_tests {
         assert!(!is_legacy_orphaned_cursor_acp(
             "node /usr/local/bin/typescript-language-server --stdio"
         ));
+    }
+}
+
+#[cfg(test)]
+mod login_env_tests {
+    use super::*;
+
+    #[test]
+    fn parse_login_env_output_keeps_allowlisted_keys() {
+        let map = parse_login_env_output(
+            "PATH=C:\\Tools;C:\\Windows\nXAI_API_KEY=secret\nIGNORED=nope\nPATH=\n",
+        );
+        assert_eq!(
+            map.get("PATH").map(String::as_str),
+            Some(r"C:\Tools;C:\Windows")
+        );
+        assert_eq!(map.get("XAI_API_KEY").map(String::as_str), Some("secret"));
+        assert!(!map.contains_key("IGNORED"));
     }
 }
 
