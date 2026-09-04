@@ -892,6 +892,27 @@ enum TreeSignal {
     Kill,
 }
 
+/// Process-group analog: every descendant of `root`, `root` included last in
+/// reverse kill order (children first).
+#[cfg(any(windows, test))]
+fn descendant_pids(root: u32, rows: &[(u32, u32)]) -> Vec<u32> {
+    let mut pids = vec![root];
+    let mut added = true;
+    while added {
+        added = false;
+        for &(pid, ppid) in rows {
+            if pid == 0 || pids.contains(&pid) {
+                continue;
+            }
+            if pids.contains(&ppid) {
+                pids.push(pid);
+                added = true;
+            }
+        }
+    }
+    pids
+}
+
 fn signal_tree(pid: u32, signal: TreeSignal) {
     #[cfg(unix)]
     {
@@ -911,14 +932,25 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
     }
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("taskkill");
-        crate::hide_window_console(&mut cmd);
-        cmd.args(["/PID", &pid.to_string(), "/T"]);
-        if matches!(signal, TreeSignal::Kill) {
-            cmd.arg("/F");
+        match signal {
+            TreeSignal::Term => {
+                let mut cmd = Command::new("taskkill");
+                crate::hide_window_console(&mut cmd);
+                cmd.args(["/PID", &pid.to_string(), "/T"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                let _ = cmd.status();
+            }
+            TreeSignal::Kill => {
+                let rows: Vec<(u32, u32)> = crate::windows_process::snapshot()
+                    .into_iter()
+                    .map(|(child, parent, _)| (child, parent))
+                    .collect();
+                for child in descendant_pids(pid, &rows).into_iter().rev() {
+                    crate::windows_process::terminate(child);
+                }
+            }
         }
-        cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let _ = cmd.status();
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -2754,6 +2786,14 @@ mod reap_logic_tests {
         assert!(!is_legacy_orphaned_cursor_acp(
             "node /usr/local/bin/typescript-language-server --stdio"
         ));
+    }
+
+    #[test]
+    fn descendant_pids_walks_the_tree_and_keeps_the_leader() {
+        let rows = [(2, 1), (3, 2), (4, 2), (9, 8)];
+        assert_eq!(descendant_pids(2, &rows), vec![2, 3, 4]);
+        assert_eq!(descendant_pids(8, &rows), vec![8, 9]);
+        assert_eq!(descendant_pids(9, &rows), vec![9]);
     }
 
     #[test]

@@ -9,8 +9,8 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_VM_READ,
+    GetExitCodeProcess, OpenProcess, TerminateProcess, PROCESS_QUERY_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, PROCESS_VM_READ,
 };
 
 const PROCESS_BASIC_INFORMATION: u32 = 0;
@@ -91,6 +91,20 @@ pub(crate) fn snapshot() -> Vec<(u32, u32, String)> {
             }
         }
         rows
+    }
+}
+
+pub(crate) fn terminate(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    unsafe {
+        let process = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if process.is_null() || process == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let _owned = OwnedHandle::from_raw_handle(process as RawHandle);
+        let _ = TerminateProcess(process, 1);
     }
 }
 
