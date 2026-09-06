@@ -370,7 +370,7 @@ function GeneralPage({
       </Row>
       <Row
         label="Follow-up behavior"
-        description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
+        description="Queue follow-ups until the active turn finishes, or steer the active turn immediately. Harnesses that cannot steer, such as Grok, always queue mid-turn follow-ups."
       >
         <Segmented
           label="Follow-up behavior"

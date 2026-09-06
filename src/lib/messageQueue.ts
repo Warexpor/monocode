@@ -1,6 +1,13 @@
 import { isPreparingHandoff } from "./handoff";
 import type { QueuedMessage, Session } from "./session";
 
+export function shouldQueueFollowUp(
+  followUpBehavior: "queue" | "steer",
+  canSteer: boolean,
+): boolean {
+  return followUpBehavior === "queue" || !canSteer;
+}
+
 export function queuedHead(session: Session): QueuedMessage | undefined {
   return session.queuedMessages?.[0];
 }
