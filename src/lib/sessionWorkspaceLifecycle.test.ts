@@ -3,28 +3,19 @@ import {
   leaf,
   leafIds,
   newFileTab,
-  newSessionChangesTab,
+  newPlanTab,
   newTab,
+  openEditorTab,
   type WorkspaceTab,
 } from "./layout";
-import type { Session } from "./session";
+import { newSession, type Session } from "./session";
 import {
   removeSessionFromWorkspace,
   type SessionWorkspaceRemoval,
 } from "./sessionWorkspaceLifecycle";
 
 function session(id: string, cwd = "/projects/monocode"): Session {
-  return {
-    id,
-    cwd,
-    harness: "cursor",
-    title: "",
-    blocks: [],
-    busy: false,
-    model: "",
-    modelSettings: {},
-    runtimeMode: "supervised",
-  };
+  return { ...newSession("cursor", cwd), id };
 }
 
 function tab(id: string, sessionId: string): WorkspaceTab {
@@ -123,7 +114,13 @@ describe("removeSessionFromWorkspace", () => {
   });
 
   it("closes session-scoped changes with the session while preserving other files", () => {
-    const sessionChanges = newSessionChangesTab("/projects/monocode", "s1");
+    const sessionChanges = {
+      id: "changes",
+      path: "/projects/monocode",
+      cwd: "/projects/monocode",
+      review: true,
+      sessionChanges: { sessionId: "s1" },
+    };
     const readme = newFileTab(
       "/projects/monocode/README.md",
       "/projects/monocode",
@@ -185,52 +182,63 @@ describe("removeSessionFromWorkspace", () => {
     expect(result.activeTabId).toBe("monocode");
     expect(result.tabs[1]?.focusedId).toBe("replacement");
   });
-
-  it("activates the previous same-project tab in project scope", () => {
-    const sessions = [
-      session("m1"),
-      session("r1", "/projects/ruler"),
-      session("m2"),
-    ];
-    const tabs = [tab("tm1", "m1"), tab("tr1", "r1"), tab("tm2", "m2")];
-    const result = remove({
-      tabs,
-      sessions,
-      sessionId: "m2",
-      activeTabId: "tm2",
-      scope: "project",
-    });
-    expect(result.activeTabId).toBe("tm1");
-    expect(result.tabs.map((entry) => entry.id)).toEqual(["tm1", "tr1"]);
-  });
-
-  it("keeps a split tab when only one pane is deleted", () => {
-    const split: WorkspaceTab = {
-      ...tab("split", "m1"),
+  it("removes only the archived session's plans in a shared workspace", () => {
+    const own = newPlanTab("s1", "p1", "Own plan", "/projects/monocode");
+    const other = newPlanTab("s2", "p2", "Other plan", "/projects/monocode");
+    const readme = newFileTab(
+      "/projects/monocode/README.md",
+      "/projects/monocode",
+    );
+    const shared: WorkspaceTab = {
+      ...tab("shared", "s1"),
       layout: {
         type: "split",
-        id: "s",
+        id: "split",
         dir: "right",
-        children: [leaf("m1"), leaf("m2")],
+        children: [leaf("s1"), leaf("s2")],
         sizes: [0.5, 0.5],
       },
-      focusedId: "m1",
+    };
+    const withFiles = [own, other, readme].reduce(openEditorTab, shared);
+    const result = remove({
+      tabs: [withFiles],
+      sessions: [session("s1"), session("s2")],
+      sessionId: "s1",
+      activeTabId: "shared",
+    });
+    expect(result.tabs[0].editorPanes[0].files).toEqual([other, readme]);
+    expect(leafIds(result.tabs[0].layout)).not.toContain("s1");
+  });
+
+  it("removes plan panes even after their conversation moved to another tab", () => {
+    const plan = newPlanTab("s1", "p1", "Plan", "/projects/monocode");
+    const other = openEditorTab(tab("other", "s2"), plan);
+    const result = remove({
+      tabs: [tab("own", "s1"), other],
+      sessions: [session("s1"), session("s2")],
+      sessionId: "s1",
+      activeTabId: "other",
+    });
+    expect(result.tabs).toHaveLength(1);
+    expect(result.tabs[0].editorPanes).toEqual([]);
+    expect(result.tabs[0].focusedId).toBe("s2");
+    expect(result.tabs[0].layout).toEqual(leaf("s2"));
+  });
+
+  it("replaces a standalone plan pane without leaving a dangling layout leaf", () => {
+    const plan = newPlanTab("s1", "p1", "Plan", "/projects/monocode");
+    const only: WorkspaceTab = {
+      ...tab("only", "editor"),
+      editorPanes: [{ id: "editor", files: [plan], activeFileId: plan.id }],
     };
     const result = remove({
-      tabs: [split, tab("tr1", "r1")],
-      sessions: [
-        session("m1"),
-        session("r1", "/projects/ruler"),
-        session("m2"),
-      ],
-      sessionId: "m1",
-      activeTabId: "split",
-      scope: "project",
+      tabs: [only],
+      sessions: [session("s1")],
+      sessionId: "s1",
+      activeTabId: "only",
     });
-    expect(result.activeTabId).toBe("split");
-    expect(result.tabs).toHaveLength(2);
-    expect(result.tabs[0]?.focusedId).toBe("m2");
-    expect(leafIds(result.tabs[0]!.layout)).toEqual(["m2"]);
-    expect(result.sessions.map((entry) => entry.id)).toEqual(["r1", "m2"]);
+    expect(result.tabs[0].editorPanes).toEqual([]);
+    expect(result.tabs[0].layout).toEqual(leaf("replacement"));
+    expect(result.sessions.map((s) => s.id)).toEqual(["replacement"]);
   });
 });

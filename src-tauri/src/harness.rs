@@ -9,7 +9,8 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -360,9 +361,8 @@ pub fn harness_spawn(
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to start {command}: {e}"))?;
+    let mut child =
+        spawn_managed(&mut cmd).map_err(|e| format!("Failed to start {command}: {e}"))?;
     let pid = child.id();
 
     #[cfg(windows)]
@@ -716,9 +716,7 @@ fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<Str
         }
     }
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to run {command}: {e}"))?;
+    let child = spawn_managed(&mut cmd).map_err(|e| format!("Failed to run {command}: {e}"))?;
     let pid = child.id();
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -783,6 +781,10 @@ fn isolate_child(cmd: &mut Command) {
     {
         let _ = cmd;
     }
+}
+
+fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    cmd.spawn()
 }
 
 pub(crate) fn terminate(pid: u32) {
@@ -1556,7 +1558,7 @@ fn help_mentions_rpc_mode(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1646,7 +1648,7 @@ fn fx_help_mentions_acp(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1706,7 +1708,7 @@ fn grok_help_mentions_agent(path: &Path) -> bool {
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1891,6 +1893,14 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         path.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    ["exe", "cmd", "bat", "com"]
+                        .iter()
+                        .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+                })
     }
 }
 

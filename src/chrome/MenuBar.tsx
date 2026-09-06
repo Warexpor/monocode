@@ -3,30 +3,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../lib/platform";
 import { runUpdateFlow } from "../lib/updater";
-import { openFindInActiveEditor } from "../surfaces/editorSearch";
 
 type MenuKey = "file" | "view" | "terminal";
 
 type Props = {
   onNew: () => void;
   onNewTerminal?: () => void;
-  onNewTerminalTab?: () => void;
   onToggleTerminal?: () => void;
   onGoToFile?: () => void;
   onToggleSidebar: () => void;
   onShowSourceControl?: () => void;
   onCloseCurrentTab?: () => void;
   onCloseOtherTabs?: () => void;
-  onSplitRight?: () => void;
-  onSplitDown?: () => void;
-  onNextTab?: () => void;
-  onPrevTab?: () => void;
-  onBackTab?: () => void;
-  onForwardTab?: () => void;
-  onFocusLeft?: () => void;
-  onFocusRight?: () => void;
-  onFocusUp?: () => void;
-  onFocusDown?: () => void;
   onPickProject?: () => void;
   onFindInProject?: () => void;
   onSearch?: () => void;
@@ -35,28 +23,20 @@ type Props = {
   onOpenSettings?: () => void;
   onSidebarAppearance?: () => void;
   onQuit?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomReset?: () => void;
 };
 
 export function MenuBar({
   onNew,
   onNewTerminal,
-  onNewTerminalTab,
   onToggleTerminal,
   onGoToFile,
   onToggleSidebar,
   onShowSourceControl,
   onCloseCurrentTab,
   onCloseOtherTabs,
-  onSplitRight,
-  onSplitDown,
-  onNextTab,
-  onPrevTab,
-  onBackTab,
-  onForwardTab,
-  onFocusLeft,
-  onFocusRight,
-  onFocusUp,
-  onFocusDown,
   onPickProject,
   onFindInProject,
   onSearch,
@@ -65,6 +45,9 @@ export function MenuBar({
   onOpenSettings,
   onSidebarAppearance,
   onQuit,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
@@ -134,9 +117,6 @@ export function MenuBar({
         case "new_terminal":
           onNewTerminal?.();
           break;
-        case "new_terminal_tab":
-          onNewTerminalTab?.();
-          break;
         case "toggle_terminal":
           onToggleTerminal?.();
           break;
@@ -158,7 +138,7 @@ export function MenuBar({
         case "open_settings":
           onOpenSettings?.();
           break;
-        case "sidebar_opacity":
+        case "sidebar_appearance":
           onSidebarAppearance?.();
           break;
         case "quit":
@@ -170,44 +150,11 @@ export function MenuBar({
         case "find_in_project":
           onFindInProject?.();
           break;
-        case "find":
-          openFindInActiveEditor();
-          break;
         case "close_tab":
           onCloseCurrentTab?.();
           break;
         case "close_other_tabs":
           onCloseOtherTabs?.();
-          break;
-        case "split_right":
-          onSplitRight?.();
-          break;
-        case "split_down":
-          onSplitDown?.();
-          break;
-        case "next_tab":
-          onNextTab?.();
-          break;
-        case "prev_tab":
-          onPrevTab?.();
-          break;
-        case "back_tab":
-          onBackTab?.();
-          break;
-        case "forward_tab":
-          onForwardTab?.();
-          break;
-        case "focus_left":
-          onFocusLeft?.();
-          break;
-        case "focus_right":
-          onFocusRight?.();
-          break;
-        case "focus_up":
-          onFocusUp?.();
-          break;
-        case "focus_down":
-          onFocusDown?.();
           break;
         case "toggle_sidebar":
           onToggleSidebar();
@@ -221,27 +168,25 @@ export function MenuBar({
         case "check_for_updates":
           void runUpdateFlow(true);
           break;
+        case "zoom_in":
+          onZoomIn?.();
+          break;
+        case "zoom_out":
+          onZoomOut?.();
+          break;
+        case "zoom_reset":
+          onZoomReset?.();
+          break;
       }
     },
     [
       closeMenu,
       onCloseCurrentTab,
       onCloseOtherTabs,
-      onSplitRight,
-      onSplitDown,
-      onNextTab,
-      onPrevTab,
-      onBackTab,
-      onForwardTab,
-      onFocusLeft,
-      onFocusRight,
-      onFocusUp,
-      onFocusDown,
       onFindInProject,
       onGoToFile,
       onNew,
       onNewTerminal,
-      onNewTerminalTab,
       onToggleTerminal,
       onPickProject,
       onSearch,
@@ -252,6 +197,9 @@ export function MenuBar({
       onQuit,
       onShowSourceControl,
       onToggleSidebar,
+      onZoomIn,
+      onZoomOut,
+      onZoomReset,
     ],
   );
 
@@ -261,22 +209,13 @@ export function MenuBar({
         return [
           { kind: "item", id: "new_tab", label: "New Tab", shortcut: `${MOD}T` },
           { kind: "item", id: "new_terminal", label: "New Terminal", shortcut: `${MOD}\`` },
-          {
-            kind: "item",
-            id: "new_terminal_tab",
-            label: "New Terminal Tab",
-            shortcut: `${MOD}${SHIFT}\``,
-          },
           { kind: "item", id: "new_window", label: "New Window", shortcut: `${MOD}${SHIFT}N` },
           { kind: "sep" },
           { kind: "item", id: "open_project", label: "Open Project…", shortcut: `${MOD}O` },
           { kind: "item", id: "open_search", label: "Search…", shortcut: `${MOD}K` },
           { kind: "item", id: "go_to_file", label: "Go to File…", shortcut: `${MOD}P` },
           { kind: "item", id: "find_in_project", label: "Find in Files…", shortcut: `${MOD}${SHIFT}F` },
-          { kind: "item", id: "find", label: "Find", shortcut: `${MOD}F` },
           { kind: "sep" },
-          { kind: "item", id: "split_right", label: "Split Pane Right", shortcut: `${MOD}D` },
-          { kind: "item", id: "split_down", label: "Split Pane Down", shortcut: `${MOD}${SHIFT}D` },
           { kind: "item", id: "close_tab", label: "Close Pane", shortcut: `${MOD}W` },
           {
             kind: "item",
@@ -285,15 +224,14 @@ export function MenuBar({
             shortcut: `${MOD}${ALT}T`,
           },
           { kind: "sep" },
-          { kind: "item", id: "prev_tab", label: "Previous Tab", shortcut: `${MOD}${SHIFT}[` },
-          { kind: "item", id: "next_tab", label: "Next Tab", shortcut: `${MOD}${SHIFT}]` },
-          { kind: "item", id: "back_tab", label: "Go Back", shortcut: `${MOD}[` },
-          { kind: "item", id: "forward_tab", label: "Go Forward", shortcut: `${MOD}]` },
-          { kind: "sep" },
-          { kind: "item", id: "open_settings", label: "Settings…", shortcut: `${MOD},` },
           { kind: "item", id: "check_for_updates", label: "Check for Updates…" },
           { kind: "sep" },
-          { kind: "item", id: "quit", label: "Quit MonoCode", shortcut: `${MOD}Q` },
+          ...(onOpenSettings
+            ? [{ kind: "item" as const, id: "open_settings", label: "Settings…", shortcut: `${MOD},` }]
+            : []),
+          ...(onQuit
+            ? [{ kind: "item" as const, id: "quit", label: "Quit MonoCode", shortcut: `${MOD}Q` }]
+            : []),
         ];
       case "view":
         return [
@@ -305,17 +243,13 @@ export function MenuBar({
           { kind: "item", id: "toggle_terminal", label: "Toggle Terminal", shortcut: `${MOD}J` },
           { kind: "item", id: "open_model_picker", label: "Switch Model…", shortcut: `${MOD}.` },
           { kind: "item", id: "toggle_diff", label: "Toggle Changes" },
+          ...(onSidebarAppearance
+            ? [{ kind: "item" as const, id: "sidebar_appearance", label: "Sidebar Appearance…" }]
+            : []),
           { kind: "sep" },
-          { kind: "item", id: "focus_left", label: "Focus Pane Left", shortcut: `${MOD}${ALT}←` },
-          { kind: "item", id: "focus_right", label: "Focus Pane Right", shortcut: `${MOD}${ALT}→` },
-          { kind: "item", id: "focus_up", label: "Focus Pane Up", shortcut: `${MOD}${ALT}↑` },
-          { kind: "item", id: "focus_down", label: "Focus Pane Down", shortcut: `${MOD}${ALT}↓` },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "sidebar_opacity",
-            label: "Sidebar Appearance…",
-          },
+          { kind: "item", id: "zoom_in", label: "Zoom In", shortcut: `${MOD}+` },
+          { kind: "item", id: "zoom_out", label: "Zoom Out", shortcut: `${MOD}-` },
+          { kind: "item", id: "zoom_reset", label: "Reset Zoom", shortcut: `${MOD}0` },
         ];
       case "terminal":
         return [

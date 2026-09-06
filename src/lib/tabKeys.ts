@@ -115,9 +115,12 @@ export function adjacentItemId(
 
 export function shouldHandleListNavigation(input: {
   blockedTarget: boolean;
+  emptyComposerTarget: boolean;
   surfaceOpen: boolean;
 }): boolean {
-  return !input.blockedTarget && !input.surfaceOpen;
+  return (
+    !input.surfaceOpen && (!input.blockedTarget || input.emptyComposerTarget)
+  );
 }
 
 export function isQuitChord(

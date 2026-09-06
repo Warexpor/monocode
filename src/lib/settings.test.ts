@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ALT, MOD, SHIFT } from "./platform";
 import {
   COMPOSER_RUNNER_DEFAULT,
   DIFF_VIEWER_DEFAULT,
@@ -7,7 +6,6 @@ import {
   GRID_ARCADE_ENABLED_DEFAULT,
   KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
-  filterKeybindings,
   loadComposerRunner,
   loadDiffViewer,
   loadFollowUpBehavior,
@@ -156,16 +154,7 @@ describe("grid arcade enabled setting", () => {
   });
 });
 
-describe("keybindings catalog", () => {
-  it("lists File menu shortcuts the workspace already handles", () => {
-    const keys = KEYBINDINGS.map((row) => row.keys);
-    expect(keys).toContain(`${MOD},`);
-    expect(keys).toContain(`${MOD}Q`);
-    expect(keys).toContain("Esc");
-    expect(keys).toContain(`${MOD}${ALT}T`);
-    expect(keys).toContain(`${MOD}${SHIFT}F`);
-  });
-
+describe("workspace navigation keybindings", () => {
   it("documents session and project cycling in the shortcut list", () => {
     const rows = KEYBINDINGS.filter(
       (row) =>
@@ -178,15 +167,11 @@ describe("keybindings catalog", () => {
       "Project: Previous",
       "Project: Next",
     ]);
-    expect(rows.every((row) => row.when === "!textFocus && !overlay")).toBe(
-      true,
-    );
-  });
-
-  it("finds the stop-turn binding by its advertised key", () => {
-    expect(filterKeybindings(KEYBINDINGS, "esc").map((row) => row.command)).toEqual(
-      ["Agent: Stop focused turn"],
-    );
+    expect(
+      rows.every(
+        (row) => row.when === "!overlay && (!textFocus || emptyComposer)",
+      ),
+    ).toBe(true);
   });
 });
 

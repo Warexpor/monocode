@@ -1,4 +1,5 @@
 import {
+  Archive,
   Check,
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Pin,
   Plus,
   Search,
+  Settings,
   StickyNote,
 } from "./icons";
 import {
@@ -67,7 +69,6 @@ import {
 } from "../lib/sessionFolders";
 import { SESSION_LIST_PAGE, sessionListWindow } from "../lib/sessionListWindow";
 import {
-  DEFAULT_SESSION_SIDEBAR_FILTERS,
   filterSessionsByHarness,
   filterSessionsByStatus,
   filterSessionsByTime,
@@ -112,6 +113,7 @@ import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTree } from "./FileTree";
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectRail } from "./ProjectRail";
+import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { DevModeSlot, IconButton, TabVisitNav } from "./TitleBar";
 import { ProjectSearch } from "./ProjectSearch";
@@ -386,6 +388,8 @@ function SidebarComponent({
       searchQuery,
     ),
   ].sort(compareSessionSummaries);
+  const filtersActive = hasActiveSessionFilters(sessionFilters);
+  const searchNarrowed = Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
   // Folders sit above the ungrouped list. Only a page of ungrouped cards
   // mounts; the sentinel below asks for the next page.
@@ -399,8 +403,6 @@ function SidebarComponent({
     activeUngroupedIndex,
   );
   const shownUngrouped = ungroupedVisible.slice(0, shownUngroupedCount);
-  const filtersActive = hasActiveSessionFilters(sessionFilters);
-  const searchNarrowed = Boolean(searchQuery.trim());
   const fullSessionListEntries = buildSessionList(
     visibleSessions,
     sessionFolders,
@@ -422,6 +424,7 @@ function SidebarComponent({
   const hasMoreSessions = shownUngroupedCount < ungroupedVisible.length;
   const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
   const sessionHarnesses = harnessesInSessions(sessions);
+  const narrowedByUser = searchNarrowed || filtersActive;
   const sortable = useSortable(tabOrder, (ids) => {
     const next = ids as SidebarTab[];
     setTabOrder(next);
@@ -781,6 +784,11 @@ function SidebarComponent({
         onListDrop={onSessionListDrop}
         onListDropTargetChange={setSessionDrop}
         onContextMenu={(e) => onSessionContextMenu(session.id, e)}
+        onArchive={
+          onArchiveSession
+            ? () => onArchiveSession(session.id, !session.archived)
+            : undefined
+        }
         onRename={
           onRenameSession ? () => setRenamingSessionId(session.id) : undefined
         }
@@ -1060,24 +1068,11 @@ function SidebarComponent({
                 // A narrowed-down result is a transient answer to what the user
                 // just typed, so it stays a quiet line of text. Only the genuine
                 // "this project has nothing in it" case earns the illustration.
-                filtersActive ? (
-                  <div className="px-3 py-2">
-                    <p className="text-[12px] text-content/50">
-                      Filters hid all sessions
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onSessionFiltersChange(DEFAULT_SESSION_SIDEBAR_FILTERS)
-                      }
-                      className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                ) : searchNarrowed ? (
+                narrowedByUser ? (
                   <p className="px-3 py-2 text-[12px] text-content/50">
-                    No matching sessions
+                    {searchNarrowed
+                      ? "No matching sessions"
+                      : "No sessions match these filters"}
                   </p>
                 ) : (
                   <SessionsEmpty message="Sessions you start will show up here" />
@@ -1279,12 +1274,22 @@ function SidebarComponent({
           </div>
         ) : null}
         {showSidebarFooter ? (
-          <SidebarUpdateFooter
-            update={updateNotice}
-            onOpenWhatsNew={onOpenWhatsNew}
-            onDismissUpdate={onDismissUpdate}
-            onOpenSettings={onOpenSettings}
-          />
+          <>
+            <SidebarUpdateFooter
+              update={updateNotice}
+              onOpenWhatsNew={onOpenWhatsNew}
+              onDismissUpdate={onDismissUpdate}
+            />
+            <div className="flex shrink-0 flex-col gap-px p-2 pt-0">
+              <RailAction
+                label="Settings"
+                icon={Settings}
+                onClick={onOpenSettings}
+                shortcut={`${MOD},`}
+                ariaLabel={`Settings (${MOD},)`}
+              />
+            </div>
+          </>
         ) : null}
       </>
       {sessionMenu ? (
@@ -1801,6 +1806,7 @@ function SessionCard({
   onListDrop,
   onListDropTargetChange,
   onContextMenu,
+  onArchive,
   onRename,
   onDelete,
 }: {
@@ -1818,6 +1824,7 @@ function SessionCard({
   onListDrop?: (draggedId: string, target: SessionListDropTarget) => void;
   onListDropTargetChange?: (target: SessionListDropTarget | null) => void;
   onContextMenu?: (e: ReactMouseEvent<HTMLButtonElement>) => void;
+  onArchive?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
 }) {
@@ -1972,80 +1979,112 @@ function SessionCard({
     window.addEventListener("keydown", onKey);
   };
 
+  const archiveLabel = session.archived ? "Unarchive" : "Archive";
+
   return (
-    <button
-      type="button"
-      title={title}
-      aria-current={isActive ? "true" : undefined}
-      data-session-card={session.id}
-      data-tauri-drag-region="false"
-      onPointerDown={onPointerDown}
-      onPointerEnter={() => onPrefetch?.(session.id)}
-      onClick={() => {
-        if (performance.now() < skipClickUntil.current) return;
-        onSelect(session.id);
-      }}
-      onContextMenu={onContextMenu}
-      onKeyDown={onKeyDown}
-      className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
-        compact ? "py-1.5" : "py-2"
-      } ${dragging ? "opacity-40" : ""} ${
-        dropTarget
-          ? "text-content border-transparent"
-          : needsApproval
-            ? "bg-content/20 text-content border-content/30 border-dashed"
-            : isActive
-              ? "bg-content/10 text-content border-transparent"
-              : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
-      }`}
-    >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
-      {compact ? null : (
-        <span className="relative flex items-center gap-2">
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div className="group relative">
+      <button
+        type="button"
+        title={title}
+        aria-current={isActive ? "true" : undefined}
+        data-session-card={session.id}
+        data-tauri-drag-region="false"
+        onPointerDown={onPointerDown}
+        onPointerEnter={() => onPrefetch?.(session.id)}
+        onClick={() => {
+          if (performance.now() < skipClickUntil.current) return;
+          onSelect(session.id);
+        }}
+        onContextMenu={onContextMenu}
+        onKeyDown={onKeyDown}
+        className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
+          compact ? "py-1.5" : "py-2"
+        } ${dragging ? "opacity-40" : ""} ${
+          dropTarget
+            ? "text-content border-transparent"
+            : needsApproval
+              ? "bg-content/20 text-content border-content/30 border-dashed"
+              : isActive
+                ? "bg-content/10 text-content border-transparent"
+                : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+        }`}
+      >
+        {dropTarget ? (
+          <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        ) : null}
+        {compact ? null : (
+          <span className="relative flex items-center gap-2">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <HarnessIcon
+                harness={session.harness}
+                className="size-3.5 shrink-0"
+              />
+              <span className="min-w-0 truncate text-[11px] text-content/50">
+                {model}
+              </span>
+            </span>
+            {status}
+          </span>
+        )}
+        <span
+          className={`relative flex min-w-0 items-center gap-1.5 ${
+            compact ? "" : "mt-1"
+          }`}
+        >
+          {session.pinned ? (
+            <Pin
+              className="size-3 shrink-0 text-content/45"
+              strokeWidth={1.75}
+            />
+          ) : null}
+          <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+            {title}
+          </span>
+          {compact ? status : null}
+        </span>
+        <span className="relative mt-1 flex items-center gap-2">
+          {gitLabel ? (
+            <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
+              <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+              <span className="min-w-0 truncate">{gitLabel}</span>
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          <span
+            className={`flex shrink-0 items-center gap-1.5 ${
+              onArchive
+                ? "transition-[padding] group-focus-within:pl-5 group-hover:pl-5"
+                : ""
+            }`}
+          >
             <HarnessIcon
               harness={session.harness}
               className="size-3.5 shrink-0"
             />
-            <span className="min-w-0 truncate text-[11px] text-content/50">
-              {model}
-            </span>
           </span>
-          {status}
         </span>
-      )}
-      <span
-        className={`relative flex min-w-0 items-center gap-1.5 ${
-          compact ? "" : "mt-1"
-        }`}
-      >
-        {session.pinned ? (
-          <Pin className="size-3 shrink-0 text-content/45" strokeWidth={1.75} />
-        ) : null}
-        <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-          {title}
-        </span>
-        {compact ? status : null}
-      </span>
-      <span className="relative mt-1 flex items-center gap-2">
-        {gitLabel ? (
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
-            <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
-            <span className="min-w-0 truncate">{gitLabel}</span>
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )}
-        <span className="flex shrink-0 items-center gap-1.5">
-          <HarnessIcon
-            harness={session.harness}
-            className="size-3.5 shrink-0"
-          />
-        </span>
-      </span>
-    </button>
+      </button>
+      {onArchive ? (
+        <button
+          type="button"
+          data-no-drag
+          data-tauri-drag-region="false"
+          title={archiveLabel}
+          aria-label={`${archiveLabel} ${title}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onArchive();
+          }}
+          className={`pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+            compact ? "bottom-[5px]" : "bottom-[7px]"
+          }`}
+        >
+          <Archive className="size-3.5" strokeWidth={1.75} />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
