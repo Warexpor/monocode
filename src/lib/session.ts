@@ -5,10 +5,12 @@ import type { InboxComposerCard } from "./githubTasks";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
 import {
   defaultSessionChoice,
+  loadLastModelChoice,
   preferredModelId,
   preferredModelSettings,
   resolveModel,
 } from "./models";
+import { isHarnessAvailable } from "./harness/availability";
 
 export type HarnessId =
   "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "omp" | "fx";
@@ -282,21 +284,33 @@ export function harnessSupportsAttachments(id: HarnessId): boolean {
   return id !== "fx";
 }
 
+/** Harness used for a new session when the user has not picked one yet. */
+export function preferredNewSessionHarness(): HarnessId {
+  return (
+    loadLastModelChoice()?.harness ??
+    (isHarnessAvailable("grok") ? "grok" : "claude")
+  );
+}
+
 export function newSession(
-  harness: HarnessId = "claude",
+  harness?: HarnessId,
   cwd = "~",
   model?: string,
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
   modelSettings?: Record<string, string>,
 ): Session {
-  const resolved = resolveModel(harness, model ?? preferredModelId(harness));
+  const selectedHarness = harness ?? preferredNewSessionHarness();
+  const resolved = resolveModel(
+    selectedHarness,
+    model ?? preferredModelId(selectedHarness),
+  );
   return {
     id: crypto.randomUUID(),
-    harness,
+    harness: selectedHarness,
     model: resolved.id,
     modelSettings: preferredModelSettings(resolved, modelSettings),
     runtimeMode,
-    title: HARNESS_LABEL[harness],
+    title: HARNESS_LABEL[selectedHarness],
     cwd,
     blocks: [],
   };
@@ -307,6 +321,10 @@ export function newDefaultSession(
   cwd = "~",
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
 ): Session {
+  const last = loadLastModelChoice();
+  if (last) return newSession(last.harness, cwd, last.model, runtimeMode);
+  if (isHarnessAvailable("grok"))
+    return newSession("grok", cwd, undefined, runtimeMode);
   const choice = defaultSessionChoice();
   return newSession(choice.harness, cwd, choice.model, runtimeMode);
 }
