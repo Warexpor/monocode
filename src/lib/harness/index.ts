@@ -74,10 +74,21 @@ export {
   respondGrokApproval,
   rewindGrokConversation,
   listGrokRewindPoints,
+  askGrokBtw,
   stopGrokSession,
   forgetGrokSession,
   bindGrokSession,
 } from "./grok";
+export {
+  grokCommandProvider,
+  parseGrokBtwPrompt,
+  grokCommandsFromAcp,
+} from "./grokCommands";
+export {
+  parseGrokRewindPoints,
+  resolveGrokRewindTarget,
+  type GrokRewindPoint,
+} from "./grokProtocol";
 export { generateCursorSessionTitle } from "./cursorTitle";
 export { generateCodexSessionTitle } from "./codexTitle";
 export { generateOpenCodeSessionTitle } from "./opencodeTitle";

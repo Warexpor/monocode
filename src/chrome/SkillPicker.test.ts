@@ -54,4 +54,25 @@ describe("native command picker", () => {
     expect(html).toContain("omp · custom");
     expect(html).toContain("list --all");
   });
+
+  it("shows Grok skill path hints while creating", () => {
+    const html = renderToStaticMarkup(
+      createElement(SkillPicker, {
+        skills: [],
+        query: "",
+        active: 0,
+        creating: true,
+        cwd: "/repo",
+        harness: "grok",
+        onActive: vi.fn(),
+        onPick: vi.fn(),
+        onStartCreate: vi.fn(),
+        onCancelCreate: vi.fn(),
+        onCreate: vi.fn(),
+      }),
+    );
+    expect(html).toContain(".grok/skills");
+    expect(html).toContain("~/.grok/skills");
+    expect(html).toContain(".agents/skills");
+  });
 });

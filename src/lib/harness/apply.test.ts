@@ -554,3 +554,65 @@ describe("clarifying questions", () => {
     expect(session.pendingQuestion).toBeUndefined();
   });
 });
+
+describe("grok session side panels", () => {
+  it("stores follow-up suggestions and clears them on a new turn", () => {
+    let session = newSession("grok", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "followUps.updated",
+      suggestions: ["Ship it", "Add tests"],
+    });
+    expect(session.followUps).toEqual(["Ship it", "Add tests"]);
+    session = appendUser(session, "next");
+    expect(session.followUps).toBeUndefined();
+  });
+
+  it("upserts agents and background tasks", () => {
+    let session = newSession("grok", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      id: "a1",
+      status: "running",
+      title: "Explore",
+      kind: "explore",
+    });
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      id: "a1",
+      status: "completed",
+      title: "Explore",
+      durationMs: 1_200,
+    });
+    expect(session.agents).toEqual([
+      {
+        id: "a1",
+        title: "Explore",
+        status: "completed",
+        kind: "explore",
+        durationMs: 1_200,
+      },
+    ]);
+
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "bg1",
+      status: "running",
+      title: "npm test",
+      detail: "pid 42",
+    });
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "bg1",
+      status: "completed",
+      title: "npm test",
+    });
+    expect(session.backgroundTasks).toEqual([
+      {
+        id: "bg1",
+        title: "npm test",
+        status: "completed",
+        detail: "pid 42",
+      },
+    ]);
+  });
+});

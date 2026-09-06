@@ -9,6 +9,7 @@ import {
   steerGrokTurn,
   stopGrokSession,
 } from "./grok";
+import { grokCommandProvider } from "./grokCommands";
 import { refreshGrokCatalog } from "./grokCatalog";
 import {
   generateGrokBranchName,
@@ -23,6 +24,7 @@ export const grokAdapter: HarnessAdapter = {
   id: "grok",
   live: true,
   canSteer: false,
+  commands: grokCommandProvider,
   sendTurn: sendGrokTurn,
   compactContext: compactGrokContext,
   steerTurn: steerGrokTurn,

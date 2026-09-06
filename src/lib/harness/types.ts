@@ -89,7 +89,28 @@ export type HarnessEvent =
       streaming?: boolean;
     }
   /** Context-window level after the harness's latest request. */
-  | { type: "context"; used?: number; window?: number };
+  | { type: "context"; used?: number; window?: number }
+  /** Suggested next prompts from the harness (e.g. Grok `x.ai/follow_ups`). */
+  | { type: "followUps.updated"; suggestions: string[] }
+  /** Subagent roster update (spawn / progress / finish). */
+  | {
+      type: "agent.updated";
+      id: string;
+      status: "running" | "completed" | "failed" | "cancelled";
+      title: string;
+      kind?: string;
+      detail?: string;
+      model?: string;
+      durationMs?: number;
+    }
+  /** Background shell/monitor task lifecycle. */
+  | {
+      type: "background.updated";
+      id: string;
+      status: "running" | "completed" | "failed" | "cancelled";
+      title: string;
+      detail?: string;
+    };
 
 export type ApprovalDecision = "allow" | "deny";
 

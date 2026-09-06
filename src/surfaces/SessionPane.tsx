@@ -42,6 +42,7 @@ import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { resolveModel } from "../lib/models";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
+import { BtwAsidePanel } from "../chrome/BtwAsidePanel";
 
 type Props = {
   session: Session;
@@ -119,6 +120,7 @@ type Props = {
   onEditResend?: (sessionId: string, userBlockId: string) => void;
   onRevertAfter?: (sessionId: string, userBlockId: string) => void;
   onNewTerminal: (sessionId: string) => void;
+  onBtwAsideDismiss?: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
@@ -161,6 +163,7 @@ export const SessionPane = memo(function SessionPane({
   onEditResend,
   onRevertAfter,
   onNewTerminal,
+  onBtwAsideDismiss,
   onPaneDragStart,
 }: Props) {
   const title = sessionDisplayTitle(session.title, session.harness);
@@ -285,6 +288,9 @@ export const SessionPane = memo(function SessionPane({
       noteCard={session.noteCard}
       handoffCard={session.handoffCard}
       question={session.pendingQuestion}
+      followUps={session.followUps}
+      agents={session.agents}
+      backgroundTasks={session.backgroundTasks}
       onQuoteRequestConsumed={acknowledgeQuote}
       onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
@@ -411,62 +417,72 @@ export const SessionPane = memo(function SessionPane({
             />
           )
         ) : (
-          <>
-            <AgentTranscript
-              blocks={session.blocks}
-              busy={!!session.busy}
-              visible={visible}
-              cwd={workCwd}
-              harness={session.harness}
-              model={session.model}
-              pendingQuestion={!!session.pendingQuestion}
-              onApproval={approve}
-              onAddToChat={addSelectionToChat}
-              onSaveNote={notesEnabled ? saveNote : undefined}
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-              onOpenPlan={openPlan}
-              onBuildPlan={buildPlan}
-              onSecondOpinion={
-                !session.inboxAsk && onSecondOpinion
-                  ? (harness, turn, model) =>
-                      onSecondOpinion(session.id, harness, turn, model)
-                  : undefined
-              }
-              onHandoff={
-                !session.inboxAsk && onHandoff
-                  ? (harness, turn, model) =>
-                      onHandoff(session.id, harness, turn, model)
-                  : undefined
-              }
-              onEditResend={
-                onEditResend
-                  ? (userBlockId) => onEditResend(session.id, userBlockId)
-                  : undefined
-              }
-              onRevertAfter={
-                onRevertAfter
-                  ? (userBlockId) => onRevertAfter(session.id, userBlockId)
-                  : undefined
-              }
-              onJumpToBottomChange={setShowJumpToBottom}
-              onJumpToBottomReady={onJumpToBottomReady}
-            />
-            {showJumpToBottom ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
-                <button
-                  type="button"
-                  title="Jump to latest"
-                  aria-label="Jump to latest"
-                  data-jump-to-bottom
-                  onClick={() => jumpToBottomRef.current?.()}
-                  className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
-                >
-                  <ChevronDown className="size-4" strokeWidth={2} />
-                </button>
-              </div>
+          <div className="flex h-full min-h-0">
+            <div className="relative min-h-0 min-w-0 flex-1">
+              <AgentTranscript
+                blocks={session.blocks}
+                busy={!!session.busy}
+                visible={visible}
+                cwd={workCwd}
+                harness={session.harness}
+                model={session.model}
+                pendingQuestion={!!session.pendingQuestion}
+                onApproval={approve}
+                onAddToChat={addSelectionToChat}
+                onSaveNote={notesEnabled ? saveNote : undefined}
+                onOpenFile={onOpenFile}
+                onOpenDiff={onOpenDiff}
+                onOpenPlan={openPlan}
+                onBuildPlan={buildPlan}
+                onSecondOpinion={
+                  !session.inboxAsk && onSecondOpinion
+                    ? (harness, turn, model) =>
+                        onSecondOpinion(session.id, harness, turn, model)
+                    : undefined
+                }
+                onHandoff={
+                  !session.inboxAsk && onHandoff
+                    ? (harness, turn, model) =>
+                        onHandoff(session.id, harness, turn, model)
+                    : undefined
+                }
+                onEditResend={
+                  onEditResend
+                    ? (userBlockId) => onEditResend(session.id, userBlockId)
+                    : undefined
+                }
+                onRevertAfter={
+                  onRevertAfter
+                    ? (userBlockId) => onRevertAfter(session.id, userBlockId)
+                    : undefined
+                }
+                onJumpToBottomChange={setShowJumpToBottom}
+                onJumpToBottomReady={onJumpToBottomReady}
+              />
+              {showJumpToBottom ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
+                  <button
+                    type="button"
+                    title="Jump to latest"
+                    aria-label="Jump to latest"
+                    data-jump-to-bottom
+                    onClick={() => jumpToBottomRef.current?.()}
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
+                  >
+                    <ChevronDown className="size-4" strokeWidth={2} />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            {session.btwAside ? (
+              <BtwAsidePanel
+                aside={session.btwAside}
+                cwd={workCwd}
+                onDismiss={() => onBtwAsideDismiss?.(session.id)}
+                onOpenFile={onOpenFile}
+              />
             ) : null}
-          </>
+          </div>
         )}
       </div>
       {dockComposer ? (

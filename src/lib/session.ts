@@ -253,6 +253,47 @@ export type Session = {
    * In-memory; request ids do not survive restarts.
    */
   pendingQuestion?: UserQuestionPrompt;
+  /** Suggested next prompts from the harness. In-memory only. */
+  followUps?: string[];
+  /** Live subagents reported by the harness (e.g. Grok task tool). In-memory. */
+  agents?: SessionAgent[];
+  /** Background shell/monitor tasks from the harness. In-memory. */
+  backgroundTasks?: SessionBackgroundTask[];
+  /** Mid-turn Grok /btw aside panel. In-memory only. */
+  btwAside?: BtwAside;
+};
+
+export type BtwAsideStatus = "pending" | "done" | "error";
+
+export type BtwAside = {
+  id: string;
+  question: string;
+  status: BtwAsideStatus;
+  answer?: string;
+  error?: string;
+};
+
+export type SessionAgentStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type SessionAgent = {
+  id: string;
+  title: string;
+  status: SessionAgentStatus;
+  kind?: string;
+  detail?: string;
+  model?: string;
+  durationMs?: number;
+};
+
+export type SessionBackgroundTask = {
+  id: string;
+  title: string;
+  status: SessionAgentStatus;
+  detail?: string;
 };
 
 export type PendingHarnessSwitch = {

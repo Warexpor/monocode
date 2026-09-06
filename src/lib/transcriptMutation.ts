@@ -19,6 +19,8 @@ export type TranscriptMutationResult =
       composerSeed?: { text: string; attachments?: Attachment[] };
       /** 0-based index among turn-opening user blocks of the first removed user turn (for Grok rewind). */
       rewindPromptIndex: number | null;
+      /** Text of the first removed turn-opening user (for matching rewind point previews). */
+      rewindAnchorText?: string;
       removedCount: number;
     }
   | { ok: false; error: "busy" | "not_found" | "not_user" | "empty" };
@@ -98,6 +100,8 @@ export function applyTranscriptMutation(
   );
   const removedCount = blocks.length - cutExclusive;
 
+  const rewindAnchorText = firstRemovedOpener?.text.trim() || undefined;
+
   return {
     ok: true,
     blocks: kept,
@@ -107,6 +111,7 @@ export function applyTranscriptMutation(
       openerOrdinal,
       mutation,
     ),
+    ...(rewindAnchorText ? { rewindAnchorText } : {}),
     removedCount,
   };
 }

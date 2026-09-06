@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { nativeModelId } from "../models";
 import type { RuntimeMode } from "../session";
 import { AcpClient, type AcpHandlers } from "./acp";
@@ -8,6 +9,11 @@ import {
   unwatchChild,
   watchChild,
 } from "./child";
+import {
+  clearGrokAvailableCommands,
+  grokCommandsFromAcp,
+  setGrokAvailableCommands,
+} from "./grokCommands";
 import {
   AUTH_HELP,
   askQuestionResponse,
@@ -23,11 +29,13 @@ import {
   grokSessionNewParams,
   grokSpawnArgs,
   isMethodNotFound,
+  parseGrokRewindPoints,
   permissionOptionId,
   permissionRequestFromAcp,
   pickAutoOption,
   planFromExitPlan,
   sessionIdFromResult,
+  type GrokRewindPoint,
 } from "./grokProtocol";
 import type {
   ApprovalDecision,
@@ -40,6 +48,7 @@ import type {
 import { questionPromptTitle, type UserQuestionReply } from "../userQuestion";
 
 type Live = {
+  threadId: string;
   acp: AcpClient;
   acpSessionId: string;
   cwd: string;
@@ -53,6 +62,7 @@ type Live = {
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, (decision: ApprovalDecision) => void>;
   questions: Map<number, (reply: UserQuestionReply) => void>;
+  mcpElicits: Map<number, (outcome: "accept" | "decline" | "cancel") => void>;
   turns: Promise<void>;
 };
 
@@ -182,23 +192,47 @@ export async function rewindGrokConversation(
 
 export async function listGrokRewindPoints(
   sessionId: string,
-): Promise<unknown | null> {
+): Promise<GrokRewindPoint[]> {
   const live = liveByThread.get(sessionId);
-  if (!live) return null;
+  if (!live) return [];
   try {
-    return await live.acp.request(
-      "_x.ai/rewind/points",
-      { sessionId: live.acpSessionId },
-      CONTROL_TIMEOUT_MS,
+    return parseGrokRewindPoints(
+      await live.acp.request(
+        "_x.ai/rewind/points",
+        { sessionId: live.acpSessionId },
+        CONTROL_TIMEOUT_MS,
+      ),
     );
   } catch (error) {
-    if (isMethodNotFound(error)) return null;
+    if (isMethodNotFound(error)) return [];
     throw error;
   }
 }
 
 export async function steerGrokTurn(_input: SteerTurnInput): Promise<void> {
   throw new Error("Grok Build does not support steering an in-flight turn");
+}
+
+/** Side question that does not interrupt the current turn (`x.ai/btw`). */
+export async function askGrokBtw(
+  sessionId: string,
+  question: string,
+): Promise<string> {
+  const live = liveByThread.get(sessionId);
+  if (!live) throw new Error("Grok Build session is not running");
+  const trimmed = question.trim();
+  if (!trimmed) throw new Error("btw question is empty");
+  const result = await live.acp.request(
+    "x.ai/btw",
+    { sessionId: live.acpSessionId, question: trimmed },
+    PROMPT_TIMEOUT_MS,
+  );
+  const answer =
+    asRecord(result)?.answer ??
+    asRecord(result)?.text ??
+    asRecord(result)?.content;
+  if (typeof answer === "string" && answer.trim()) return answer.trim();
+  throw new Error("Grok Build returned an empty btw answer");
 }
 
 export function respondGrokApproval(
@@ -229,6 +263,8 @@ export async function cancelGrokTurn(sessionId: string): Promise<void> {
   live.approvals.clear();
   for (const [, resolve] of live.questions) resolve({ kind: "skipped" });
   live.questions.clear();
+  for (const [, resolve] of live.mcpElicits) resolve("cancel");
+  live.mcpElicits.clear();
   await live.acp
     .notify("session/cancel", { sessionId: live.acpSessionId })
     .catch(() => undefined);
@@ -239,12 +275,15 @@ export async function stopGrokSession(sessionId: string): Promise<void> {
   cancelledThreads.delete(sessionId);
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
+  clearGrokAvailableCommands(sessionId);
   if (live) {
     live.muteUpdates = true;
     for (const [, resolve] of live.approvals) resolve("deny");
     live.approvals.clear();
     for (const [, resolve] of live.questions) resolve({ kind: "skipped" });
     live.questions.clear();
+    for (const [, resolve] of live.mcpElicits) resolve("cancel");
+    live.mcpElicits.clear();
   }
   live?.acp.close();
   unwatchChild(sessionId);
@@ -439,6 +478,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       throw new Error("Grok Build did not return a session id");
 
     const live: Live = {
+      threadId: input.sessionId,
       acp,
       acpSessionId,
       cwd: input.cwd,
@@ -453,6 +493,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       onEvent: input.onEvent,
       approvals: new Map(),
       questions: new Map(),
+      mcpElicits: new Map(),
       turns: Promise.resolve(),
     };
     liveRef.current = live;
@@ -466,11 +507,30 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       providerSessionId: acpSessionId,
     });
     live.onEvent({ type: "session.started" });
+    void refreshGrokCommands(live).catch(() => undefined);
     return live;
   } catch (error) {
     acp.close(error instanceof Error ? error : new Error(String(error)));
     await stopGrokSession(input.sessionId);
     throw error;
+  }
+}
+
+async function refreshGrokCommands(live: Live): Promise<void> {
+  try {
+    const result = await live.acp.request(
+      "x.ai/commands/list",
+      { sessionId: live.acpSessionId, cwd: live.cwd },
+      CONTROL_TIMEOUT_MS,
+    );
+    const commands = grokCommandsFromAcp(result);
+    if (commands.length) {
+      setGrokAvailableCommands(live.threadId, live.cwd, commands);
+    }
+  } catch (error) {
+    if (!isMethodNotFound(error)) {
+      console.debug("[monocode] grok commands/list failed", error);
+    }
   }
 }
 
@@ -542,14 +602,43 @@ function ignoreUnsupportedControl(method: string, error: unknown): void {
 }
 
 function handleNotification(live: Live, method: string, params: unknown) {
+  if (method === "x.ai/follow_ups" || method === "_x.ai/follow_ups") {
+    const suggestions = followUpsFromParams(params);
+    live.onEvent({ type: "followUps.updated", suggestions });
+    return;
+  }
+
   const updateParams =
     method === "session/update"
       ? params
       : method === "_x.ai/session_notification" ||
-          method === "x.ai/session_notification"
+          method === "x.ai/session_notification" ||
+          method === "_x.ai/session/update" ||
+          method === "x.ai/session/update"
         ? unwrapSessionNotification(params)
-        : null;
+        : method === "x.ai/task_completed" ||
+            method === "_x.ai/task_completed" ||
+            method === "x.ai/task_backgrounded" ||
+            method === "_x.ai/task_backgrounded" ||
+            method === "x.ai/monitor_event" ||
+            method === "_x.ai/monitor_event"
+          ? wrapNamedUpdate(method, params)
+          : null;
   if (!updateParams) return;
+
+  const update = asRecord(asRecord(updateParams)?.update) ?? asRecord(updateParams);
+  const kind = String(
+    update?.sessionUpdate ?? update?.session_update ?? update?.type ?? "",
+  );
+  if (kind === "available_commands_update") {
+    setGrokAvailableCommands(
+      live.threadId,
+      live.cwd,
+      grokCommandsFromAcp(update ?? updateParams),
+    );
+    return;
+  }
+
   for (const event of eventsFromAcpUpdate(updateParams)) {
     if (
       event.type === "context" &&
@@ -561,6 +650,31 @@ function handleNotification(live: Live, method: string, params: unknown) {
       live.onEvent(event);
     }
   }
+}
+
+function wrapNamedUpdate(method: string, params: unknown): unknown {
+  const kind = method.replace(/^_?x\.ai\//, "").replace(/\//g, "_");
+  const rec = asRecord(params) ?? {};
+  if (rec.sessionUpdate || rec.session_update || rec.update) return params;
+  return { update: { ...rec, sessionUpdate: kind } };
+}
+
+function followUpsFromParams(params: unknown): string[] {
+  const rec = asRecord(params);
+  const list = Array.isArray(rec?.suggestions) ? rec.suggestions : [];
+  const out: string[] = [];
+  for (const item of list) {
+    if (out.length >= 6) break;
+    const label =
+      typeof item === "string"
+        ? item
+        : typeof asRecord(item)?.label === "string"
+          ? (asRecord(item)?.label as string)
+          : "";
+    const cleaned = label.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    if (cleaned) out.push(cleaned.slice(0, 256));
+  }
+  return out;
 }
 
 function unwrapSessionNotification(params: unknown): unknown {
@@ -598,12 +712,97 @@ async function handleRequest(
       .catch(() => undefined);
     return;
   }
+  if (method === "x.ai/mcp/elicit" || method === "_x.ai/mcp/elicit") {
+    await handleMcpElicit(live, id, params);
+    return;
+  }
   await live.acp
     .respondError(id, {
       code: -32601,
       message: `Method not found: ${method}`,
     })
     .catch(() => undefined);
+}
+
+async function handleMcpElicit(
+  live: Live,
+  id: number,
+  params: unknown,
+): Promise<void> {
+  const rec = asRecord(params);
+  const server =
+    (typeof rec?.serverName === "string" && rec.serverName) ||
+    (typeof rec?.server_name === "string" && rec.server_name) ||
+    "MCP server";
+  const message =
+    (typeof rec?.message === "string" && rec.message.trim()) ||
+    `${server} needs additional input.`;
+  const mode = typeof rec?.mode === "string" ? rec.mode : "";
+  const url = typeof rec?.url === "string" ? rec.url.trim() : "";
+
+  if (mode === "url" && url) {
+    void openUrl(url).catch(() => undefined);
+  }
+
+  const questionId = "mcp-elicit";
+  live.onEvent({
+    type: "question.asked",
+    requestId: id,
+    title: server,
+    questions: [
+      {
+        id: questionId,
+        header: server,
+        prompt:
+          mode === "url" && url
+            ? `${message}\n\nOpened (or open): ${url}\n\nContinue when authentication finishes.`
+            : message,
+        multiSelect: false,
+        allowCustom: false,
+        options: [
+          { id: "accept", label: "Continue" },
+          { id: "decline", label: "Decline" },
+          { id: "cancel", label: "Cancel" },
+        ],
+      },
+    ],
+  });
+
+  const outcome = await new Promise<"accept" | "decline" | "cancel">(
+    (resolve) => {
+      live.mcpElicits.set(id, resolve);
+      live.questions.set(id, (reply) => {
+        if (reply.kind !== "answered") {
+          resolve("cancel");
+          return;
+        }
+        const picked = reply.answers[questionId]?.[0] ?? "";
+        if (picked === "accept") resolve("accept");
+        else if (picked === "decline") resolve("decline");
+        else resolve("cancel");
+      });
+    },
+  );
+  live.mcpElicits.delete(id);
+  live.questions.delete(id);
+  live.onEvent({
+    type: "question.resolved",
+    requestId: id,
+    decision:
+      outcome === "accept"
+        ? "answered"
+        : outcome === "decline"
+          ? "skipped"
+          : "cancelled",
+  });
+
+  const response =
+    outcome === "accept"
+      ? { outcome: "accept" }
+      : outcome === "decline"
+        ? { outcome: "decline" }
+        : { outcome: "cancel" };
+  await live.acp.respond(id, response).catch(() => undefined);
 }
 
 async function handlePermission(live: Live, id: number, params: unknown) {

@@ -130,6 +130,7 @@ import {
   applyHarnessEvent,
   appendUser,
   appendSteerUser,
+  askGrokBtw,
   bindHarnessSession,
   cancelHarnessTurn,
   canCompactHarnessContext,
@@ -138,12 +139,15 @@ import {
   forgetHarnessSession,
   generateHarnessTitle,
   isLiveHarness,
+  parseGrokBtwPrompt,
   probeHarnessAvailability,
   refreshHarnessCatalogs,
   registerBuiltinHarnesses,
   promoteLastAssistantToPlan,
   respondHarnessApproval,
   respondHarnessQuestion,
+  listGrokRewindPoints,
+  resolveGrokRewindTarget,
   rewindGrokConversation,
   sendHarnessTurn,
   steerHarnessTurn,
@@ -1623,6 +1627,16 @@ export default function App({
       prev.map((session) =>
         session.id === sessionId && session.handoffCard
           ? { ...session, handoffCard: undefined }
+          : session,
+      ),
+    );
+  }, []);
+
+  const onBtwAsideDismiss = useCallback((sessionId: string) => {
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === sessionId && session.btwAside
+          ? { ...session, btwAside: undefined }
           : session,
       ),
     );
@@ -3532,6 +3546,61 @@ export default function App({
           : null;
 
       if (current.busy && !pendingSwitch) {
+        const btwQuestion =
+          current.harness === "grok" ? parseGrokBtwPrompt(text) : null;
+        if (btwQuestion) {
+          const asideId = crypto.randomUUID();
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === sessionId
+                ? {
+                    ...s,
+                    btwAside: {
+                      id: asideId,
+                      question: btwQuestion,
+                      status: "pending",
+                    },
+                  }
+                : s,
+            ),
+          );
+          void askGrokBtw(sessionId, btwQuestion)
+            .then((answer) => {
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === sessionId && s.btwAside?.id === asideId
+                    ? {
+                        ...s,
+                        btwAside: {
+                          ...s.btwAside,
+                          status: "done",
+                          answer,
+                        },
+                      }
+                    : s,
+                ),
+              );
+            })
+            .catch((error: unknown) => {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.id === sessionId && s.btwAside?.id === asideId
+                    ? {
+                        ...s,
+                        btwAside: {
+                          ...s.btwAside,
+                          status: "error",
+                          error: message,
+                        },
+                      }
+                    : s,
+                ),
+              );
+            });
+          return;
+        }
         const followUpBehavior =
           intent === "plan"
             ? "queue"
@@ -4150,11 +4219,31 @@ export default function App({
 
       if (tryGrokRewind) {
         try {
-          const rewind = await rewindGrokConversation(
-            sessionId,
-            result.rewindPromptIndex!,
-          );
-          if (rewind === "ok") return;
+          const preferred = result.rewindPromptIndex!;
+          const points = await listGrokRewindPoints(sessionId);
+          const target =
+            resolveGrokRewindTarget({
+              preferredIndex: preferred,
+              points,
+              removedUserText: result.rewindAnchorText,
+            }) ?? preferred;
+          const rewind = await rewindGrokConversation(sessionId, target);
+          if (rewind === "ok") {
+            const preview = points.find(
+              (point) => point.promptIndex === target,
+            )?.promptPreview;
+            const status = preview?.trim()
+              ? `Rewound before: ${preview.trim().slice(0, 120)}`
+              : `Rewound to prompt ${target}`;
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId
+                  ? applyHarnessEvent(session, { type: "status", text: status })
+                  : session,
+              ),
+            );
+            return;
+          }
         } catch {
           // Fall through to forget when rewind fails.
         }
@@ -5205,6 +5294,7 @@ export default function App({
     onInboxCardDismiss,
     onNoteCardDismiss,
     onHandoffCardDismiss,
+    onBtwAsideDismiss,
     onApproval,
     onQuestionReply,
     onOpenFile,

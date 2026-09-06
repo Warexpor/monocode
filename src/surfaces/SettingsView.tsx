@@ -1189,7 +1189,9 @@ function ProviderRow({
       }
       description={
         available
-          ? `${models.length} ${models.length === 1 ? "model" : "models"} available.`
+          ? harness === "grok"
+            ? `${models.length} ${models.length === 1 ? "model" : "models"} available. MCP servers come from ~/.grok (config.toml); manage with grok mcp. Skills load from .grok/skills and ~/.grok/skills. Sandbox profiles use ~/.grok sandbox settings (sandbox.toml). Slash commands (/compact, /fork, /workflow, …) come from the live Grok session.`
+            : `${models.length} ${models.length === 1 ? "model" : "models"} available.`
           : harnessUnavailableHint(harness)
       }
     >

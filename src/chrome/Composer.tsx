@@ -65,9 +65,13 @@ import type {
   MessageQueueStatus,
   QueuedMessage,
   RuntimeMode,
+  SessionAgent,
+  SessionBackgroundTask,
   TurnIntent,
 } from "../lib/session";
 import { HARNESS_TITLE, harnessSupportsAttachments } from "../lib/session";
+import { AgentActivityPanel } from "./AgentActivityPanel";
+import { FollowUpChips } from "./FollowUpChips";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
@@ -147,6 +151,9 @@ type Props = {
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   question?: UserQuestionPrompt;
+  followUps?: string[];
+  agents?: SessionAgent[];
+  backgroundTasks?: SessionBackgroundTask[];
   busy?: boolean;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
@@ -402,6 +409,9 @@ export function Composer({
   noteCard,
   handoffCard,
   question,
+  followUps = [],
+  agents,
+  backgroundTasks,
   busy = false,
   queuedMessages = [],
   queueStatus,
@@ -1076,6 +1086,11 @@ export function Composer({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
+      <AgentActivityPanel agents={agents} backgroundTasks={backgroundTasks} />
+      <FollowUpChips
+        suggestions={busy || question ? [] : followUps}
+        onSelect={(suggestion) => onSubmit(suggestion, [])}
+      />
       {children}
       <MessageQueue
         messages={queuedMessages}
@@ -1095,6 +1110,7 @@ export function Composer({
               active={skillActive}
               creating={creatingSkill}
               cwd={cwd}
+              harness={harness}
               error={createError}
               busy={createBusy}
               onActive={setSkillActive}

@@ -35,8 +35,10 @@ const VARIANT_KIND: Record<string, string> = {
   write: "edit",
   edit: "edit",
   searchreplace: "edit",
+  search_replace: "edit",
   bash: "execute",
   execute: "execute",
+  run_terminal_cmd: "execute",
   run_terminal_command: "execute",
   grep: "search",
   search: "search",
@@ -49,6 +51,58 @@ const VARIANT_KIND: Record<string, string> = {
   agent: "agent",
   task: "agent",
   subagent: "agent",
+  spawn_subagent: "agent",
+  send_subagent_message: "agent",
+  get_task_output: "execute",
+  get_command_or_subagent_output: "execute",
+  wait_tasks: "execute",
+  kill_task: "execute",
+  kill_command_or_subagent: "execute",
+  monitor: "execute",
+  scheduler_create: "execute",
+  scheduler_list: "read",
+  scheduler_delete: "execute",
+  image_gen: "other",
+  imagegen: "other",
+  image_edit: "other",
+  imageedit: "other",
+  image_to_video: "other",
+  imagetovideo: "other",
+  reference_to_video: "other",
+  referencetovideo: "other",
+  workflow: "agent",
+  update_goal: "agent",
+  skill: "read",
+  search_tool: "search",
+  use_tool: "execute",
+  memory_search: "search",
+  memory_get: "read",
+  lsp: "search",
+  todo_write: "edit",
+  todowrite: "edit",
+  ask_user_question: "other",
+  enter_plan_mode: "other",
+  exit_plan_mode: "other",
+};
+
+/** Readable activity titles for media / generation tools. */
+const VARIANT_TITLE: Record<string, string> = {
+  image_gen: "Generating image",
+  imagegen: "Generating image",
+  image_edit: "Editing image",
+  imageedit: "Editing image",
+  image_to_video: "Generating video",
+  imagetovideo: "Generating video",
+  reference_to_video: "Generating video",
+  referencetovideo: "Generating video",
+};
+
+export type GrokRewindPoint = {
+  promptIndex: number;
+  promptPreview?: string;
+  createdAt?: string;
+  numFileSnapshots?: number;
+  hasFileChanges?: boolean;
 };
 
 const EFFORT_LABELS: Record<string, string> = {
@@ -457,8 +511,320 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
     return text ? [{ type: "status", text }] : [];
   }
 
+  if (kind === "available_commands_update") {
+    // Handled by the Grok command provider, not the transcript.
+    return [];
+  }
+
+  if (kind === "session_recap") {
+    const summary =
+      stringField(update, "summary") ??
+      textFromContent(update.content ?? update.summary, "\n");
+    return summary?.trim()
+      ? [{ type: "status", text: `Recap: ${summary.trim()}` }]
+      : [];
+  }
+
+  if (kind === "auto_compact_started") {
+    const percentage = numberField(update, "percentage");
+    const reason = stringField(update, "reason");
+    const pct = percentage != null ? ` (${percentage}%)` : "";
+    return [
+      {
+        type: "status",
+        text: reason?.trim()
+          ? `Compacting context${pct}: ${reason.trim()}`
+          : `Compacting context${pct}`,
+      },
+    ];
+  }
+
+  if (kind === "auto_compact_completed") {
+    const after = numberField(update, "tokens_after");
+    const preview = stringField(update, "summary_preview");
+    return [
+      {
+        type: "status",
+        text: preview?.trim()
+          ? `Compacted context${after != null ? ` · ${after} tokens` : ""}: ${preview.trim()}`
+          : `Compacted context${after != null ? ` · ${after} tokens` : ""}`,
+      },
+    ];
+  }
+
+  if (kind === "auto_compact_failed") {
+    const error = stringField(update, "error") ?? "compaction failed";
+    return [{ type: "status", text: `Compact failed: ${error}` }];
+  }
+
+  if (
+    kind === "memory_flush_started" ||
+    kind === "memory_flush_completed" ||
+    kind === "memory_dream_completed" ||
+    kind === "memory_session_saved"
+  ) {
+    const result =
+      stringField(update, "result") ?? stringField(update, "path") ?? kind;
+    return [{ type: "status", text: humanizeStatusKind(kind, result) }];
+  }
+
+  if (kind === "hook_annotation") {
+    const message = stringField(update, "message");
+    return message?.trim() ? [{ type: "status", text: message.trim() }] : [];
+  }
+
+  const agentEvent = agentEventFromUpdate(kind, update);
+  if (agentEvent) return [agentEvent];
+
+  const backgroundEvent = backgroundEventFromUpdate(kind, update);
+  if (backgroundEvent) return [backgroundEvent];
+
+  if (kind === "goal_updated") {
+    const objective =
+      stringField(update, "objective") ?? stringField(update, "title") ?? "Goal";
+    const status = stringField(update, "status") ?? "active";
+    const phase = stringField(update, "phase");
+    const detail = [status, phase, stringField(update, "last_event_detail")]
+      .filter(Boolean)
+      .join(" · ");
+    return [
+      {
+        type: "background.updated",
+        id: `goal:${stringField(update, "goal_id") ?? "current"}`,
+        status:
+          status === "complete"
+            ? "completed"
+            : status === "cleared"
+              ? "cancelled"
+              : status.includes("paused") || status === "blocked"
+                ? "failed"
+                : "running",
+        title: objective,
+        detail,
+      },
+      {
+        type: "status",
+        text: `Goal (${status}): ${objective}`,
+      },
+    ];
+  }
+
+  if (kind === "workflow_updated") {
+    const name =
+      stringField(update, "name") ??
+      stringField(update, "objective") ??
+      "Workflow";
+    const statusRaw = (stringField(update, "status") ?? "").toLowerCase();
+    const phase =
+      stringField(update, "current_phase") ??
+      stringField(update, "currentPhase") ??
+      stringField(update, "last_event") ??
+      stringField(update, "status");
+    const runId =
+      stringField(update, "run_id") ??
+      stringField(update, "runId") ??
+      name;
+    const status: "running" | "completed" | "failed" | "cancelled" =
+      /complete|done|success/.test(statusRaw)
+        ? "completed"
+        : /fail|error|stop/.test(statusRaw)
+          ? "failed"
+          : /pause|cancel/.test(statusRaw)
+            ? "cancelled"
+            : "running";
+    return [
+      {
+        type: "background.updated",
+        id: `workflow:${runId}`,
+        status,
+        title: name,
+        detail: phase ?? undefined,
+      },
+    ];
+  }
+
+  if (kind === "diff_review") {
+    return [
+      {
+        type: "status",
+        text: "Diff review ready — open Session changes to inspect edits.",
+      },
+    ];
+  }
+
   const usage = usageFromUpdate(update);
   return usage ? withPromptIndex([usage]) : withPromptIndex([]);
+}
+
+function humanizeStatusKind(kind: string, detail: string): string {
+  switch (kind) {
+    case "memory_flush_started":
+      return "Flushing memory…";
+    case "memory_flush_completed":
+      return `Memory flushed: ${detail}`;
+    case "memory_dream_completed":
+      return `Memory consolidated: ${detail}`;
+    case "memory_session_saved":
+      return `Session memory saved: ${detail}`;
+    default:
+      return detail;
+  }
+}
+
+function agentEventFromUpdate(
+  kind: string,
+  update: Record<string, unknown>,
+): Extract<HarnessEvent, { type: "agent.updated" }> | null {
+  if (
+    kind !== "subagent_spawned" &&
+    kind !== "subagent_progress" &&
+    kind !== "subagent_finished"
+  ) {
+    return null;
+  }
+  const id =
+    stringField(update, "subagent_id") ??
+    stringField(update, "subagentId") ??
+    stringField(update, "child_session_id") ??
+    stringField(update, "childSessionId");
+  if (!id) return null;
+  const title =
+    stringField(update, "description") ??
+    stringField(update, "title") ??
+    stringField(update, "subagent_type") ??
+    stringField(update, "subagentType") ??
+    "Subagent";
+  const kindLabel =
+    stringField(update, "subagent_type") ??
+    stringField(update, "subagentType") ??
+    stringField(update, "role") ??
+    undefined;
+  if (kind === "subagent_spawned") {
+    return {
+      type: "agent.updated",
+      id,
+      status: "running",
+      title,
+      kind: kindLabel,
+      model: stringField(update, "model") ?? undefined,
+    };
+  }
+  if (kind === "subagent_progress") {
+    const turns = numberField(update, "completed_turns") ?? numberField(update, "completedTurns");
+    const durationMs = numberField(update, "duration_ms") ?? numberField(update, "durationMs");
+    return {
+      type: "agent.updated",
+      id,
+      status: "running",
+      title,
+      kind: kindLabel,
+      detail: turns != null ? `${turns} turn${turns === 1 ? "" : "s"}` : undefined,
+      durationMs: durationMs ?? undefined,
+    };
+  }
+  const error = stringField(update, "error");
+  const statusRaw = stringField(update, "status")?.toLowerCase();
+  const status: "completed" | "failed" | "cancelled" =
+    statusRaw === "cancelled" || statusRaw === "canceled"
+      ? "cancelled"
+      : error || statusRaw === "failed" || statusRaw === "error"
+        ? "failed"
+        : "completed";
+  const output =
+    stringField(update, "final_output") ??
+    stringField(update, "finalOutput") ??
+    stringField(update, "output");
+  return {
+    type: "agent.updated",
+    id,
+    status,
+    title,
+    kind: kindLabel,
+    detail: error ?? (output ? cap(output, 240) : undefined),
+    durationMs:
+      numberField(update, "duration_ms") ??
+      numberField(update, "durationMs") ??
+      undefined,
+  };
+}
+
+function backgroundEventFromUpdate(
+  kind: string,
+  update: Record<string, unknown>,
+): Extract<HarnessEvent, { type: "background.updated" }> | null {
+  if (
+    kind !== "task_completed" &&
+    kind !== "task_backgrounded" &&
+    kind !== "monitor_event" &&
+    kind !== "scheduled_task_created" &&
+    kind !== "scheduled_task_fired" &&
+    kind !== "scheduled_task_deleted" &&
+    kind !== "scheduled_task_completed"
+  ) {
+    return null;
+  }
+  const snapshot = asRecord(update.task_snapshot) ?? asRecord(update.taskSnapshot);
+  const id =
+    stringField(update, "task_id") ??
+    stringField(update, "taskId") ??
+    stringField(snapshot ?? {}, "id") ??
+    stringField(snapshot ?? {}, "task_id") ??
+    stringField(update, "job_id") ??
+    stringField(update, "jobId") ??
+    stringField(update, "id");
+  if (!id && kind === "monitor_event") {
+    const line =
+      stringField(update, "line") ??
+      stringField(update, "text") ??
+      stringField(update, "message");
+    if (!line?.trim()) return null;
+    return {
+      type: "background.updated",
+      id: `monitor:${hashId(line)}`,
+      status: "running",
+      title: "Monitor",
+      detail: cap(line.trim(), 240),
+    };
+  }
+  if (!id) return null;
+  const title =
+    stringField(update, "title") ??
+    stringField(snapshot ?? {}, "title") ??
+    stringField(snapshot ?? {}, "command") ??
+    stringField(update, "command") ??
+    stringField(update, "prompt") ??
+    "Background task";
+  if (kind === "task_backgrounded" || kind === "scheduled_task_created") {
+    return {
+      type: "background.updated",
+      id,
+      status: "running",
+      title,
+      detail: stringField(update, "detail") ?? undefined,
+    };
+  }
+  if (kind === "scheduled_task_deleted") {
+    return { type: "background.updated", id, status: "cancelled", title };
+  }
+  const error = stringField(update, "error") ?? stringField(snapshot ?? {}, "error");
+  const exit = numberField(snapshot ?? {}, "exit_code") ?? numberField(snapshot ?? {}, "exitCode");
+  const status: "completed" | "failed" | "cancelled" =
+    error || (exit != null && exit !== 0) ? "failed" : "completed";
+  return {
+    type: "background.updated",
+    id,
+    status,
+    title,
+    detail: error ?? (exit != null ? `exit ${exit}` : undefined),
+  };
+}
+
+function hashId(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function promptIndexFromUpdate(
@@ -714,13 +1080,16 @@ function grokToolFields(
     asRecord(update.input) ??
     asRecord(tool.input);
   const variant = String(input?.variant ?? meta?.name ?? "").toLowerCase();
+  const variantKey = variant.replace(/[^a-z0-9]+/g, "");
   return {
     kind:
       stringField(meta ?? {}, "kind") ??
-      VARIANT_KIND[variant.replace(/[^a-z0-9]+/g, "")] ??
+      VARIANT_KIND[variantKey] ??
       VARIANT_KIND[variant],
     title:
       stringField(meta ?? {}, "label") ??
+      VARIANT_TITLE[variantKey] ??
+      VARIANT_TITLE[variant] ??
       stringField(update, "title") ??
       stringField(tool, "title"),
     path:
@@ -868,12 +1237,99 @@ function toolDetail(
 function kindFromName(name?: string): string | undefined {
   if (!name) return undefined;
   const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return VARIANT_KIND[key];
+  return VARIANT_KIND[key] ?? VARIANT_KIND[name.toLowerCase()];
 }
 
 function humanizeToolName(name: string): string {
+  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const known = VARIANT_TITLE[key] ?? VARIANT_TITLE[name.toLowerCase()];
+  if (known) return known;
   const cleaned = name.replace(/[_-]+/g, " ").trim();
   return cleaned ? cleaned.replace(/\b\w/g, (ch) => ch.toUpperCase()) : name;
+}
+
+/** Parse `_x.ai/rewind/points` (snake_case or camelCase). */
+export function parseGrokRewindPoints(raw: unknown): GrokRewindPoint[] {
+  const rec = asRecord(raw);
+  const list = Array.isArray(rec?.rewind_points)
+    ? rec.rewind_points
+    : Array.isArray(rec?.rewindPoints)
+      ? rec.rewindPoints
+      : Array.isArray(raw)
+        ? raw
+        : [];
+  const points: GrokRewindPoint[] = [];
+  for (const entry of list) {
+    const row = asRecord(entry);
+    if (!row) continue;
+    const promptIndex =
+      numberField(row, "promptIndex") ??
+      numberField(row, "prompt_index") ??
+      numberField(row, "id");
+    if (promptIndex == null || !Number.isFinite(promptIndex) || promptIndex < 0) {
+      continue;
+    }
+    const promptPreview =
+      stringField(row, "promptPreview") ??
+      stringField(row, "prompt_preview") ??
+      stringField(row, "userMessage") ??
+      stringField(row, "user_message");
+    const createdAt =
+      stringField(row, "createdAt") ?? stringField(row, "created_at");
+    const numFileSnapshots =
+      numberField(row, "numFileSnapshots") ??
+      numberField(row, "num_file_snapshots");
+    const hasFileChanges =
+      typeof row.hasFileChanges === "boolean"
+        ? row.hasFileChanges
+        : typeof row.has_file_changes === "boolean"
+          ? row.has_file_changes
+          : undefined;
+    points.push({
+      promptIndex,
+      ...(promptPreview ? { promptPreview } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(numFileSnapshots != null ? { numFileSnapshots } : {}),
+      ...(hasFileChanges != null ? { hasFileChanges } : {}),
+    });
+  }
+  return points.sort((a, b) => a.promptIndex - b.promptIndex);
+}
+
+/**
+ * Prefer provider rewind points when picking a target index.
+ * Matches preview text when the transcript ordinal may drift from Grok's index.
+ */
+export function resolveGrokRewindTarget(input: {
+  preferredIndex: number | null;
+  points: GrokRewindPoint[];
+  removedUserText?: string;
+}): number | null {
+  const { preferredIndex, points } = input;
+  if (points.length === 0) return preferredIndex;
+
+  const needle = input.removedUserText?.trim();
+  if (needle) {
+    const byPreview = points.find((point) => {
+      const preview = point.promptPreview?.trim();
+      if (!preview) return false;
+      return (
+        preview === needle ||
+        needle.startsWith(preview) ||
+        preview.startsWith(needle)
+      );
+    });
+    if (byPreview) return byPreview.promptIndex;
+  }
+
+  if (preferredIndex != null) {
+    if (points.some((point) => point.promptIndex === preferredIndex)) {
+      return preferredIndex;
+    }
+    return preferredIndex;
+  }
+
+  return points[0]?.promptIndex ?? null;
 }
 
 function uniqueGrokModels(models: AgentModel[]): AgentModel[] {

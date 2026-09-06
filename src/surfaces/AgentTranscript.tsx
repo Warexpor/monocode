@@ -39,6 +39,10 @@ import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
 import {
+  isMediaToolTitle,
+  mediaUrlFromToolText,
+} from "../lib/harness/mediaPreview";
+import {
   isEditTool,
   stubFilePreview,
 } from "../lib/harness/preview";
@@ -2093,6 +2097,52 @@ function ToolCall({
         {detail && detail !== label ? (
           <ToolResultExpand detail={detail} label={label} />
         ) : null}
+        <ApprovalControls block={block} onApproval={onApproval} />
+      </div>
+    );
+  }
+
+  const mediaUrl =
+    isMediaToolTitle(block.tool?.title ?? block.text) ||
+    isMediaToolTitle(label)
+      ? mediaUrlFromToolText(detail) ||
+        mediaUrlFromToolText(preview?.output) ||
+        mediaUrlFromToolText(preview?.path)
+      : null;
+  if (mediaUrl) {
+    const isVideo = /\.(?:mp4|webm)(?:$|\?)/i.test(mediaUrl);
+    return (
+      <div className={frame}>
+        <div
+          aria-label={`${stateLabel} tool call: ${label}`}
+          className="flex w-full min-w-0 flex-col gap-2"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <ToolCallIcon state={state} />
+            <ToolCallSummary
+              label={label}
+              preview={preview}
+              cwd={cwd}
+              failed={state === "rejected"}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+          <div className="overflow-hidden rounded-[10px] border border-content/10 bg-content/[0.03]">
+            {isVideo ? (
+              <video
+                src={mediaUrl}
+                controls
+                className="max-h-72 w-full bg-black/40 object-contain"
+              />
+            ) : (
+              <img
+                src={mediaUrl}
+                alt={label}
+                className="max-h-72 w-full object-contain"
+              />
+            )}
+          </div>
+        </div>
         <ApprovalControls block={block} onApproval={onApproval} />
       </div>
     );

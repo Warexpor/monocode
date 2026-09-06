@@ -125,6 +125,7 @@ describe("applyTranscriptMutation", () => {
       attachments: blocks[2].attachments,
     });
     expect(result.rewindPromptIndex).toBe(1);
+    expect(result.rewindAnchorText).toBe("second");
     expect(result.removedCount).toBe(2);
   });
 
@@ -151,6 +152,7 @@ describe("applyTranscriptMutation", () => {
     ]);
     expect(result.composerSeed).toBeUndefined();
     expect(result.rewindPromptIndex).toBe(2);
+    expect(result.rewindAnchorText).toBe("third");
     expect(result.removedCount).toBe(2);
   });
 

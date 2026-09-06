@@ -109,9 +109,83 @@ export function applyHarnessEvent(
       return appendStatus(session, event.text);
     case "prompt.index":
       return stampPromptIndex(session, event.index);
-    default:
+    case "followUps.updated":
+      return {
+        ...session,
+        followUps: event.suggestions.length ? event.suggestions : undefined,
+      };
+    case "agent.updated":
+      return upsertSessionAgent(session, event);
+    case "background.updated":
+      return upsertBackgroundTask(session, event);
+    case "session.started":
+    case "session.ended":
       return session;
+    default: {
+      const _exhaustive: never = event;
+      void _exhaustive;
+      return session;
+    }
   }
+}
+
+function upsertSessionAgent(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "agent.updated" }>,
+): Session {
+  const agents = [...(session.agents ?? [])];
+  const index = agents.findIndex((agent) => agent.id === event.id);
+  const next = {
+    id: event.id,
+    title: event.title,
+    status: event.status,
+    ...(event.kind ? { kind: event.kind } : {}),
+    ...(event.detail ? { detail: event.detail } : {}),
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
+  };
+  if (index >= 0) {
+    agents[index] = {
+      ...agents[index],
+      ...next,
+      title: event.title || agents[index].title,
+      kind: event.kind ?? agents[index].kind,
+      detail: event.detail ?? agents[index].detail,
+      model: event.model ?? agents[index].model,
+      durationMs: event.durationMs ?? agents[index].durationMs,
+    };
+  } else {
+    agents.push(next);
+  }
+  return { ...session, agents: agents.slice(-12) };
+}
+
+function upsertBackgroundTask(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "background.updated" }>,
+): Session {
+  const tasks = [...(session.backgroundTasks ?? [])];
+  const index = tasks.findIndex((task) => task.id === event.id);
+  const next = {
+    id: event.id,
+    title: event.title,
+    status: event.status,
+    ...(event.detail ? { detail: event.detail } : {}),
+  };
+  if (index >= 0) {
+    tasks[index] = {
+      ...tasks[index],
+      ...next,
+      title: event.title || tasks[index].title,
+      detail: event.detail ?? tasks[index].detail,
+    };
+  } else {
+    tasks.push(next);
+  }
+  return {
+    ...session,
+    backgroundTasks: tasks.length ? tasks.slice(-12) : undefined,
+  };
 }
 
 function upsertPlan(
@@ -300,7 +374,7 @@ export function appendUser(
   extra?: UserTurnExtra,
 ): Session {
   return appendBlock(
-    { ...session, busy: true },
+    { ...session, busy: true, followUps: undefined },
     {
       id: crypto.randomUUID(),
       role: "user",

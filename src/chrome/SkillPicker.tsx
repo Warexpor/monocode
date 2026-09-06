@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { looksLikeProject } from "../lib/recents";
+import type { HarnessId } from "../lib/session";
 import {
   isValidSkillName,
   slugSkillName,
@@ -20,6 +21,7 @@ type Props = {
   active: number;
   creating: boolean;
   cwd: string;
+  harness?: HarnessId;
   error?: string | null;
   busy?: boolean;
   onActive: (index: number) => void;
@@ -35,6 +37,7 @@ export function SkillPicker({
   active,
   creating,
   cwd,
+  harness,
   error,
   busy,
   onActive,
@@ -52,6 +55,7 @@ export function SkillPicker({
         <CreateSkillForm
           query={query}
           cwd={cwd}
+          harness={harness}
           error={error}
           busy={busy}
           onCancel={onCancelCreate}
@@ -189,6 +193,7 @@ function SkillList({
 function CreateSkillForm({
   query,
   cwd,
+  harness,
   error,
   busy,
   onCancel,
@@ -196,6 +201,7 @@ function CreateSkillForm({
 }: {
   query: string;
   cwd: string;
+  harness?: HarnessId;
   error?: string | null;
   busy?: boolean;
   onCancel: () => void;
@@ -227,6 +233,11 @@ function CreateSkillForm({
       <p className="mb-2 text-[11px] text-content/50">
         Writes a starter SKILL.md you can edit.
       </p>
+      {harness === "grok" ? (
+        <p className="mb-2 text-[11px] text-content/40">
+          Grok also loads .grok/skills and ~/.grok/skills.
+        </p>
+      ) : null}
       <input
         ref={input}
         value={name}

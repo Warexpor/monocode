@@ -18,6 +18,8 @@ import {
   permissionRequestFromAcp,
   pickAutoOption,
   planFromExitPlan,
+  parseGrokRewindPoints,
+  resolveGrokRewindTarget,
   sessionIdFromResult,
   isMethodNotFound,
 } from "./grokProtocol";
@@ -29,6 +31,91 @@ describe("grok protocol", () => {
     expect(harnessSupportsAttachments("cursor")).toBe(true);
   });
 
+  it("titles media generation tools clearly", () => {
+    const started = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "img-1",
+      status: "in_progress",
+      _meta: {
+        "x.ai/tool": {
+          name: "image_gen",
+          input: { variant: "image_gen", prompt: "a fox" },
+        },
+      },
+    });
+    expect(started[0]).toMatchObject({
+      type: "tool.started",
+      callId: "img-1",
+      title: "Generating image",
+      kind: "other",
+    });
+
+    const delta = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call_delta_chunk",
+      tool_call_id: "vid-1",
+      name: "image_to_video",
+    });
+    expect(delta[0]).toMatchObject({
+      type: "tool.updated",
+      callId: "vid-1",
+      title: "Generating video",
+      kind: "other",
+    });
+  });
+
+  it("parses rewind points and resolves targets by preview", () => {
+    const points = parseGrokRewindPoints({
+      rewind_points: [
+        {
+          prompt_index: 0,
+          prompt_preview: "first turn",
+          created_at: "2026-01-01T00:00:00Z",
+          num_file_snapshots: 0,
+          has_file_changes: false,
+        },
+        {
+          prompt_index: 2,
+          prompt_preview: "edit me",
+          num_file_snapshots: 1,
+          has_file_changes: true,
+        },
+      ],
+    });
+    expect(points).toEqual([
+      {
+        promptIndex: 0,
+        promptPreview: "first turn",
+        createdAt: "2026-01-01T00:00:00Z",
+        numFileSnapshots: 0,
+        hasFileChanges: false,
+      },
+      {
+        promptIndex: 2,
+        promptPreview: "edit me",
+        numFileSnapshots: 1,
+        hasFileChanges: true,
+      },
+    ]);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 1,
+        points,
+        removedUserText: "edit me please",
+      }),
+    ).toBe(2);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 2,
+        points,
+      }),
+    ).toBe(2);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 4,
+        points: [],
+      }),
+    ).toBe(4);
+  });
   it("sends text and image prompt blocks", () => {
     expect(
       grokPromptBlocks("  describe this  ", [
@@ -168,6 +255,53 @@ describe("grok protocol", () => {
         content: { type: "text", text: "Hmm" },
       }),
     ).toEqual([{ type: "reasoning.delta", text: "Hmm" }]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "subagent_spawned",
+        subagent_id: "sa-1",
+        description: "Explore auth",
+        subagent_type: "explore",
+        model: "grok-4.6",
+      }),
+    ).toEqual([
+      {
+        type: "agent.updated",
+        id: "sa-1",
+        status: "running",
+        title: "Explore auth",
+        kind: "explore",
+        model: "grok-4.6",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "task_backgrounded",
+        task_id: "bg-1",
+        title: "npm test",
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "bg-1",
+        status: "running",
+        title: "npm test",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_started",
+        percentage: 87,
+        reason: "threshold",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacting context (87%): threshold",
+      },
+    ]);
 
     const early = eventsFromAcpUpdate({
       sessionUpdate: "tool_call_delta_chunk",
