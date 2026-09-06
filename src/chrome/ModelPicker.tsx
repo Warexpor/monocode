@@ -144,7 +144,7 @@ export function ModelPicker({
 
   useEffect(() => {
     if (!open || visibleTab === "favorites") return;
-    void refreshHarnessCatalogs([visibleTab]);
+    void refreshHarnessCatalogs([visibleTab], { force: true });
   }, [open, visibleTab]);
 
   useEffect(() => {

@@ -240,14 +240,16 @@ export function bindHarnessSession(
  */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
+  options?: { force?: boolean },
 ): Promise<void> {
   const wanted = new Set(ids);
   if (wanted.size === 0) return;
+  const force = options?.force ?? false;
   await Promise.all(
     [...adapters.values()]
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
-        if (!adapter.refreshCatalog || hasLiveCatalog(adapter.id)) return;
+        if (!adapter.refreshCatalog || (!force && hasLiveCatalog(adapter.id))) return;
         await adapter.refreshCatalog().catch((error: unknown) => {
           console.debug(`[monocode] ${adapter.id} catalog`, error);
         });

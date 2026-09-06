@@ -10,7 +10,6 @@ import {
   watchChild,
 } from "./child";
 import {
-  fallbackGrokModels,
   grokAuthMethodId,
   grokSpawnArgs,
   modelsFromGrokModelsOutput,
@@ -45,17 +44,18 @@ export function refreshGrokCatalog(): Promise<void> {
 }
 
 async function discoverGrokModels() {
-  const fromAcp = await discoverViaAcp().catch((error: unknown) => {
-    console.debug("[monocode] grok ACP catalog failed", error);
-    return [];
-  });
-  if (fromAcp.length > 0) return fromAcp;
   const fromCli = await discoverViaCli().catch((error: unknown) => {
     console.debug("[monocode] grok CLI catalog failed", error);
     return [];
   });
   if (fromCli.length > 0) return fromCli;
-  return fallbackGrokModels();
+  const fromAcp = await discoverViaAcp().catch((error: unknown) => {
+    console.debug("[monocode] grok ACP catalog failed", error);
+    return [];
+  });
+  if (fromAcp.length > 0) return fromAcp;
+  // Leave overlays unset so hasLiveCatalog stays false until a real list lands.
+  return [];
 }
 
 async function discoverViaAcp() {

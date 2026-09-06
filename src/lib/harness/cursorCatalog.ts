@@ -43,13 +43,13 @@ export function refreshCursorCatalog(): Promise<void> {
 }
 
 async function discoverCursorModels(): Promise<AgentModel[]> {
-  const fromAcp = await discoverViaAcp().catch((error: unknown) => {
-    console.debug("[monocode] cursor ACP catalog failed", error);
+  const fromCli = await discoverViaCli().catch((error: unknown) => {
+    console.debug("[monocode] cursor CLI catalog failed", error);
     return [];
   });
-  if (fromAcp.length > 0) return fromAcp;
-  return discoverViaCli().catch((error: unknown) => {
-    console.debug("[monocode] cursor CLI catalog failed", error);
+  if (fromCli.length > 0) return fromCli;
+  return discoverViaAcp().catch((error: unknown) => {
+    console.debug("[monocode] cursor ACP catalog failed", error);
     return [];
   });
 }
@@ -183,7 +183,7 @@ function modelsFromSessionNew(result: unknown): AgentModel[] {
   return [];
 }
 
-function modelsFromListModelsOutput(stdout: string): AgentModel[] {
+export function modelsFromListModelsOutput(stdout: string): AgentModel[] {
   const rows: Array<{ id: string; name: string }> = [];
   for (const raw of stdout.split(/\r?\n/)) {
     const line = raw.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim();

@@ -298,6 +298,19 @@ describe("grok protocol", () => {
     ]);
   });
 
+  it("parses muse-spark and free-models-router lines", () => {
+    const models = modelsFromGrokModelsOutput(
+      "Available models:\n  * muse-spark (default)\n  - muse-spark-free\n  - free-models-router\n  - grok-4.6\n",
+    );
+    expect(models.map((m) => m.nativeId)).toEqual([
+      "muse-spark",
+      "muse-spark-free",
+      "free-models-router",
+      "grok-4.6",
+    ]);
+    expect(models.every((m) => m.harness === "grok")).toBe(true);
+  });
+
   it("ships a grok-4.6 fallback catalog", () => {
     expect(fallbackGrokModels()[0]?.nativeId).toBe("grok-4.6");
   });
