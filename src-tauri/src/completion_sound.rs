@@ -76,15 +76,10 @@ fn remove_completion_sound_sync(app: &AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn save_completion_sound(
-    app: AppHandle,
-    source_path: String,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        save_completion_sound_sync(&app, &source_path)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub async fn save_completion_sound(app: AppHandle, source_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || save_completion_sound_sync(&app, &source_path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

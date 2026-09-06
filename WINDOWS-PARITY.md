@@ -13,11 +13,10 @@ Workflow: `.github/workflows/ci.yml`. Latest green push on `origin/main` `8e30be
 | Job | Runner | What it actually ran |
 |-----|--------|----------------------|
 | `check` | `ubuntu-latest` | `npm test`, `tsc`, rustfmt, clippy, `cargo test` on Linux. POSIX harness/PTY paths. Some Windows-oriented unit tests still compile/run here when they are not `cfg(windows)`-only. |
-| `check` | `macos-latest` | Same suite on macOS. |
 | `check` | `windows-latest` | Same suite on Windows. Job Objects, `taskkill`, PEB reap, PATH/shim tests that are `cfg(windows)` live here. |
 | `windows-nsis` | `windows-latest` | `npm run build:windows` → one NSIS `.exe` → `scripts/windows-nsis-smoke.ps1` silent `/S` install, launch, process still up, sidecar `DWM glass fallback=acrylic`. |
 
-Linux cloud VMs (this class of agent) are `check` on Ubuntu only unless you run the Windows jobs. They cannot prove DWM pixels, NSIS wizard UX, or a machine-local `ocx` session.
+Linux cloud VMs (this class of agent) are `check` on Ubuntu only unless you run the Windows jobs. They cannot prove DWM pixels, NSIS wizard UX, or a machine-local `ocx` session. There is no `macos-latest` `check` job: it duplicated the Linux suite and this fork does not ship macOS artifacts.
 
 `npm run check` locally is the `check` job, not NSIS.
 

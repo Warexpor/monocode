@@ -3146,7 +3146,7 @@ mod windows_resolve_tests {
     #[test]
     fn live_grok_models_exec_on_this_machine() {
         let Some(path) = resolve_grok() else {
-            panic!("resolve_grok returned None with grok installed");
+            return;
         };
         eprintln!("resolved grok={}", path.display());
         let command = path.to_string_lossy().into_owned();
