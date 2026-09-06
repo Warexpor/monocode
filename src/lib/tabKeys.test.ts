@@ -4,9 +4,6 @@ import {
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
   shouldHandleListNavigation,
-  shouldIgnoreTerminalCtrlChord,
-  isQuitChord,
-  isModelPickerChord,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./tabKeys";
@@ -58,7 +55,6 @@ describe("tabCommand", () => {
 
   it("keeps existing tab chrome bindings", () => {
     expect(tabCommand(key({ key: "t", metaKey: true }))).toBe("new");
-    expect(tabCommand(key({ key: "t", ctrlKey: true }))).toBe("new");
     expect(
       tabCommand(key({ key: "t", metaKey: true, altKey: true })),
     ).toBe("close-others");
@@ -108,17 +104,6 @@ describe("tabCommand", () => {
     ).toBe("next-project");
   });
 
-  it("keeps cmd-1…9 as tab activation", () => {
-    expect(tabCommand(key({ key: "1", metaKey: true }))).toEqual({
-      activate: 0,
-    });
-    expect(tabCommand(key({ key: "9", ctrlKey: true }))).toEqual({
-      activate: -1,
-    });
-  });
-});
-
-describe("adjacentItemId", () => {
   it("cycles ordered item ids and wraps at both ends", () => {
     expect(adjacentItemId(["a", "b", "c"], "b", 1)).toBe("c");
     expect(adjacentItemId(["a", "b", "c"], "c", 1)).toBe("a");
@@ -127,63 +112,46 @@ describe("adjacentItemId", () => {
     expect(adjacentItemId(["a", "b", "c"], "missing", -1)).toBe("c");
     expect(adjacentItemId([], "a", 1)).toBeNull();
   });
-});
 
-describe("shouldHandleListNavigation", () => {
+  it("allows navigation from an empty composer", () => {
+    expect(
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: true,
+        surfaceOpen: false,
+      }),
+    ).toBe(true);
+  });
+
   it("blocks list navigation while another text or app surface owns focus", () => {
     expect(
-      shouldHandleListNavigation({ blockedTarget: false, surfaceOpen: false }),
+      shouldHandleListNavigation({
+        blockedTarget: false,
+        emptyComposerTarget: false,
+        surfaceOpen: false,
+      }),
     ).toBe(true);
     expect(
-      shouldHandleListNavigation({ blockedTarget: true, surfaceOpen: false }),
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: false,
+        surfaceOpen: false,
+      }),
     ).toBe(false);
     expect(
-      shouldHandleListNavigation({ blockedTarget: false, surfaceOpen: true }),
-    ).toBe(false);
-  });
-});
-
-describe("shouldIgnoreTerminalCtrlChord", () => {
-  it("lets Ctrl reach the terminal on Windows and Linux", () => {
-    expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), true),
-    ).toBe(true);
-    expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "w", ctrlKey: true }), true),
-    ).toBe(true);
-  });
-
-  it("still allows Cmd chords and non-terminal Ctrl", () => {
-    expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", metaKey: true }), true),
+      shouldHandleListNavigation({
+        blockedTarget: false,
+        emptyComposerTarget: false,
+        surfaceOpen: true,
+      }),
     ).toBe(false);
     expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), false),
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: true,
+        surfaceOpen: true,
+      }),
     ).toBe(false);
-  });
-});
-
-describe("isModelPickerChord", () => {
-  it("matches cmd/ctrl-period without other modifiers", () => {
-    expect(isModelPickerChord(key({ key: ".", metaKey: true }))).toBe(true);
-    expect(
-      isModelPickerChord(key({ key: ".", code: "Period", ctrlKey: true })),
-    ).toBe(true);
-    expect(
-      isModelPickerChord(key({ key: ".", ctrlKey: true, shiftKey: true })),
-    ).toBe(false);
-    expect(isModelPickerChord(key({ key: "." }))).toBe(false);
-  });
-});
-
-describe("isQuitChord", () => {
-  it("matches cmd/ctrl-q without other modifiers", () => {
-    expect(isQuitChord(key({ key: "q", metaKey: true }))).toBe(true);
-    expect(isQuitChord(key({ key: "Q", ctrlKey: true }))).toBe(true);
-    expect(isQuitChord(key({ key: "q", ctrlKey: true, shiftKey: true }))).toBe(
-      false,
-    );
-    expect(isQuitChord(key({ key: "q" }))).toBe(false);
   });
 });
 

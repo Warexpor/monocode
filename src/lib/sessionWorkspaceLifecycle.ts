@@ -2,7 +2,6 @@ import {
   closeLeaf,
   firstLeafId,
   isSessionChangesTab,
-  leaf,
   leafIds,
   removePane,
   type EditorPane,
@@ -21,10 +20,6 @@ export type SessionWorkspaceRemoval = {
   closedTabs: WorkspaceTab[];
 };
 
-/**
- * Drop a conversation from the workspace. Tabs whose last remaining chat is
- * this session close (files included) instead of promoting leftover editors.
- */
 export function removeSessionFromWorkspace({
   tabs,
   sessions,
@@ -32,6 +27,7 @@ export function removeSessionFromWorkspace({
   activeTabId,
   scope,
   createReplacement,
+  canCloseTab = () => true,
 }: {
   tabs: WorkspaceTab[];
   sessions: Session[];
@@ -39,6 +35,8 @@ export function removeSessionFromWorkspace({
   activeTabId: string;
   scope: WorkspaceTabCloseScope;
   createReplacement: (seed: Session | undefined) => Session;
+  /** Preserve file panes changed while an asynchronous close was pending. */
+  canCloseTab?: (tab: WorkspaceTab) => boolean;
 }): SessionWorkspaceRemoval {
   const seed = sessions.find((session) => session.id === sessionId);
   let nextTabs = [...tabs];
@@ -50,20 +48,24 @@ export function removeSessionFromWorkspace({
   const closedTabs: WorkspaceTab[] = [];
 
   for (const original of tabs) {
-    if (!leafIds(original.layout).includes(sessionId)) continue;
+    const hadSession = leafIds(original.layout).includes(sessionId);
     const index = nextTabs.findIndex((tab) => tab.id === original.id);
-    const current = index >= 0 ? nextTabs[index] : undefined;
-    if (index < 0 || !current) continue;
+    if (index < 0) continue;
 
-    const tab = removeSessionChanges(current, sessionId);
+    const cleaned = removeSessionDocuments(nextTabs[index], sessionId);
+    if (!hadSession && cleaned) {
+      nextTabs[index] = cleaned;
+      continue;
+    }
+    const tab = cleaned ?? original;
     const remainingConversations = leafIds(tab.layout).some((id) =>
       remainingSessionIds.has(id),
     );
 
-    if (remainingConversations) {
+    if (remainingConversations || (cleaned && !canCloseTab(original))) {
       const next = closeLeaf(tab, sessionId);
       if (next) nextTabs[index] = next;
-      continue;
+      if (next) continue;
     }
 
     closedTabs.push(original);
@@ -86,7 +88,7 @@ export function removeSessionFromWorkspace({
     nextSessions = [...nextSessions, replacement];
     nextTabs[index] = {
       ...tab,
-      layout: leaf(replacement.id),
+      layout: { type: "leaf", id: replacement.id },
       focusedId: replacement.id,
       editorPanes: [],
       terminalPanes: [],
@@ -103,10 +105,21 @@ export function removeSessionFromWorkspace({
   };
 }
 
-function removeSessionChanges(
+function removeSessionDocuments(
   tab: WorkspaceTab,
   sessionId: string,
-): WorkspaceTab {
+): WorkspaceTab | null {
+  if (
+    !tab.editorPanes.some((pane) =>
+      pane.files.some(
+        (file) =>
+          file.plan?.sessionId === sessionId ||
+          (isSessionChangesTab(file) &&
+            file.sessionChanges.sessionId === sessionId),
+      ),
+    )
+  )
+    return tab;
   let layout = tab.layout;
   let focusedId = tab.focusedId;
   const editorPanes: EditorPane[] = [];
@@ -114,7 +127,9 @@ function removeSessionChanges(
   for (const pane of tab.editorPanes) {
     const files = pane.files.filter(
       (file) =>
-        !isSessionChangesTab(file) || file.sessionChanges.sessionId !== sessionId,
+        file.plan?.sessionId !== sessionId &&
+        (!isSessionChangesTab(file) ||
+          file.sessionChanges.sessionId !== sessionId),
     );
     if (files.length > 0) {
       editorPanes.push({
@@ -127,7 +142,7 @@ function removeSessionChanges(
       continue;
     }
     const nextLayout = removePane(layout, pane.id);
-    if (!nextLayout) continue;
+    if (!nextLayout) return null;
     layout = nextLayout;
     if (focusedId === pane.id) focusedId = firstLeafId(nextLayout);
   }

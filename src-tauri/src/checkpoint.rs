@@ -1408,10 +1408,12 @@ mod tests {
         assert_eq!(status.files[0].deletions, 0);
         assert!(status.files[0].exact);
         assert!(status.files[0].undoable);
+        assert_eq!(status.files[0].path, path_to_js(&repo.0.join("app.ts")));
 
         let diff = store.file_diff("s1", &cwd, "app.ts").unwrap();
         assert_eq!(diff.original, "user-one\nuser-two\n");
         assert_eq!(diff.current, "user-one\nuser-two\nagent\n");
+        assert_eq!(diff.path, path_to_js(&repo.0.join("app.ts")));
 
         // Review remains the captured session result, not a later shared
         // working-tree state.

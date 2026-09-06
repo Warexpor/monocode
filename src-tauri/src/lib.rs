@@ -10,6 +10,7 @@ mod linear;
 mod macos;
 mod menu;
 mod notes;
+mod notifications;
 mod project_logo;
 mod pty;
 mod rate_limits;
@@ -84,9 +85,8 @@ pub(crate) fn hide_window_console(cmd: &mut std::process::Command) {
     let _ = cmd;
 }
 
-/// Finder-launched .app bundles often omit HOME/USER/SHELL. Windows GUI
-/// launches omit SHELL and sometimes HOME. Fall back to passwd / USERPROFILE
-/// so harness CLIs still find `~/.fx` and the login keychain / config dir.
+/// Finder-launched .app bundles often omit HOME/USER/SHELL. Fall back to the
+/// passwd database so harness CLIs still find `~/.fx` and the login keychain.
 pub(crate) fn passwd_identity() -> Option<PasswdIdentity> {
     #[cfg(unix)]
     {
@@ -166,8 +166,6 @@ fn set_window_background_blur(
 ) {
     #[cfg(target_os = "macos")]
     macos::set_background_blur_radius(&window, radius);
-    // DWM material effects have no radius. Re-apply the glass fallback so a
-    // Settings blur change is not a no-op on Windows.
     #[cfg(target_os = "windows")]
     crate::window::set_windows_glass_radius(&window, radius);
 }
@@ -224,6 +222,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             default_cwd,
             home_dir,
+            notifications::notification_permission,
+            notifications::request_notification_permission,
+            notifications::show_notification,
+            notifications::open_notification_settings,
             fs::list_dir,
             fs::list_project_files,
             fs::git_diff_stats,
@@ -359,6 +361,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 macos::request_badge_authorization();
+                notifications::install_delegate(handle);
                 #[cfg(debug_assertions)]
                 macos::prefer_bundle_dock_icon();
             }

@@ -9,7 +9,9 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(windows))]
+use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -360,9 +362,8 @@ pub fn harness_spawn(
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to start {command}: {e}"))?;
+    let mut child =
+        spawn_managed(&mut cmd).map_err(|e| format!("Failed to start {command}: {e}"))?;
     let pid = child.id();
 
     #[cfg(windows)]
@@ -716,9 +717,7 @@ fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<Str
         }
     }
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to run {command}: {e}"))?;
+    let child = spawn_managed(&mut cmd).map_err(|e| format!("Failed to run {command}: {e}"))?;
     let pid = child.id();
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -748,12 +747,15 @@ const KILL_ESCALATE: Duration = Duration::from_millis(300);
 const KILL_ESCALATE: Duration = Duration::from_secs(2);
 /// Quit and `Drop` cannot wait on a detached escalate thread — the process
 /// exits first and isolated harness groups stay behind as PID-1 orphans.
+#[cfg(not(windows))]
 const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
+#[cfg(not(windows))]
 const KILL_ALL_KILL_WAIT: Duration = Duration::from_millis(150);
 const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
 /// An interactive shell has to source the user's whole rc file; nvm alone can
 /// take a second.
+#[cfg(not(windows))]
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A spawn that was cancelled mid-fork. The session it was starting is already
@@ -783,6 +785,10 @@ fn isolate_child(cmd: &mut Command) {
     {
         let _ = cmd;
     }
+}
+
+fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    cmd.spawn()
 }
 
 pub(crate) fn terminate(pid: u32) {
@@ -879,6 +885,7 @@ pub(crate) fn terminate_all(pids: &[u32]) {
 /// answering `kill(pid, 0)` within a poll or two. Reaping here instead would
 /// race that thread for the exit status and free the pid while we still signal
 /// it.
+#[cfg(not(windows))]
 fn wait_until_dead(pids: &[u32], until: Instant) {
     while Instant::now() < until {
         if pids.iter().all(|pid| !tree_alive(*pid)) {
@@ -889,6 +896,7 @@ fn wait_until_dead(pids: &[u32], until: Instant) {
 }
 
 enum TreeSignal {
+    #[cfg(not(windows))]
     Term,
     Kill,
 }
@@ -1556,7 +1564,7 @@ fn help_mentions_rpc_mode(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1646,7 +1654,7 @@ fn fx_help_mentions_acp(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1706,7 +1714,7 @@ fn grok_help_mentions_agent(path: &Path) -> bool {
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1891,6 +1899,14 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         path.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    ["exe", "cmd", "bat", "com"]
+                        .iter()
+                        .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+                })
     }
 }
 
