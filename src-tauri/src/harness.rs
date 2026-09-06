@@ -784,7 +784,21 @@ fn isolate_child(cmd: &mut Command) {
 }
 
 fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
-    cmd.spawn()
+    match cmd.spawn() {
+        Ok(child) => Ok(child),
+        #[cfg(windows)]
+        Err(err) if err.raw_os_error() == Some(5) => {
+            // CREATE_BREAKAWAY_FROM_JOB returns ERROR_ACCESS_DENIED when this
+            // process sits in a job that forbids breakaway (Cursor agent jobs,
+            // some CI wrappers). Retry in-job so catalog probes still run.
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+            cmd.spawn()
+        }
+        Err(err) => Err(err),
+    }
 }
 
 pub(crate) fn terminate(pid: u32) {
@@ -3127,5 +3141,24 @@ mod windows_resolve_tests {
         let from_gui = resolve_gui_binary("opencode");
         let from_which = which_via_login_shell("opencode");
         assert_eq!(from_gui, from_which);
+    }
+
+    #[test]
+    fn live_grok_models_exec_on_this_machine() {
+        let Some(path) = resolve_grok() else {
+            panic!("resolve_grok returned None with grok installed");
+        };
+        eprintln!("resolved grok={}", path.display());
+        let command = path.to_string_lossy().into_owned();
+        assert!(
+            is_resolved_harness_binary(&command),
+            "resolved path rejected by harness_exec allowlist: {command}"
+        );
+        let out = exec_capture(&command, &["models".to_string()], None).expect("exec models");
+        eprintln!("stdout=<<{out}>>");
+        assert!(
+            out.contains("muse-spark"),
+            "expected muse-spark in models output, got: {out}"
+        );
     }
 }

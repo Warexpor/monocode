@@ -308,6 +308,12 @@ describe("grok protocol", () => {
       "free-models-router",
       "grok-4.6",
     ]);
+    expect(models.map((m) => m.name)).toEqual([
+      "muse-spark",
+      "muse-spark-free",
+      "free-models-router",
+      "grok-4.6",
+    ]);
     expect(models.every((m) => m.harness === "grok")).toBe(true);
   });
 

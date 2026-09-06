@@ -473,7 +473,9 @@ export function modelsFromGrokModelsOutput(stdout: string): AgentModel[] {
     if (!match) continue;
     const nativeId = match[1].trim();
     if (!nativeId) continue;
-    models.push(modelFromNative(nativeId, displayName(nativeId)));
+    // CLI lists ids only (grok-4.6, muse-spark). Keep that string as the
+    // label so versions stay visible instead of a title-cased slug.
+    models.push(modelFromNative(nativeId, nativeId));
   }
   return uniqueGrokModels(models);
 }
