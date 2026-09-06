@@ -11,6 +11,7 @@ import {
   GitPullRequestClosed,
   GitPullRequestDraft,
   Inbox,
+  MessageSquare,
   ListFilter,
   LoaderCircle,
   RefreshCw,
@@ -109,9 +110,21 @@ import {
   type InboxReplyTarget,
 } from "./InboxComments";
 import { InboxPrDiff } from "./InboxPrDiff";
+import {
+  InboxDiscussionPanel,
+  type InboxSessionPortal,
+} from "./InboxDiscussionPanel";
+import { inboxAskKey } from "../lib/inboxAsk";
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 420;
+
+// One height for the whole detail action row; `border` is inside it, so the
+// outline variant lines up with the filled and ghost ones.
+const ACTION = "inline-flex items-center gap-1.5 rounded-md px-3 text-[12px]";
+const ACTION_FILLED = `${ACTION} h-6.5 bg-content text-background-base hover:bg-content/80`;
+const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 hover:bg-content/5`;
+const ACTION_GHOST = `${ACTION} h-7 text-content/70 hover:bg-content/10 hover:text-content`;
 const DEFAULT_WIDTH = 280;
 
 let rememberedWidth = DEFAULT_WIDTH;
@@ -247,6 +260,9 @@ function InboxDetailTab({
 }
 
 type Props = {
+  onAsk: (item: InboxItem) => Promise<string>;
+  onAskRestart: (item: InboxItem) => Promise<string>;
+  onAskMount: (portal: InboxSessionPortal | null) => void;
   cwd: string;
   recents: RecentProject[];
   besideRail?: boolean;
@@ -256,6 +272,9 @@ type Props = {
 };
 
 export function InboxView({
+  onAsk,
+  onAskRestart,
+  onAskMount,
   cwd,
   recents,
   besideRail = false,
@@ -263,6 +282,7 @@ export function InboxView({
   onToggleSidebar,
   onStart,
 }: Props) {
+  const [discussionOpen, setDiscussionOpen] = useState(false);
   const listLock = useLockOverscroll<HTMLDivElement>();
   const detailLock = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
@@ -662,17 +682,30 @@ export function InboxView({
 
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
-        <div
-          ref={detailLock}
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
-        >
-          <InboxDetailBody
-            item={selected}
-            cwd={cwd}
-            projects={projectOptions}
-            revision={refresh}
-            onStart={onStart}
-          />
+        <div className="relative flex min-h-0 min-w-0 flex-1">
+          <div
+            ref={detailLock}
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+          >
+            <InboxDetailBody
+              item={selected}
+              cwd={cwd}
+              projects={projectOptions}
+              revision={refresh}
+              onDiscuss={() => setDiscussionOpen(true)}
+              onStart={onStart}
+            />
+          </div>
+          {discussionOpen && selected ? (
+            <InboxDiscussionPanel
+              onOpen={onAsk}
+              onRestart={onAskRestart}
+              onMount={onAskMount}
+              key={inboxAskKey(selected)}
+              item={selected}
+              onClose={() => setDiscussionOpen(false)}
+            />
+          ) : null}
         </div>
       </div>
       {filtersPortal}
@@ -685,12 +718,14 @@ function InboxDetailBody({
   cwd,
   projects,
   revision = 0,
+  onDiscuss,
   onStart,
 }: {
   item: InboxItem | null;
   cwd: string;
   projects: InboxProjectOption[];
   revision?: number;
+  onDiscuss?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
 }) {
   if (!item) {
@@ -710,6 +745,7 @@ function InboxDetailBody({
       cwd={cwd}
       projects={projects}
       revision={revision}
+      onDiscuss={onDiscuss}
       onStart={onStart}
     />
   );
@@ -856,12 +892,14 @@ function InboxDetail({
   cwd,
   projects,
   revision,
+  onDiscuss,
   onStart,
 }: {
   item: InboxItem;
   cwd: string;
   projects: InboxProjectOption[];
   revision: number;
+  onDiscuss?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
 }) {
   const linear = item.provider === "linear";
@@ -1233,7 +1271,7 @@ function InboxDetail({
                     })
                     .finally(() => setStarting(false));
                 }}
-                className="inline-flex items-center gap-1 rounded-md bg-content px-3 h-6.5 text-[12px] text-background-base hover:bg-content/80 disabled:cursor-default disabled:opacity-40"
+                className={`${ACTION_FILLED} disabled:cursor-default disabled:opacity-40`}
               >
                 {starting ? "Sending..." : "Send to agent"}
               </button>
@@ -1248,12 +1286,15 @@ function InboxDetail({
           ) : null}
           <button
             type="button"
+            onClick={onDiscuss}
+            className={item.kind === "pr" ? ACTION_FILLED : ACTION_OUTLINE}
+          >
+            <MessageSquare className="size-3.5" strokeWidth={1.75} /> Ask
+          </button>
+          <button
+            type="button"
             onClick={() => void openUrl(item.url)}
-            className={
-              item.kind === "pr"
-                ? "inline-flex items-center gap-1.5 rounded-md bg-content px-3 h-7 text-[12px] text-background-base hover:bg-content/80"
-                : "inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
-            }
+            className={ACTION_GHOST}
           >
             <ExternalLink className="size-3.5" strokeWidth={1.75} />
             {item.kind === "pr"
