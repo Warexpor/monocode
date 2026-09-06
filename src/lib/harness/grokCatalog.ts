@@ -12,6 +12,7 @@ import {
 import {
   grokAuthMethodId,
   grokSpawnArgs,
+  mergeGrokCatalogs,
   modelsFromGrokModelsOutput,
   modelsFromInitialize,
   modelsFromSessionNew,
@@ -44,18 +45,18 @@ export function refreshGrokCatalog(): Promise<void> {
 }
 
 async function discoverGrokModels() {
-  const fromCli = await discoverViaCli().catch((error: unknown) => {
-    console.debug("[monocode] grok CLI catalog failed", error);
-    return [];
-  });
-  if (fromCli.length > 0) return fromCli;
-  const fromAcp = await discoverViaAcp().catch((error: unknown) => {
-    console.debug("[monocode] grok ACP catalog failed", error);
-    return [];
-  });
-  if (fromAcp.length > 0) return fromAcp;
-  // Leave overlays unset so hasLiveCatalog stays false until a real list lands.
-  return [];
+  const [fromCli, fromAcp] = await Promise.all([
+    discoverViaCli().catch((error: unknown) => {
+      console.debug("[monocode] grok CLI catalog failed", error);
+      return [];
+    }),
+    discoverViaAcp().catch((error: unknown) => {
+      console.debug("[monocode] grok ACP catalog failed", error);
+      return [];
+    }),
+  ]);
+  const models = mergeGrokCatalogs(fromCli, fromAcp);
+  return models;
 }
 
 async function discoverViaAcp() {

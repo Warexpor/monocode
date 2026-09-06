@@ -10,6 +10,7 @@ import {
   grokSessionNewParams,
   grokSpawnArgs,
   grokTextSpawnArgs,
+  mergeGrokCatalogs,
   modelsFromGrokModelsOutput,
   modelsFromInitialize,
   modelsFromSessionNew,
@@ -315,6 +316,35 @@ describe("grok protocol", () => {
       "grok-4.6",
     ]);
     expect(models.every((m) => m.harness === "grok")).toBe(true);
+  });
+
+  it("merges CLI membership with ACP display names", () => {
+    const cli = modelsFromGrokModelsOutput(
+      "  * muse-spark (default)\n  - grok-4.6\n",
+    );
+    const acp = [
+      {
+        id: "grok:muse-spark",
+        harness: "grok" as const,
+        name: "Muse Spark 1.3 Contributor (OpenCode Go)",
+        nativeId: "muse-spark",
+        contextWindow: 1_048_576,
+      },
+      {
+        id: "grok:grok-4.6",
+        harness: "grok" as const,
+        name: "Grok 4.6",
+        nativeId: "grok-4.6",
+        contextWindow: 500_000,
+      },
+    ];
+    const merged = mergeGrokCatalogs(cli, acp);
+    expect(merged.map((m) => m.nativeId)).toEqual(["muse-spark", "grok-4.6"]);
+    expect(merged.map((m) => m.name)).toEqual([
+      "Muse Spark 1.3 Contributor (OpenCode Go)",
+      "Grok 4.6",
+    ]);
+    expect(merged[0]?.contextWindow).toBe(1_048_576);
   });
 
   it("ships a grok-4.6 fallback catalog", () => {

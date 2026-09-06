@@ -473,11 +473,26 @@ export function modelsFromGrokModelsOutput(stdout: string): AgentModel[] {
     if (!match) continue;
     const nativeId = match[1].trim();
     if (!nativeId) continue;
-    // CLI lists ids only (grok-4.6, muse-spark). Keep that string as the
-    // label so versions stay visible instead of a title-cased slug.
+    // CLI lists ids only. Prefer ACP names via mergeGrokCatalogs when both run.
     models.push(modelFromNative(nativeId, nativeId));
   }
   return uniqueGrokModels(models);
+}
+
+/** CLI decides membership; ACP supplies display names, context, and efforts. */
+export function mergeGrokCatalogs(
+  fromCli: AgentModel[],
+  fromAcp: AgentModel[],
+): AgentModel[] {
+  if (fromCli.length === 0) return fromAcp;
+  if (fromAcp.length === 0) return fromCli;
+  const rich = new Map(
+    fromAcp.map((model) => [model.nativeId ?? nativeId(model.id), model]),
+  );
+  return fromCli.map((model) => {
+    const key = model.nativeId ?? nativeId(model.id);
+    return rich.get(key) ?? model;
+  });
 }
 
 export function fallbackGrokModels(): AgentModel[] {
