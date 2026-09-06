@@ -68,6 +68,37 @@ git merge main
 3. On a Windows machine, `npm run build:windows` before calling the sync good. That is `node scripts/build-windows.mjs` (`package.json`); it sets `RUSTUP_TOOLCHAIN` and works from cmd, PowerShell, and Git Bash. For day-to-day `npm run tauri`, set the same MSVC toolchain (`$env:RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-msvc"`) or `rustup default stable-x86_64-pc-windows-msvc`.
 4. Optional: `scripts/windows-nsis-smoke.ps1` after a local NSIS build (GHA already runs it on `windows-latest`).
 
+## In-app updates (Warexpor channel)
+
+Updates use **GitHub Releases** on this fork, not upstream’s R2/Apple pipeline.
+
+| Piece | Value |
+|-------|--------|
+| Endpoint | `https://github.com/Warexpor/monocode/releases/latest/download/latest.json` |
+| Public key | Committed in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` |
+| Private key | GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` (never commit) |
+| Workflow | `.github/workflows/release.yml` on `v*` tags (Windows + Linux; no macOS) |
+
+### First-time / rotate keys
+
+```bash
+npx tauri signer generate -w ~/.tauri/warexpor-monocode.key --ci
+# Put the .pub contents into tauri.conf.json pubkey.
+gh secret set TAURI_SIGNING_PRIVATE_KEY -R Warexpor/monocode < ~/.tauri/warexpor-monocode.key
+```
+
+If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Losing the private key breaks the update channel for already-shipped builds.
+
+### Cut a release
+
+1. Bump `package.json`, `Cargo.toml` workspace version, and `src-tauri/tauri.conf.json` to the same `X.Y.Z`.
+2. Add a `## [X.Y.Z]` section to `CHANGELOG.md`.
+3. Commit, push `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. Wait for the Release workflow. Confirm the release has `latest.json`, the NSIS `.nsis.zip` + `.sig`, and the Linux AppImage `.tar.gz` + `.sig`.
+5. Install that build; the sidebar “Check for updates” control should hit your `latest.json`.
+
+Upstream’s Apple/R2 updater secrets are not used here.
+
 ## Credit
 
 Windows desktop support originally authored in [hardbeat920/monocode#46](https://github.com/hardbeat920/monocode/pull/46) by [@nonlooped](https://github.com/nonlooped).

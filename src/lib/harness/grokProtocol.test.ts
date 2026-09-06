@@ -459,7 +459,7 @@ describe("grok protocol", () => {
       eventsFromAcpUpdate({
         sessionUpdate: "session_summary_generated",
       }),
-    ).toEqual([{ type: "status", text: "Conversation summary generated." }]);
+    ).toEqual([]);
   });
 
   it("stamps prompt.index from user_message meta", () => {

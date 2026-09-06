@@ -1,4 +1,5 @@
 import {
+  AiIdea,
   Check,
   ChevronRight,
   CircleDashed,
@@ -68,7 +69,10 @@ import {
   loadShowReasoning,
   subscribeShowReasoning,
 } from "../lib/settings";
-import { isTurnOpeningUserBlock } from "../lib/transcriptMutation";
+import {
+  hasLaterTurnOpening,
+  isTurnOpeningUserBlock,
+} from "../lib/transcriptMutation";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import {
@@ -77,6 +81,7 @@ import {
   buildActivityPhases,
   editVerb,
   firstFoldableIndex,
+  foldLineIndex,
   foldableWork,
   foldedBlocks,
   groupTurnItems,
@@ -399,11 +404,21 @@ export function AgentTranscript({
           // is there from the first token, so nothing shoves the answer down
           // when the turn folds.
           const firstWork = firstFoldableIndex(items);
-          const foldLineAt = fold
+          const workAt = fold
             ? fold.start
             : firstWork >= 0
               ? firstWork
               : items.length;
+          const foldLineAt = foldLineIndex(items, workAt, showReasoning);
+          const turnUserId = userBlock?.id;
+          const canMutateTurn =
+            !busy &&
+            !!turnUserId &&
+            isTurnOpeningUserBlock(blocks, userBlock!);
+          const canRevertAfterTurn =
+            canMutateTurn &&
+            !!turnUserId &&
+            hasLaterTurnOpening(blocks, turnUserId);
           const renderItem = (item: TurnItem, itemIndex: number) =>
             item.type === "activity" ? (
               itemIndex === initialThinkingAt ? (
@@ -431,16 +446,17 @@ export function AgentTranscript({
                 stickyIndex={firstVisibleTurn + turnIndex + 1}
                 showReasoning={showReasoning}
                 mutateEnabled={
-                  !busy &&
+                  canMutateTurn &&
                   item.block.role === "user" &&
-                  isTurnOpeningUserBlock(blocks, item.block)
+                  item.block.id === turnUserId
                 }
+                canRevertAfter={canRevertAfterTurn}
                 onEditResend={onEditResend}
                 onRevertAfter={onRevertAfter}
                 // Prose reads the same wherever it lands: under the fold
                 // line at the top of the turn, or under the work it follows.
                 underLine={
-                  isProseBlock(item.block) &&
+                  (isProseBlock(item.block) || isThinkingBlock(item.block)) &&
                   itemIndex > 0 &&
                   (items[itemIndex - 1]?.type === "activity" ||
                     (itemIndex === foldLineAt && showFoldLine))
@@ -519,6 +535,16 @@ export function AgentTranscript({
                       ? (target, model) => onHandoff(target, turn, model)
                       : undefined
                   }
+                  onEditPrompt={
+                    canMutateTurn && onEditResend && turnUserId
+                      ? () => onEditResend(turnUserId)
+                      : undefined
+                  }
+                  onRevertAfter={
+                    canRevertAfterTurn && onRevertAfter && turnUserId
+                      ? () => onRevertAfter(turnUserId)
+                      : undefined
+                  }
                 />
               ) : null}
             </div>
@@ -591,6 +617,8 @@ function TurnDuration({
   fromHarness,
   onSecondOpinion,
   onHandoff,
+  onEditPrompt,
+  onRevertAfter,
 }: {
   elapsedMs: number | null;
   /** True when the fold line above already keeps the time for this turn. */
@@ -603,6 +631,8 @@ function TurnDuration({
   fromHarness?: HarnessId;
   onSecondOpinion?: (harness: HarnessId, model: string) => void;
   onHandoff?: (harness: HarnessId, model: string) => void;
+  onEditPrompt?: () => void;
+  onRevertAfter?: () => void;
 }) {
   const label = formatWorkingDuration(elapsedMs, true, false, modelName);
   const dot = (
@@ -627,6 +657,24 @@ function TurnDuration({
         ) : (
           <Check className="size-3.5" strokeWidth={1.75} />
         )}
+        {onEditPrompt ? (
+          <IconActionButton
+            title="Edit prompt — load into composer"
+            ariaLabel="Edit prompt"
+            onClick={onEditPrompt}
+          >
+            <PenLine className="size-3.5" strokeWidth={1.75} />
+          </IconActionButton>
+        ) : null}
+        {onRevertAfter ? (
+          <IconActionButton
+            title="Revert after — keep this turn, drop later"
+            ariaLabel="Revert after this turn"
+            onClick={onRevertAfter}
+          >
+            <RotateCcw className="size-3.5" strokeWidth={1.75} />
+          </IconActionButton>
+        ) : null}
         {fromHarness && onHandoff ? (
           <HandoffButton from={fromHarness} onPick={onHandoff} />
         ) : null}
@@ -707,6 +755,30 @@ function CopyTurnButton({ text }: { text: string }) {
   );
 }
 
+function IconActionButton({
+  title,
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  title: string;
+  ariaLabel: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={ariaLabel}
+      className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SaveNoteButton({
   text,
   onSave,
@@ -754,6 +826,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   underLine = false,
   showReasoning = false,
   mutateEnabled = false,
+  canRevertAfter = false,
   cwd,
   onApproval,
   onOpenFile,
@@ -773,6 +846,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   underLine?: boolean;
   showReasoning?: boolean;
   mutateEnabled?: boolean;
+  canRevertAfter?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
@@ -792,6 +866,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         layout={layout}
         stickyIndex={stickyIndex}
         mutateEnabled={mutateEnabled}
+        canRevertAfter={canRevertAfter}
         onEditResend={onEditResend}
         onRevertAfter={onRevertAfter}
       />
@@ -813,18 +888,12 @@ const TranscriptBlock = memo(function TranscriptBlock({
   if (block.role === "reasoning") {
     if (!showReasoning || !block.text.trim()) return null;
     return (
-      <div className="agent-reasoning-panel border-l border-content/20 px-4 py-2 text-content/55">
-        <div className="mb-1 font-sans text-[11px] tracking-wide text-content/40 uppercase">
-          Reasoning
-        </div>
-        <AgentMarkdown
-          text={block.text}
-          streaming={block.streaming}
-          className="agent-reasoning"
-          cwd={cwd}
-          onOpenFile={onOpenFile}
-        />
-      </div>
+      <ReasoningPanel
+        block={block}
+        underLine={underLine}
+        cwd={cwd}
+        onOpenFile={onOpenFile}
+      />
     );
   }
 
@@ -915,6 +984,7 @@ function UserMessageBlock({
   layout,
   stickyIndex,
   mutateEnabled = false,
+  canRevertAfter = false,
   onEditResend,
   onRevertAfter,
 }: {
@@ -922,6 +992,7 @@ function UserMessageBlock({
   layout: TranscriptLayout;
   stickyIndex: number;
   mutateEnabled?: boolean;
+  canRevertAfter?: boolean;
   onEditResend?: (userBlockId: string) => void;
   onRevertAfter?: (userBlockId: string) => void;
 }) {
@@ -932,8 +1003,10 @@ function UserMessageBlock({
   const note = block.noteCard;
   const text = card && card.kind !== "handoff" ? "" : block.text;
   const chat = layout === "chat";
-  const showMutate =
-    mutateEnabled && (onEditResend != null || onRevertAfter != null);
+  const showEdit = mutateEnabled && onEditResend != null;
+  const showRevert =
+    mutateEnabled && canRevertAfter && onRevertAfter != null;
+  const showMutate = showEdit || showRevert;
 
   useLayoutEffect(() => {
     const el = textRef.current;
@@ -958,9 +1031,9 @@ function UserMessageBlock({
       <div className="group/user-msg relative min-w-0">
         {showMutate ? (
           <div
-            className={`mb-1 flex gap-1 ${chat ? "justify-end" : "justify-start"} opacity-0 transition-opacity group-hover/user-msg:opacity-100 focus-within:opacity-100`}
+            className={`mb-1 flex gap-1 ${chat ? "justify-end" : "justify-start"}`}
           >
-            {onEditResend ? (
+            {showEdit ? (
               <button
                 type="button"
                 title="Edit — load into composer"
@@ -968,14 +1041,14 @@ function UserMessageBlock({
                 className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onEditResend(block.id);
+                  onEditResend?.(block.id);
                 }}
               >
                 <PenLine className="size-3" strokeWidth={1.75} />
                 Edit
               </button>
             ) : null}
-            {onRevertAfter ? (
+            {showRevert ? (
               <button
                 type="button"
                 title="Revert after — keep this turn, drop later"
@@ -983,7 +1056,7 @@ function UserMessageBlock({
                 className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onRevertAfter(block.id);
+                  onRevertAfter?.(block.id);
                 }}
               >
                 <RotateCcw className="size-3" strokeWidth={1.75} />
@@ -1539,6 +1612,77 @@ function ActivityRow({
       onOpenFile={onOpenFile}
       onOpenDiff={onOpenDiff}
     />
+  );
+}
+
+/**
+ * Shown reasoning under the work line: a one-line summary until you open it.
+ * Stays open while the thought streams so you can watch it grow.
+ */
+function ReasoningPanel({
+  block,
+  underLine = false,
+  cwd,
+  onOpenFile,
+}: {
+  block: Block;
+  underLine?: boolean;
+  cwd?: string;
+  onOpenFile?: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(!!block.streaming);
+  const streaming = !!block.streaming;
+
+  useEffect(() => {
+    if (streaming) setOpen(true);
+  }, [streaming]);
+
+  const summary = proseSummary(block.text) || "Thought";
+  const pulse = streaming ? "zen-thinking-pulse" : "";
+
+  return (
+    <div
+      className={`agent-reasoning-panel min-w-0 px-4 ${underLine ? "pt-0.5 pb-1" : "py-1"}`}
+    >
+      <div className="rounded-md border border-content/8 bg-content/[0.03] px-2.5 py-1 text-content/55">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={open ? "Hide thought" : `Show thought: ${summary}`}
+          onClick={() => setOpen((value) => !value)}
+          className="group flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left"
+        >
+          <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+            <AiIdea
+              className={`size-3.5 text-content/40 group-hover:opacity-0 ${pulse}`}
+              strokeWidth={1.75}
+            />
+            <ChevronRight
+              className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
+                open ? "rotate-90" : ""
+              }`}
+              strokeWidth={1.75}
+            />
+          </span>
+          <span
+            className={`min-w-0 flex-1 truncate font-sans text-[12px] text-content/45 transition-colors duration-200 group-hover:text-content/70 ${pulse}`}
+          >
+            {open ? "Thought" : summary}
+          </span>
+        </button>
+        {open ? (
+          <div className="min-w-0 px-0.5 pt-1 pb-1.5">
+            <AgentMarkdown
+              text={block.text}
+              streaming={streaming}
+              className="agent-reasoning"
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

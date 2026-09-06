@@ -626,6 +626,28 @@ export function firstFoldableIndex(items: TurnItem[]): number {
   return items.findIndex(isFoldableItem);
 }
 
+/**
+ * Where the "worked for" line should sit when reasoning is shown as its own
+ * panel: above the first thought (or the first foldable work), so Thought
+ * reads under the receipt instead of above it.
+ */
+export function foldLineIndex(
+  items: TurnItem[],
+  workAt: number,
+  showReasoning: boolean,
+): number {
+  if (!showReasoning) return workAt;
+  const limit = Math.min(workAt, items.length);
+  for (let index = 0; index < limit; index += 1) {
+    const item = items[index];
+    if (item.type !== "block") break;
+    if (item.block.role === "user" || item.block.role === "system") continue;
+    if (isThinkingBlock(item.block)) return index;
+    break;
+  }
+  return workAt;
+}
+
 /** Every block inside a fold, work and commentary alike. */
 export function foldedBlocks(items: TurnItem[], fold: WorkFold): Block[] {
   return items

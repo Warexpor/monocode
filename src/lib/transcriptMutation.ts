@@ -38,6 +38,16 @@ export function turnOpeningUserBlocks(blocks: Block[]): Block[] {
   return blocks.filter((block) => isTurnOpeningUserBlock(blocks, block));
 }
 
+/** True when truncating after this opener would drop at least one later turn. */
+export function hasLaterTurnOpening(
+  blocks: Block[],
+  userBlockId: string,
+): boolean {
+  const openers = turnOpeningUserBlocks(blocks);
+  const index = openers.findIndex((block) => block.id === userBlockId);
+  return index >= 0 && index < openers.length - 1;
+}
+
 export function applyTranscriptMutation(
   session: Pick<Session, "blocks" | "busy">,
   mutation: TranscriptMutation,

@@ -6,6 +6,7 @@ import {
   buildActivityPhases,
   editVerb,
   firstFoldableIndex,
+  foldLineIndex,
   foldableWork,
   foldedBlocks,
   groupTurnItems,
@@ -705,6 +706,22 @@ describe("foldableWork", () => {
     expect(
       firstFoldableIndex(items([{ id: "u", role: "user", text: "go" }])),
     ).toBe(-1);
+  });
+
+  it("sits the fold line above shown reasoning", () => {
+    const turn = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "go" },
+        thought("r1"),
+        shell("c1"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    const workAt = firstFoldableIndex(turn);
+    expect(workAt).toBe(2);
+    expect(foldLineIndex(turn, workAt, true)).toBe(1);
+    expect(foldLineIndex(turn, workAt, false)).toBe(2);
   });
 
   it("has nothing to fold in a turn that only answered", () => {

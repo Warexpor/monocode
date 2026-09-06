@@ -469,7 +469,7 @@ function GeneralPage({
       </Row>
       <Row
         label="Show reasoning in chat"
-        description="Show model reasoning as its own transcript panel, separate from the answer. Turn this off to keep thinking folded into activity until you expand a line."
+        description="Show model reasoning under the turn's work line, above tool activity. Turn this off to keep thinking folded into activity until you expand a line."
       >
         <Toggle
           label="Show reasoning in chat"

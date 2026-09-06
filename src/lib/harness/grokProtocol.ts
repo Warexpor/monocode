@@ -452,6 +452,8 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
 
   if (kind === "session_summary_generated") {
     const text = sessionSummaryText(update, rec);
+    // Grok often emits this every turn with an empty payload; only surface a
+    // status when there is real summary content to show.
     return text ? [{ type: "status", text }] : [];
   }
 
@@ -488,9 +490,11 @@ function sessionSummaryText(
   ];
   for (const candidate of candidates) {
     const trimmed = candidate?.trim();
-    if (trimmed) return trimmed.startsWith("Summary") ? trimmed : `Summary: ${trimmed}`;
+    if (trimmed) {
+      return trimmed.startsWith("Summary") ? trimmed : `Summary: ${trimmed}`;
+    }
   }
-  return "Conversation summary generated.";
+  return null;
 }
 
 export function sessionIdFromResult(result: unknown): string | undefined {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Block, Session } from "./session";
 import {
   applyTranscriptMutation,
+  hasLaterTurnOpening,
   isTurnOpeningUserBlock,
 } from "./transcriptMutation";
 
@@ -39,6 +40,24 @@ describe("isTurnOpeningUserBlock", () => {
   it("allows a sole steer-shaped user", () => {
     const blocks = [steer("only", "hello")];
     expect(isTurnOpeningUserBlock(blocks, blocks[0])).toBe(true);
+  });
+});
+
+describe("hasLaterTurnOpening", () => {
+  it("is false for the only / last opener", () => {
+    const blocks = [user("u1", "hi"), assistant("a1", "yo")];
+    expect(hasLaterTurnOpening(blocks, "u1")).toBe(false);
+  });
+
+  it("is true when a later turn exists", () => {
+    const blocks = [
+      user("u1", "first"),
+      assistant("a1", "ok"),
+      user("u2", "second"),
+      assistant("a2", "ok"),
+    ];
+    expect(hasLaterTurnOpening(blocks, "u1")).toBe(true);
+    expect(hasLaterTurnOpening(blocks, "u2")).toBe(false);
   });
 });
 
