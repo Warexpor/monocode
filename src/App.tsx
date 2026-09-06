@@ -230,6 +230,7 @@ import {
   sessionNeedsInput,
   newDefaultSession,
   newSession,
+  preferredNewSessionHarness,
   sessionDisplayTitle,
   sessionWorkCwd,
   titleFromPrompt,
@@ -839,7 +840,48 @@ export default function App({
   }, [resumed]);
 
   useEffect(() => {
-    void probeHarnessAvailability();
+    void probeHarnessAvailability().then(() => {
+      // The initial blank session is created before the asynchronous CLI probe.
+      // Upgrade it once Grok is known to be installed, but never replace a
+      // resumed/transferred workspace or a session the user has started.
+      if (windowTransfer || resumed) return;
+      const initial = sessionsRef.current.find(
+        (session) => session.id === seed.session.id,
+      );
+      const preferred = preferredNewSessionHarness();
+      if (
+        preferred !== "grok" ||
+        !initial ||
+        !isBlankSession(initial) ||
+        preferred === initial.harness
+      ) {
+        return;
+      }
+      const replacement = newSession(
+        preferred,
+        initial.cwd,
+        undefined,
+        initial.runtimeMode,
+      );
+      void forgetHarnessSession(initial.harness, initial.id);
+      const nextSessions = sessionsRef.current.map((session) =>
+        session.id === initial.id ? replacement : session,
+      );
+      const nextTabs = tabsRef.current.map((tab) =>
+        leafIds(tab.layout).includes(initial.id)
+          ? {
+              ...tab,
+              layout: replaceLeafId(tab.layout, initial.id, replacement.id),
+              focusedId:
+                tab.focusedId === initial.id ? replacement.id : tab.focusedId,
+            }
+          : tab,
+      );
+      sessionsRef.current = nextSessions;
+      tabsRef.current = nextTabs;
+      setSessions(nextSessions);
+      setTabs(nextTabs);
+    });
     // Only the harnesses already in this window. Probing every installed CLI
     // at boot left unused agents (especially Pi) running in the background.
     const harnesses = [
@@ -1988,7 +2030,7 @@ export default function App({
             }
             const seed = sessionsRef.current[0];
             const session = newSession(
-              seed?.harness ?? "claude",
+              seed?.harness ?? preferredNewSessionHarness(),
               file.cwd || projectCwd,
               seed?.model,
               seed?.runtimeMode,
@@ -2634,7 +2676,7 @@ export default function App({
           }),
           createReplacement: (latest) =>
             newSession(
-              latest?.harness ?? seed?.harness ?? "cursor",
+              latest?.harness ?? seed?.harness ?? preferredNewSessionHarness(),
               latest?.cwd ?? seed?.cwd ?? sidebarCwd,
               latest?.model ?? seed?.model,
               latest?.runtimeMode ?? seed?.runtimeMode,
@@ -2963,7 +3005,7 @@ export default function App({
 
       const seed = current ?? sessionsRef.current[0];
       const session = newSession(
-        seed?.harness ?? "claude",
+        seed?.harness ?? preferredNewSessionHarness(),
         normalized,
         seed?.model,
         seed?.runtimeMode,
