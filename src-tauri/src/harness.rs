@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-#[cfg(not(windows))]
 use std::time::Instant;
 
 use serde::Serialize;
@@ -747,15 +746,12 @@ const KILL_ESCALATE: Duration = Duration::from_millis(300);
 const KILL_ESCALATE: Duration = Duration::from_secs(2);
 /// Quit and `Drop` cannot wait on a detached escalate thread — the process
 /// exits first and isolated harness groups stay behind as PID-1 orphans.
-#[cfg(not(windows))]
 const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
-#[cfg(not(windows))]
 const KILL_ALL_KILL_WAIT: Duration = Duration::from_millis(150);
 const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
 /// An interactive shell has to source the user's whole rc file; nvm alone can
 /// take a second.
-#[cfg(not(windows))]
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A spawn that was cancelled mid-fork. The session it was starting is already
@@ -885,7 +881,6 @@ pub(crate) fn terminate_all(pids: &[u32]) {
 /// answering `kill(pid, 0)` within a poll or two. Reaping here instead would
 /// race that thread for the exit status and free the pid while we still signal
 /// it.
-#[cfg(not(windows))]
 fn wait_until_dead(pids: &[u32], until: Instant) {
     while Instant::now() < until {
         if pids.iter().all(|pid| !tree_alive(*pid)) {
@@ -896,7 +891,6 @@ fn wait_until_dead(pids: &[u32], until: Instant) {
 }
 
 enum TreeSignal {
-    #[cfg(not(windows))]
     Term,
     Kill,
 }
