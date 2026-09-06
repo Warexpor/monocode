@@ -22,6 +22,7 @@ import {
   grokPromptBlocks,
   grokSessionNewParams,
   grokSpawnArgs,
+  isMethodNotFound,
   permissionOptionId,
   permissionRequestFromAcp,
   pickAutoOption,
@@ -142,6 +143,58 @@ export async function compactGrokContext(
       }
     });
   await live.turns;
+}
+
+export type GrokRewindResult = "ok" | "unsupported";
+
+/** Rewind the provider conversation to a prompt index (conversation_only). */
+export async function rewindGrokConversation(
+  sessionId: string,
+  targetPromptIndex: number,
+): Promise<GrokRewindResult> {
+  const live = liveByThread.get(sessionId);
+  if (!live) return "unsupported";
+  const params = {
+    sessionId: live.acpSessionId,
+    targetPromptIndex,
+    force: false,
+    mode: "conversation_only",
+  };
+  try {
+    await live.acp.request("_x.ai/rewind/execute", params, CONTROL_TIMEOUT_MS);
+    return "ok";
+  } catch (error) {
+    if (isMethodNotFound(error)) return "unsupported";
+    try {
+      const { mode: _drop, ...withoutMode } = params;
+      await live.acp.request(
+        "_x.ai/rewind/execute",
+        withoutMode,
+        CONTROL_TIMEOUT_MS,
+      );
+      return "ok";
+    } catch (retryError) {
+      if (isMethodNotFound(retryError)) return "unsupported";
+      throw retryError;
+    }
+  }
+}
+
+export async function listGrokRewindPoints(
+  sessionId: string,
+): Promise<unknown | null> {
+  const live = liveByThread.get(sessionId);
+  if (!live) return null;
+  try {
+    return await live.acp.request(
+      "_x.ai/rewind/points",
+      { sessionId: live.acpSessionId },
+      CONTROL_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (isMethodNotFound(error)) return null;
+    throw error;
+  }
 }
 
 export async function steerGrokTurn(_input: SteerTurnInput): Promise<void> {
@@ -316,15 +369,21 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
     const methodId = grokAuthMethodId(init);
     if (methodId) {
-      await acp
-        .request(
+      try {
+        await acp.request(
           "authenticate",
           { methodId, _meta: { headless: true } },
           AUTH_TIMEOUT_MS,
-        )
-        .catch((error: unknown) => {
-          console.debug("[monocode] grok authenticate", error);
+        );
+      } catch (error) {
+        console.debug("[monocode] grok authenticate", error);
+        emit({
+          type: "session.error",
+          message: `${
+            error instanceof Error ? error.message : String(error)
+          }\n\n${AUTH_HELP}`,
         });
+      }
     }
 
     let setup: unknown;

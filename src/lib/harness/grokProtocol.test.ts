@@ -19,6 +19,7 @@ import {
   pickAutoOption,
   planFromExitPlan,
   sessionIdFromResult,
+  isMethodNotFound,
 } from "./grokProtocol";
 import { harnessSupportsAttachments } from "../session";
 
@@ -196,11 +197,34 @@ describe("grok protocol", () => {
       },
     });
     expect(tools[0]).toMatchObject({
+      type: "tool.started",
+      callId: "call-1",
+      kind: "read",
+    });
+    expect(tools[1]).toMatchObject({
       type: "tool.updated",
       callId: "call-1",
       kind: "read",
       preview: { kind: "read", path: "README.md", fileName: "README.md" },
     });
+  });
+
+  it("stamps prompt.index from user message meta", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "user_message_chunk",
+        _meta: { promptIndex: 3 },
+      }),
+    ).toEqual([{ type: "prompt.index", index: 3 }]);
+  });
+
+  it("maps session_summary_generated to a status line", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+        summary: "Done reviewing the diff",
+      }),
+    ).toEqual([{ type: "status", text: "Summary: Done reviewing the diff" }]);
   });
 
   it("maps turn_completed usage onto the context meter", () => {
@@ -391,5 +415,81 @@ describe("grok protocol", () => {
 
   it("extracts plan text from exit_plan_mode", () => {
     expect(planFromExitPlan({ planContent: "Ship it" })).toBe("Ship it");
+  });
+
+  it("emits tool.started then tool.updated on first tool_call", () => {
+    const events = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-1",
+      title: "Read file",
+      kind: "read",
+      status: "pending",
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "tool.started",
+      "tool.updated",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "tool.started",
+      callId: "call-1",
+    });
+    expect(events[1]).toMatchObject({
+      type: "tool.updated",
+      callId: "call-1",
+    });
+  });
+
+  it("emits only tool.updated on tool_call_update", () => {
+    const events = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-1",
+      status: "completed",
+    });
+    expect(events.map((event) => event.type)).toEqual(["tool.updated"]);
+  });
+
+  it("maps session_summary_generated to a status event", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+        summary: "Compressed older turns",
+      }),
+    ).toEqual([{ type: "status", text: "Summary: Compressed older turns" }]);
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+      }),
+    ).toEqual([{ type: "status", text: "Conversation summary generated." }]);
+  });
+
+  it("stamps prompt.index from user_message meta", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "user_message",
+        _meta: { promptIndex: 3 },
+      }),
+    ).toEqual([{ type: "prompt.index", index: 3 }]);
+    expect(
+      eventsFromAcpUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "hi" },
+          _meta: { prompt_index: 2 },
+        },
+      }),
+    ).toEqual([
+      { type: "prompt.index", index: 2 },
+      { type: "message.delta", text: "hi" },
+    ]);
+  });
+
+  it("detects JSON-RPC method-not-found for rewind fallback", () => {
+    expect(isMethodNotFound({ code: -32601, message: "nope" })).toBe(true);
+    expect(
+      isMethodNotFound(
+        new Error("Method not found: _x.ai/rewind/execute"),
+      ),
+    ).toBe(true);
+    expect(isMethodNotFound(new Error("timeout"))).toBe(false);
   });
 });

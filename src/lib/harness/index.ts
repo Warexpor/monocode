@@ -72,6 +72,8 @@ export {
   compactGrokContext,
   cancelGrokTurn,
   respondGrokApproval,
+  rewindGrokConversation,
+  listGrokRewindPoints,
   stopGrokSession,
   forgetGrokSession,
   bindGrokSession,

@@ -142,6 +142,7 @@ type Props = {
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
   initialDraft?: string;
+  initialAttachments?: Attachment[];
   inboxCard?: InboxComposerCard;
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
@@ -396,6 +397,7 @@ export function Composer({
   compactSupported = false,
   quoteRequest,
   initialDraft,
+  initialAttachments,
   inboxCard,
   noteCard,
   handoffCard,
@@ -439,11 +441,14 @@ export function Composer({
   const [hasValue, setHasValue] = useState(
     () =>
       (initialDraft ?? "").trim().length > 0 ||
+      (initialAttachments?.length ?? 0) > 0 ||
       !!inboxCard ||
       !!noteCard ||
       !!handoffCard,
   );
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    () => initialAttachments ?? [],
+  );
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
@@ -672,6 +677,15 @@ export function Composer({
     if (el.value !== initialDraft) el.value = initialDraft;
     resizeTextarea(el);
   }, [initialDraft]);
+
+  useEffect(() => {
+    if (!initialAttachments?.length) return;
+    setAttachments(initialAttachments);
+    setHasValue(
+      (ref.current?.value ?? initialDraft ?? "").trim().length > 0 ||
+        initialAttachments.length > 0,
+    );
+  }, [initialAttachments, initialDraft]);
 
   useEffect(() => {
     onDraftChange?.(draft);

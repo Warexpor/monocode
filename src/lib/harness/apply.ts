@@ -107,6 +107,8 @@ export function applyHarnessEvent(
       };
     case "status":
       return appendStatus(session, event.text);
+    case "prompt.index":
+      return stampPromptIndex(session, event.index);
     default:
       return session;
   }
@@ -456,6 +458,23 @@ function appendStatus(session: Session, text: string): Session {
     role: "system",
     text: trimmed,
   });
+}
+
+function stampPromptIndex(session: Session, index: number): Session {
+  if (!Number.isFinite(index)) return session;
+  for (let i = session.blocks.length - 1; i >= 0; i -= 1) {
+    const block = session.blocks[i];
+    if (block.role !== "user") continue;
+    if (block.startedAt == null) {
+      const users = session.blocks.filter((entry) => entry.role === "user");
+      if (!(users.length === 1 && users[0].id === block.id)) continue;
+    }
+    if (block.promptIndex === index) return session;
+    const blocks = session.blocks.slice();
+    blocks[i] = { ...block, promptIndex: index };
+    return { ...session, blocks };
+  }
+  return session;
 }
 
 function appendBlock(session: Session, block: Block): Session {

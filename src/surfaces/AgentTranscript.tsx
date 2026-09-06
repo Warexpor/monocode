@@ -7,6 +7,7 @@ import {
   Minus,
   Bot,
   PenLine,
+  RotateCcw,
   Search,
   Terminal,
   Wrench,
@@ -20,6 +21,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { AttachmentChip } from "../chrome/AttachmentChip";
@@ -62,6 +64,11 @@ import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
 import type { TranscriptLayout } from "../lib/appearance";
+import {
+  loadShowReasoning,
+  subscribeShowReasoning,
+} from "../lib/settings";
+import { isTurnOpeningUserBlock } from "../lib/transcriptMutation";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import {
@@ -114,6 +121,8 @@ type Props = {
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
   onSecondOpinion?: (harness: HarnessId, turn: Block[], model: string) => void;
   onHandoff?: (harness: HarnessId, turn: Block[], model: string) => void;
+  onEditResend?: (userBlockId: string) => void;
+  onRevertAfter?: (userBlockId: string) => void;
   onJumpToBottomChange?: (show: boolean) => void;
   onJumpToBottomReady?: (jump: () => void) => void;
   /** False while another tab is in front. Hidden tabs stay laid out. */
@@ -136,6 +145,8 @@ export function AgentTranscript({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onEditResend,
+  onRevertAfter,
   onJumpToBottomChange,
   onJumpToBottomReady,
   visible = true,
@@ -164,6 +175,11 @@ export function AgentTranscript({
   );
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
+  const showReasoning = useSyncExternalStore(
+    subscribeShowReasoning,
+    loadShowReasoning,
+    loadShowReasoning,
+  );
   const lastUserId = lastUserBlockId(blocks);
   const seenUserId = useRef(lastUserId);
   if (lastUserId !== seenUserId.current) {
@@ -335,7 +351,7 @@ export function AgentTranscript({
           const userBlock = turnUserBlock(turn);
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
-          const items = groupTurnItems(turn);
+          const items = groupTurnItems(turn, { showReasoning });
           // Earlier activity groups have already been followed by prose or
           // more work. Only the last one can still be the live group.
           const foldedAt = lastActivityIndex(items);
@@ -413,6 +429,14 @@ export function AgentTranscript({
                 block={item.block}
                 layout={transcriptLayout}
                 stickyIndex={firstVisibleTurn + turnIndex + 1}
+                showReasoning={showReasoning}
+                mutateEnabled={
+                  !busy &&
+                  item.block.role === "user" &&
+                  isTurnOpeningUserBlock(blocks, item.block)
+                }
+                onEditResend={onEditResend}
+                onRevertAfter={onRevertAfter}
                 // Prose reads the same wherever it lands: under the fold
                 // line at the top of the turn, or under the work it follows.
                 underLine={
@@ -728,12 +752,16 @@ const TranscriptBlock = memo(function TranscriptBlock({
   layout,
   stickyIndex,
   underLine = false,
+  showReasoning = false,
+  mutateEnabled = false,
   cwd,
   onApproval,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
   onBuildPlan,
+  onEditResend,
+  onRevertAfter,
   planBusy,
   planHarness,
   planModel,
@@ -743,12 +771,16 @@ const TranscriptBlock = memo(function TranscriptBlock({
   stickyIndex: number;
   /** True when something already sits directly above this in the turn. */
   underLine?: boolean;
+  showReasoning?: boolean;
+  mutateEnabled?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
+  onEditResend?: (userBlockId: string) => void;
+  onRevertAfter?: (userBlockId: string) => void;
   planBusy?: boolean;
   planHarness?: HarnessId;
   planModel?: string;
@@ -759,6 +791,9 @@ const TranscriptBlock = memo(function TranscriptBlock({
         block={block}
         layout={layout}
         stickyIndex={stickyIndex}
+        mutateEnabled={mutateEnabled}
+        onEditResend={onEditResend}
+        onRevertAfter={onRevertAfter}
       />
     );
   }
@@ -776,7 +811,21 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "reasoning") {
-    return null;
+    if (!showReasoning || !block.text.trim()) return null;
+    return (
+      <div className="agent-reasoning-panel border-l border-content/20 px-4 py-2 text-content/55">
+        <div className="mb-1 font-sans text-[11px] tracking-wide text-content/40 uppercase">
+          Reasoning
+        </div>
+        <AgentMarkdown
+          text={block.text}
+          streaming={block.streaming}
+          className="agent-reasoning"
+          cwd={cwd}
+          onOpenFile={onOpenFile}
+        />
+      </div>
+    );
   }
 
   if (block.role === "tasks") {
@@ -865,10 +914,16 @@ function UserMessageBlock({
   block,
   layout,
   stickyIndex,
+  mutateEnabled = false,
+  onEditResend,
+  onRevertAfter,
 }: {
   block: Block;
   layout: TranscriptLayout;
   stickyIndex: number;
+  mutateEnabled?: boolean;
+  onEditResend?: (userBlockId: string) => void;
+  onRevertAfter?: (userBlockId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -877,6 +932,8 @@ function UserMessageBlock({
   const note = block.noteCard;
   const text = card && card.kind !== "handoff" ? "" : block.text;
   const chat = layout === "chat";
+  const showMutate =
+    mutateEnabled && (onEditResend != null || onRevertAfter != null);
 
   useLayoutEffect(() => {
     const el = textRef.current;
@@ -898,42 +955,80 @@ function UserMessageBlock({
         chat ? "flex justify-end pt-1.5 pr-4 pb-4 pl-14" : "p-1.5 pb-3"
       }
     >
-      <div
-        className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
-          chat
-            ? "w-fit max-w-xl rounded-xl"
-            : "rounded-lg border border-content/10"
-        }`}
-        style={{ zIndex: stickyIndex }}
-        onClick={overflows ? toggle : undefined}
-      >
-        {block.attachments?.length ? (
+      <div className="group/user-msg relative min-w-0">
+        {showMutate ? (
           <div
-            className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
+            className={`mb-1 flex gap-1 ${chat ? "justify-end" : "justify-start"} opacity-0 transition-opacity group-hover/user-msg:opacity-100 focus-within:opacity-100`}
           >
-            {block.attachments.map((file) => (
-              <AttachmentChip key={file.id} attachment={file} />
-            ))}
+            {onEditResend ? (
+              <button
+                type="button"
+                title="Edit — load into composer"
+                aria-label="Edit message"
+                className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEditResend(block.id);
+                }}
+              >
+                <PenLine className="size-3" strokeWidth={1.75} />
+                Edit
+              </button>
+            ) : null}
+            {onRevertAfter ? (
+              <button
+                type="button"
+                title="Revert after — keep this turn, drop later"
+                aria-label="Revert after this turn"
+                className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRevertAfter(block.id);
+                }}
+              >
+                <RotateCcw className="size-3" strokeWidth={1.75} />
+                Revert after
+              </button>
+            ) : null}
           </div>
         ) : null}
-        {note ? (
-          <div className={text || card ? "mb-2" : ""}>
-            <NoteMiniCard card={note} embedded />
-          </div>
-        ) : null}
-        {card ? (
-          <div className={text ? "mb-1.5" : undefined}>
-            <SecondOpinionCard card={card} />
-          </div>
-        ) : null}
-        {text ? (
-          <pre
-            ref={textRef}
-            className={`min-w-0 whitespace-pre-wrap break-words font-sans text-sm ${expanded ? "" : "line-clamp-4"}`}
-          >
-            {text}
-          </pre>
-        ) : null}
+        <div
+          className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
+            chat
+              ? "w-fit max-w-xl rounded-xl"
+              : "rounded-lg border border-content/10"
+          }`}
+          style={{ zIndex: stickyIndex }}
+          onClick={overflows ? toggle : undefined}
+        >
+          {block.attachments?.length ? (
+            <div
+              className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
+            >
+              {block.attachments.map((file) => (
+                <AttachmentChip key={file.id} attachment={file} />
+              ))}
+            </div>
+          ) : null}
+          {note ? (
+            <div className={text || card ? "mb-2" : ""}>
+              <NoteMiniCard card={note} embedded />
+            </div>
+          ) : null}
+          {card ? (
+            <div className={text ? "mb-1.5" : undefined}>
+              <SecondOpinionCard card={card} />
+            </div>
+          ) : null}
+          {text ? (
+            <pre
+              ref={textRef}
+              className={`min-w-0 whitespace-pre-wrap break-words font-sans text-sm ${expanded ? "" : "line-clamp-4"}`}
+            >
+              {text}
+            </pre>
+          ) : null}
+        </div>
       </div>
     </div>
   );

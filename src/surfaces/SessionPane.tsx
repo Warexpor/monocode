@@ -116,6 +116,8 @@ type Props = {
     turn: Block[],
     model: string,
   ) => void;
+  onEditResend?: (sessionId: string, userBlockId: string) => void;
+  onRevertAfter?: (sessionId: string, userBlockId: string) => void;
   onNewTerminal: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
@@ -156,6 +158,8 @@ export const SessionPane = memo(function SessionPane({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onEditResend,
+  onRevertAfter,
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
@@ -238,6 +242,17 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
   const draftRef = useRef<string | undefined>(undefined);
+  const seedText =
+    typeof session.composerSeed === "string"
+      ? session.composerSeed
+      : session.composerSeed?.text;
+  const seedAttachments =
+    typeof session.composerSeed === "object"
+      ? session.composerSeed.attachments
+      : undefined;
+  useEffect(() => {
+    if (seedText != null) draftRef.current = seedText;
+  }, [seedText]);
   const composer = (
     <Composer
       enabled={visible}
@@ -261,12 +276,8 @@ export const SessionPane = memo(function SessionPane({
       hideTopBar={!!session.inboxAsk}
       context={session.context}
       quoteRequest={quoteRequest}
-      initialDraft={
-        draftRef.current ??
-        (session.inboxCard || session.noteCard || session.handoffCard
-          ? undefined
-          : session.composerSeed)
-      }
+      initialDraft={seedText ?? draftRef.current}
+      initialAttachments={seedAttachments}
       onDraftChange={(text) => {
         draftRef.current = text;
       }}
@@ -426,6 +437,16 @@ export const SessionPane = memo(function SessionPane({
                 !session.inboxAsk && onHandoff
                   ? (harness, turn, model) =>
                       onHandoff(session.id, harness, turn, model)
+                  : undefined
+              }
+              onEditResend={
+                onEditResend
+                  ? (userBlockId) => onEditResend(session.id, userBlockId)
+                  : undefined
+              }
+              onRevertAfter={
+                onRevertAfter
+                  ? (userBlockId) => onRevertAfter(session.id, userBlockId)
                   : undefined
               }
               onJumpToBottomChange={setShowJumpToBottom}

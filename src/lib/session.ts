@@ -156,6 +156,8 @@ export type Block = {
   startedAt?: number;
   /** How long the agent worked on this user turn, in ms. */
   durationMs?: number;
+  /** Grok ACP prompt index for provider-side rewind, when reported. */
+  promptIndex?: number;
   tool?: {
     callId?: string;
     title?: string;
@@ -238,8 +240,8 @@ export type Session = {
   branch?: string;
   /** Extra git worktree from the old session-branch feature. Unused. */
   worktreeCwd?: string;
-  /** One-shot composer text when opening a session from Inbox. */
-  composerSeed?: string;
+  /** One-shot composer seed (Inbox open, edit-resend). */
+  composerSeed?: { text: string; attachments?: Attachment[] } | string;
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
   inboxCard?: InboxComposerCard;
   /** Note chip shown above the composer. In-memory, one-shot. */

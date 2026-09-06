@@ -236,6 +236,47 @@ describe("groupTurnItems", () => {
     expect(items[0].blocks.map((block) => block.id)).toEqual(["r", "a"]);
   });
 
+  it("exposes reasoning as standalone blocks when showReasoning is on", () => {
+    const items = groupTurnItems(
+      [
+        { id: "r", role: "reasoning", text: "**Checking the config**" },
+        shell("a"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    expect(items.map((item) => item.type)).toEqual([
+      "block",
+      "activity",
+      "block",
+    ]);
+    expect(items[0]).toMatchObject({
+      type: "block",
+      block: { id: "r", role: "reasoning" },
+    });
+  });
+
+  it("does not supersede initial thinking when showReasoning is on", () => {
+    const folded = groupTurnItems([
+      { id: "r", role: "reasoning", text: "private" },
+      { id: "a", role: "assistant", text: "Hello." },
+    ]);
+    expect(folded.map((item) => item.type)).toEqual(["block"]);
+
+    const shown = groupTurnItems(
+      [
+        { id: "r", role: "reasoning", text: "private" },
+        { id: "a", role: "assistant", text: "Hello." },
+      ],
+      { showReasoning: true },
+    );
+    expect(shown.map((item) => item.type)).toEqual(["block", "block"]);
+    expect(shown[0]).toMatchObject({
+      type: "block",
+      block: { id: "r" },
+    });
+  });
+
   it("uses assistant prose as boundaries between reasoning and tool groups", () => {
     const items = groupTurnItems([
       note("a1", "I’ll inspect the config first."),
@@ -265,6 +306,25 @@ describe("groupTurnItems", () => {
 
     expect(items).toMatchObject([
       { type: "block", block: { id: "u" } },
+      { type: "block", block: { id: "a1" } },
+      { type: "activity", blocks: [{ id: "t1" }] },
+    ]);
+  });
+
+  it("keeps reasoning as standalone blocks when showReasoning is on", () => {
+    const items = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "Investigate it" },
+        thought("r1", "I should inspect the current changes."),
+        note("a1", "I’ll investigate the current changes."),
+        read("t1"),
+      ],
+      { showReasoning: true },
+    );
+
+    expect(items).toMatchObject([
+      { type: "block", block: { id: "u" } },
+      { type: "block", block: { id: "r1" } },
       { type: "block", block: { id: "a1" } },
       { type: "activity", blocks: [{ id: "t1" }] },
     ]);

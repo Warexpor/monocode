@@ -337,6 +337,9 @@ function sanitizeBlock(block: Block): Block | null {
   }
   if (block.startedAt != null) next.startedAt = block.startedAt;
   if (block.durationMs != null) next.durationMs = block.durationMs;
+  if (typeof block.promptIndex === "number" && Number.isFinite(block.promptIndex)) {
+    next.promptIndex = block.promptIndex;
+  }
   if (block.tool) next.tool = block.tool;
   if (block.approval?.decided) {
     next.approval = {

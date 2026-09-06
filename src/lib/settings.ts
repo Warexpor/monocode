@@ -166,6 +166,42 @@ export function subscribeNotesEnabled(onStoreChange: () => void) {
     window.removeEventListener(NOTES_ENABLED_CHANGE_EVENT, onStoreChange);
 }
 
+const SHOW_REASONING_KEY = "monocode.showReasoning";
+
+export const SHOW_REASONING_DEFAULT = false;
+
+/** Fired on `window` when the transcript reasoning visibility setting flips. */
+export const SHOW_REASONING_CHANGE_EVENT = "monocode:show-reasoning-change";
+
+export function loadShowReasoning(): boolean {
+  try {
+    const raw = localStorage.getItem(SHOW_REASONING_KEY);
+    if (raw == null) return SHOW_REASONING_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return SHOW_REASONING_DEFAULT;
+  }
+}
+
+export function saveShowReasoning(value: boolean) {
+  try {
+    localStorage.setItem(SHOW_REASONING_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(SHOW_REASONING_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeShowReasoning(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(SHOW_REASONING_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(SHOW_REASONING_CHANGE_EVENT, onStoreChange);
+}
+
 const LIVE_AGENTS_ENABLED_KEY = "monocode.liveAgentsEnabled";
 
 export const LIVE_AGENTS_ENABLED_DEFAULT = true;

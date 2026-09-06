@@ -12,17 +12,21 @@ import {
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadShowReasoning,
   NOTES_ENABLED_DEFAULT,
+  SHOW_REASONING_DEFAULT,
   saveComposerRunner,
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveShowReasoning,
 } from "./settings";
 
 const KEY = "monocode.composerRunner";
 const NOTES_KEY = "monocode.notesEnabled";
+const SHOW_REASONING_KEY = "monocode.showReasoning";
 const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
@@ -111,6 +115,46 @@ describe("notes enabled setting", () => {
     expect(loadNotesEnabled()).toBe(false);
     saveNotesEnabled(true);
     expect(loadNotesEnabled()).toBe(true);
+  });
+});
+
+describe("show reasoning setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(SHOW_REASONING_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(SHOW_REASONING_DEFAULT).toBe(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+
+  it("persists an on switch", () => {
+    saveShowReasoning(true);
+    expect(localStorage.getItem(SHOW_REASONING_KEY)).toBe("1");
+    expect(loadShowReasoning()).toBe(true);
+    saveShowReasoning(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+});
+
+describe("show reasoning setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(SHOW_REASONING_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(SHOW_REASONING_DEFAULT).toBe(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+
+  it("persists an on switch", () => {
+    saveShowReasoning(true);
+    expect(localStorage.getItem(SHOW_REASONING_KEY)).toBe("1");
+    expect(loadShowReasoning()).toBe(true);
+    saveShowReasoning(false);
+    expect(loadShowReasoning()).toBe(false);
   });
 });
 

@@ -16,6 +16,17 @@ import {
 export const AUTH_HELP =
   "Grok Build is not signed in. Run `grok login` in a terminal, or set XAI_API_KEY.";
 
+export function isMethodNotFound(error: unknown): boolean {
+  if (!error) return false;
+  const code =
+    typeof error === "object" && error && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  if (code === -32601) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /method not found|-32601/i.test(message);
+}
+
 export const TEXT_MODEL = "grok-4.6";
 
 const VARIANT_KIND: Record<string, string> = {
@@ -305,12 +316,25 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
     update.sessionUpdate ?? update.session_update ?? update.type ?? "",
   );
 
+  const promptIndexEvent = promptIndexFromUpdate(update, rec);
+  const withPromptIndex = (events: HarnessEvent[]): HarnessEvent[] =>
+    promptIndexEvent ? [promptIndexEvent, ...events] : events;
+
+  if (
+    kind === "user_message_chunk" ||
+    kind === "user_message" ||
+    kind === "user_message_end" ||
+    kind.startsWith("user_message")
+  ) {
+    return promptIndexEvent ? [promptIndexEvent] : [];
+  }
+
   if (kind === "agent_message_chunk" || kind === "agent_message") {
     const text = textFromContent(
       update.content ?? update.text,
       kind === "agent_message" ? "\n" : "",
     );
-    return text ? [{ type: "message.delta", text }] : [];
+    return withPromptIndex(text ? [{ type: "message.delta", text }] : []);
   }
 
   if (kind === "agent_thought_chunk" || kind === "agent_thought") {
@@ -318,7 +342,7 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       update.content ?? update.text,
       kind === "agent_thought" ? "\n" : "",
     );
-    return text ? [{ type: "reasoning.delta", text }] : [];
+    return withPromptIndex(text ? [{ type: "reasoning.delta", text }] : []);
   }
 
   if (kind === "tool_call_delta_chunk") {
@@ -396,17 +420,29 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       grok.title ||
       toolLabel(update) ||
       toolLabel(tool);
-    return [
-      {
-        type: "tool.updated",
-        callId,
-        title,
-        kind: toolKind,
-        status,
-        detail: cap(toolDetail(update, tool) ?? "") || undefined,
-        preview,
-      },
-    ];
+    const updated: HarnessEvent = {
+      type: "tool.updated",
+      callId,
+      title,
+      kind: toolKind,
+      status,
+      detail: cap(toolDetail(update, tool) ?? "") || undefined,
+      preview,
+    };
+    if (kind === "tool_call") {
+      return [
+        {
+          type: "tool.started",
+          callId,
+          title: title || humanizeToolName(callId),
+          kind: toolKind,
+          status: status ?? "pending",
+          preview,
+        },
+        updated,
+      ];
+    }
+    return [updated];
   }
 
   if (kind === "plan" || kind === "current_plan") {
@@ -415,11 +451,46 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
   }
 
   if (kind === "session_summary_generated") {
-    return [];
+    const text = sessionSummaryText(update, rec);
+    return text ? [{ type: "status", text }] : [];
   }
 
   const usage = usageFromUpdate(update);
-  return usage ? [usage] : [];
+  return usage ? withPromptIndex([usage]) : withPromptIndex([]);
+}
+
+function promptIndexFromUpdate(
+  update: Record<string, unknown>,
+  outer?: Record<string, unknown> | null,
+): Extract<HarnessEvent, { type: "prompt.index" }> | null {
+  const index =
+    numberField(asRecord(update._meta) ?? {}, "promptIndex") ??
+    numberField(asRecord(update._meta) ?? {}, "prompt_index") ??
+    numberField(update, "promptIndex") ??
+    numberField(update, "prompt_index") ??
+    numberField(asRecord(outer?._meta) ?? {}, "promptIndex") ??
+    numberField(asRecord(outer?._meta) ?? {}, "prompt_index");
+  if (index == null) return null;
+  return { type: "prompt.index", index };
+}
+
+function sessionSummaryText(
+  update: Record<string, unknown>,
+  outer?: Record<string, unknown> | null,
+): string | null {
+  const candidates = [
+    stringField(update, "summary"),
+    stringField(update, "text"),
+    stringField(update, "message"),
+    stringField(update, "title"),
+    textFromContent(update.content ?? update.summary, "\n"),
+    stringField(asRecord(outer) ?? {}, "summary"),
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) return trimmed.startsWith("Summary") ? trimmed : `Summary: ${trimmed}`;
+  }
+  return "Conversation summary generated.";
 }
 
 export function sessionIdFromResult(result: unknown): string | undefined {
@@ -895,9 +966,15 @@ function numberField(
   key: string,
 ): number | undefined {
   const value = rec[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (
+    typeof value === "string" &&
+    value.trim() &&
+    Number.isFinite(Number(value))
+  ) {
+    return Number(value);
+  }
+  return undefined;
 }
 
 function sumNumbers(

@@ -142,6 +142,7 @@ import {
   promoteLastAssistantToPlan,
   respondHarnessApproval,
   respondHarnessQuestion,
+  rewindGrokConversation,
   sendHarnessTurn,
   steerHarnessTurn,
   startHarnessBridge,
@@ -151,6 +152,10 @@ import {
   type HarnessEvent,
   type UserQuestionReply,
 } from "./lib/harness";
+import {
+  applyTranscriptMutation,
+  type TranscriptMutation,
+} from "./lib/transcriptMutation";
 import {
   appendPreparingHandoff,
   buildDeterministicHandoff,
@@ -4060,6 +4065,87 @@ export default function App({
     [],
   );
 
+  const applyTranscriptMutate = useCallback(
+    async (sessionId: string, mutation: TranscriptMutation) => {
+      const current = sessionsRef.current.find(
+        (entry) => entry.id === sessionId,
+      );
+      if (!current) return;
+      const result = applyTranscriptMutation(current, mutation);
+      if (!result.ok) return;
+
+      const tryGrokRewind =
+        current.harness === "grok" &&
+        !!current.providerSessionId &&
+        result.rewindPromptIndex != null;
+
+      const next: Session = {
+        ...current,
+        blocks: result.blocks,
+        busy: false,
+        queuedMessages: [],
+        queueStatus: undefined,
+        editingQueuedMessageId: undefined,
+        pendingSwitch: undefined,
+        pendingQuestion: undefined,
+        providerSessionId: tryGrokRewind
+          ? current.providerSessionId
+          : undefined,
+        ...(mutation.kind === "editResend" && result.composerSeed
+          ? { composerSeed: result.composerSeed }
+          : { composerSeed: undefined }),
+      };
+      setSessions((prev) =>
+        prev.map((session) => (session.id === sessionId ? next : session)),
+      );
+      sessionsRef.current = sessionsRef.current.map((session) =>
+        session.id === sessionId ? next : session,
+      );
+
+      if (tryGrokRewind) {
+        try {
+          const rewind = await rewindGrokConversation(
+            sessionId,
+            result.rewindPromptIndex!,
+          );
+          if (rewind === "ok") return;
+        } catch {
+          // Fall through to forget when rewind fails.
+        }
+      }
+
+      await forgetHarnessSession(current.harness, sessionId);
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId
+            ? { ...session, providerSessionId: undefined }
+            : session,
+        ),
+      );
+    },
+    [],
+  );
+
+  const onEditResend = useCallback(
+    (sessionId: string, userBlockId: string) => {
+      void applyTranscriptMutate(sessionId, {
+        kind: "editResend",
+        userBlockId,
+      });
+    },
+    [applyTranscriptMutate],
+  );
+
+  const onRevertAfter = useCallback(
+    (sessionId: string, userBlockId: string) => {
+      void applyTranscriptMutate(sessionId, {
+        kind: "truncateAfterTurn",
+        userBlockId,
+      });
+    },
+    [applyTranscriptMutate],
+  );
+
   const onSteerQueuedMessage = useCallback(
     (sessionId: string, messageId: string) => {
       const session = sessionsRef.current.find(
@@ -5078,6 +5164,8 @@ export default function App({
     onBuildPlan,
     onSecondOpinion,
     onHandoff,
+    onEditResend,
+    onRevertAfter,
     onNewTerminal: onNewTerminalInSession,
   };
 

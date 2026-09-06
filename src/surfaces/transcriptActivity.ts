@@ -195,12 +195,21 @@ export function groupTurns(blocks: Block[]): Block[][] {
  * Assistant prose always stands on its own, including progress updates between
  * groups, so the readable transcript never disappears into activity chrome.
  */
-export function groupTurnItems(blocks: Block[]): TurnItem[] {
-  const visible = withoutSupersededInitialThinking(
-    blocks.filter(
-      (block) => !isIgnoredTurnBlock(block) && !isHiddenTool(block),
-    ),
+export type GroupTurnItemsOptions = {
+  /** When true, keep reasoning as standalone items instead of superseding/folding. */
+  showReasoning?: boolean;
+};
+
+export function groupTurnItems(
+  blocks: Block[],
+  options?: GroupTurnItemsOptions,
+): TurnItem[] {
+  const filtered = blocks.filter(
+    (block) => !isIgnoredTurnBlock(block) && !isHiddenTool(block),
   );
+  const visible = options?.showReasoning
+    ? filtered
+    : withoutSupersededInitialThinking(filtered);
   const items: TurnItem[] = [];
   let activity: Block[] = [];
   const flush = () => {
@@ -210,7 +219,10 @@ export function groupTurnItems(blocks: Block[]): TurnItem[] {
     activity = [];
   };
   visible.forEach((block) => {
-    if (isActivityBlock(block)) {
+    if (
+      isActivityBlock(block) &&
+      !(options?.showReasoning && isThinkingBlock(block))
+    ) {
       activity.push(block);
       return;
     }

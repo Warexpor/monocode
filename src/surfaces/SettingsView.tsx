@@ -131,6 +131,7 @@ import {
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadShowReasoning,
   saveClaudeHooks,
   saveComposerRunner,
   saveDiffViewer,
@@ -138,6 +139,7 @@ import {
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveShowReasoning,
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
@@ -290,6 +292,7 @@ function GeneralPage({
     loadGridArcadeEnabled,
   );
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
+  const [showReasoning, setShowReasoning] = useState(loadShowReasoning);
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
@@ -356,6 +359,10 @@ function GeneralPage({
   const onNotesEnabled = (next: boolean) => {
     saveNotesEnabled(next);
     setNotesEnabled(next);
+  };
+  const onShowReasoning = (next: boolean) => {
+    saveShowReasoning(next);
+    setShowReasoning(next);
   };
 
   const onLiveAgentsEnabled = (next: boolean) => {
@@ -459,6 +466,16 @@ function GeneralPage({
         description="A global markdown notebook on the project rail. Save a finished turn from the transcript, then mention it later with @note or add it to chat. Turn this off to hide Notes from the UI."
       >
         <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
+      </Row>
+      <Row
+        label="Show reasoning in chat"
+        description="Show model reasoning as its own transcript panel, separate from the answer. Turn this off to keep thinking folded into activity until you expand a line."
+      >
+        <Toggle
+          label="Show reasoning in chat"
+          on={showReasoning}
+          onChange={onShowReasoning}
+        />
       </Row>
       <Row
         label="Working agents"
