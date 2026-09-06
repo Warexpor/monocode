@@ -240,6 +240,7 @@ import {
   canDispatchQueuedHead,
   dequeueQueuedMessage,
   queuedMessageForSubmit,
+  shouldQueueFollowUp,
 } from "./lib/messageQueue";
 import { dropContextWindow } from "./lib/contextUsage";
 import {
@@ -3292,7 +3293,9 @@ export default function App({
           intent === "plan"
             ? "queue"
             : (options?.followUpBehavior ?? loadFollowUpBehavior());
-        if (followUpBehavior === "queue") {
+        const canSteerCurrentHarness =
+          isLiveHarness(current.harness) && canSteerHarness(current.harness);
+        if (shouldQueueFollowUp(followUpBehavior, canSteerCurrentHarness)) {
           setSessions((prev) =>
             prev.map((s) =>
               s.id === sessionId
@@ -3318,19 +3321,6 @@ export default function App({
                 : s,
             ),
           );
-          return;
-        }
-        if (
-          !isLiveHarness(current.harness) ||
-          !canSteerHarness(current.harness)
-        ) {
-          // Harnesses that cannot steer (fx) used to drop the message on the
-          // floor here, so a follow-up sent mid-turn just vanished. Say so.
-          enqueueHarnessEvent(sessionId, {
-            type: "status",
-            text: `${current.harness} cannot take a follow-up mid-turn — wait for this turn to finish, or stop it first.`,
-          });
-          flushHarnessEvents();
           return;
         }
         const visible = displayAttachments(attachments);
