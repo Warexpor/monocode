@@ -2,7 +2,7 @@
 
 This GitHub repo is [Warexpor/monocode](https://github.com/Warexpor/monocode), a fork of [hardbeat920/monocode](https://github.com/hardbeat920/monocode).
 
-`README.md` is upstream-owned (product copy, install, build). Fork operator notes live here, in `WINDOWS-PARITY.md`, and in `CUSTOM.md`.
+Product copy, install, and build live in `README.md`. Operator notes for remotes, sync, and the Warexpor updater channel live here, in `WINDOWS-PARITY.md`, and in `CUSTOM.md`.
 
 ## Remotes (new clone)
 
@@ -64,7 +64,7 @@ git merge main
 ## After sync
 
 1. Resolve conflicts on platform boundaries (`#[cfg(windows)]`, path helpers) on `main`. Resolve product conflicts on `custom/warexpor`.
-2. `npm ci` then `npm run check` (same pieces as the GHA `check` matrix: vitest, `tsc`, rustfmt, clippy, `cargo test`). On Windows, `check:rust` is `node scripts/check-rust.mjs`. It pins `RUSTUP_TOOLCHAIN` to `stable-x86_64-pc-windows-msvc` (same idea as `build:windows`) and writes to `target-msvc/` so a default GNU rustup host cannot leave mixed artifacts. A GNU host fails `cargo test` at load (`STATUS_ENTRYPOINT_NOT_FOUND`): the GNU test binary imports ComCtl32 v6 `TaskDialogIndirect` without an SxS manifest, so Windows binds System32 `comctl32` 5.82 which lacks that export.
+2. `npm ci` then `npm run check` (same pieces as the GHA `check` matrix on Linux and Windows: vitest, `tsc`, rustfmt, clippy, `cargo test`). On Windows, `check:rust` is `node scripts/check-rust.mjs`. It pins `RUSTUP_TOOLCHAIN` to `stable-x86_64-pc-windows-msvc` (same idea as `build:windows`) and writes to `target-msvc/` so a default GNU rustup host cannot leave mixed artifacts. A GNU host fails `cargo test` at load (`STATUS_ENTRYPOINT_NOT_FOUND`): the GNU test binary imports ComCtl32 v6 `TaskDialogIndirect` without an SxS manifest, so Windows binds System32 `comctl32` 5.82 which lacks that export.
 3. On a Windows machine, `npm run build:windows` before calling the sync good. That is `node scripts/build-windows.mjs` (`package.json`); it sets `RUSTUP_TOOLCHAIN` and works from cmd, PowerShell, and Git Bash. For day-to-day `npm run tauri`, set the same MSVC toolchain (`$env:RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-msvc"`) or `rustup default stable-x86_64-pc-windows-msvc`.
 4. Optional: `scripts/windows-nsis-smoke.ps1` after a local NSIS build (GHA already runs it on `windows-latest`).
 

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        MonoCode supports macOS, Linux, and Windows.
+        Warexpor/monocode ships Linux and Windows builds. The source still builds on macOS.
 
   - type: input
     id: version
