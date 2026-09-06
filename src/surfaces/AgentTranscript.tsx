@@ -40,8 +40,6 @@ import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
 import {
   isEditTool,
-  isReadTool,
-  isSearchTool,
   stubFilePreview,
 } from "../lib/harness/preview";
 import { copyText } from "../lib/clipboard";
@@ -73,6 +71,7 @@ import {
   hasLaterTurnOpening,
   isTurnOpeningUserBlock,
 } from "../lib/transcriptMutation";
+import { formatReasoningProse } from "../lib/harness/streamText";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import {
@@ -1483,7 +1482,7 @@ function ActivityPhaseGroup({
             className="group-hover:opacity-0"
           />
           <ChevronRight
-            className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
+            className={`absolute size-3.5 text-content/45 opacity-0 transition-[opacity,transform] duration-200 ease-out group-hover:opacity-100 ${
               open ? "rotate-90" : ""
             }`}
             strokeWidth={1.75}
@@ -1632,12 +1631,13 @@ function ReasoningPanel({
 }) {
   const [open, setOpen] = useState(!!block.streaming);
   const streaming = !!block.streaming;
+  const prose = formatReasoningProse(block.text);
 
   useEffect(() => {
     if (streaming) setOpen(true);
   }, [streaming]);
 
-  const summary = proseSummary(block.text) || "Thought";
+  const summary = proseSummary(prose) || "Thought";
   const pulse = streaming ? "zen-thinking-pulse" : "";
 
   return (
@@ -1654,11 +1654,11 @@ function ReasoningPanel({
         >
           <span className="relative flex size-3.5 shrink-0 items-center justify-center">
             <AiIdea
-              className={`size-3.5 text-content/40 group-hover:opacity-0 ${pulse}`}
+              className={`size-3.5 text-content/40 transition-opacity duration-200 group-hover:opacity-0 ${pulse}`}
               strokeWidth={1.75}
             />
             <ChevronRight
-              className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
+              className={`absolute size-3.5 text-content/45 opacity-0 transition-[opacity,transform] duration-200 ease-out group-hover:opacity-100 ${
                 open ? "rotate-90" : ""
               }`}
               strokeWidth={1.75}
@@ -1670,18 +1670,33 @@ function ReasoningPanel({
             {open ? "Thought" : summary}
           </span>
         </button>
-        {open ? (
+        <Collapse open={open}>
           <div className="min-w-0 px-0.5 pt-1 pb-1.5">
             <AgentMarkdown
-              text={block.text}
+              text={prose}
               streaming={streaming}
               className="agent-reasoning"
               cwd={cwd}
               onOpenFile={onOpenFile}
             />
           </div>
-        ) : null}
+        </Collapse>
       </div>
+    </div>
+  );
+}
+
+/** Height + opacity open/close used by expandable transcript chrome. */
+function Collapse({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="zen-phase-body" data-open={open} inert={!open}>
+      <div>{children}</div>
     </div>
   );
 }
@@ -1705,7 +1720,8 @@ function ActivityThinkingRow({
   onOpenFile?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const text = proseSummary(block.text) || "Thinking";
+  const prose = formatReasoningProse(block.text);
+  const text = proseSummary(prose) || "Thinking";
   // In a group the rail is the bullet, so there is nothing to breathe while
   // reasoning streams in — the line itself does.
   const pulse = block.streaming ? "zen-thinking-pulse" : "";
@@ -1755,16 +1771,16 @@ function ActivityThinkingRow({
           {text}
         </span>
       </button>
-      {open ? (
+      <Collapse open={open}>
         <div className={`min-w-0 pb-2 ${bare ? "" : "pl-5"}`}>
           <AgentMarkdown
             className="agent-reasoning"
-            text={block.text}
+            text={prose}
             cwd={cwd}
             onOpenFile={onOpenFile}
           />
         </div>
-      ) : null}
+      </Collapse>
     </div>
   );
 }
@@ -1820,11 +1836,11 @@ function ActivityNoteRow({
           {text}
         </span>
       </button>
-      {open ? (
+      <Collapse open={open}>
         <div className="min-w-0 pb-2">
           <AgentMarkdown text={block.text} cwd={cwd} onOpenFile={onOpenFile} />
         </div>
-      ) : null}
+      </Collapse>
     </div>
   );
 }
@@ -1846,7 +1862,10 @@ function ActivityToolRow({
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const label = toolCallLabel(block, cwd);
+  const detail = block.tool?.detail?.trim();
+  const expandable = !!detail && detail !== label;
   const state = toolCallState(block);
   const pending = needsApproval(block);
   const openFile = isEditTool(
@@ -1857,23 +1876,63 @@ function ActivityToolRow({
     ? (onOpenDiff ?? onOpenFile)
     : onOpenFile;
 
+  const icon = bare ? null : <ActivityToolIcon state={state} live={live} />;
+  const status = pending ? null : <ToolCallStatusIcon state={state} />;
+
+  if (!expandable) {
+    return (
+      <div className="flex min-w-0 flex-col">
+        <div
+          aria-label={`Tool call: ${label}`}
+          className="flex min-w-0 items-center gap-1.5 py-1"
+        >
+          {icon}
+          <ToolCallSummary
+            label={label}
+            preview={block.tool?.preview}
+            cwd={cwd}
+            chip={bare}
+            failed={state === "rejected"}
+            onOpenFile={openFile}
+          />
+          {status}
+        </div>
+        {pending ? (
+          <ApprovalControls block={block} onApproval={onApproval} />
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-w-0 flex-col">
-      <div
-        aria-label={`Tool call: ${label}`}
-        className="flex min-w-0 items-center gap-1.5 py-1"
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={
+          open ? `Hide result for ${label}` : `Show result for ${label}`
+        }
+        onClick={() => setOpen((value) => !value)}
+        className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
       >
-        {bare ? null : <ActivityToolIcon state={state} live={live} />}
+        {icon}
         <ToolCallSummary
           label={label}
           preview={block.tool?.preview}
           cwd={cwd}
           chip={bare}
           failed={state === "rejected"}
-          onOpenFile={openFile}
+          interactive={false}
         />
-        {pending ? null : <ToolCallStatusIcon state={state} />}
-      </div>
+        {status}
+      </button>
+      <Collapse open={open}>
+        <div className={`min-w-0 pb-2 ${bare ? "" : "pl-5"}`}>
+          <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-content/55">
+            {detail}
+          </pre>
+        </div>
+      </Collapse>
       {pending ? (
         <ApprovalControls block={block} onApproval={onApproval} />
       ) : null}
@@ -2018,10 +2077,7 @@ function ToolCall({
     block.text || block.tool?.title,
     preview,
   );
-  const compact =
-    isReadTool(block.tool?.kind, label, preview) ||
-    isSearchTool(block.tool?.kind, label, preview);
-  const expandable = !compact && !!detail && detail !== label;
+  const expandable = !!detail && detail !== label;
 
   const frame = embedded ? "py-0.5" : "px-4 py-1";
 
@@ -2034,6 +2090,9 @@ function ToolCall({
           cwd={cwd}
           onOpenFile={onOpenDiff ?? onOpenFile}
         />
+        {detail && detail !== label ? (
+          <ToolResultExpand detail={detail} label={label} />
+        ) : null}
         <ApprovalControls block={block} onApproval={onApproval} />
       </div>
     );
@@ -2041,30 +2100,9 @@ function ToolCall({
 
   if (isIncompleteTool(block, label, state)) return null;
 
-  return (
-    <div className={frame}>
-      {expandable ? (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={`${stateLabel} tool call: ${label}`}
-          onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
-        >
-          <ToolCallIcon state={state} />
-          <ToolCallSummary
-            label={label}
-            preview={preview}
-            cwd={cwd}
-            failed={state === "rejected"}
-            onOpenFile={onOpenFile}
-          />
-          <ChevronRight
-            className={`size-3.5 shrink-0 text-content/35 transition-transform ${open ? "rotate-90" : ""}`}
-            strokeWidth={1.75}
-          />
-        </button>
-      ) : (
+  if (!expandable) {
+    return (
+      <div className={frame}>
         <div
           aria-label={`${stateLabel} tool call: ${label}`}
           className="flex w-full min-w-0 items-center gap-2"
@@ -2078,13 +2116,73 @@ function ToolCall({
             onOpenFile={onOpenFile}
           />
         </div>
-      )}
-      {open && expandable ? (
-        <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words px-2.5 font-mono text-[12px] leading-5 text-content/55">
-          {expanded}
-        </pre>
-      ) : null}
+        <ApprovalControls block={block} onApproval={onApproval} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={frame}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={
+          open
+            ? `Hide result for ${label}`
+            : `${stateLabel} tool call: ${label}`
+        }
+        onClick={() => setOpen((value) => !value)}
+        className="group flex w-full min-w-0 items-center gap-2 py-1.5 text-left"
+      >
+        <ToolCallIcon state={state} />
+        <ToolCallSummary
+          label={label}
+          preview={preview}
+          cwd={cwd}
+          failed={state === "rejected"}
+          interactive={false}
+        />
+      </button>
+      <Collapse open={open}>
+        <div className="min-w-0 pb-2 pl-5">
+          <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-content/55">
+            {expanded}
+          </pre>
+        </div>
+      </Collapse>
       <ApprovalControls block={block} onApproval={onApproval} />
+    </div>
+  );
+}
+
+function ToolResultExpand({
+  detail,
+  label,
+}: {
+  detail: string;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-0.5 flex min-w-0 flex-col">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={open ? `Hide result for ${label}` : `Show result for ${label}`}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
+      >
+        <span className="min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/75">
+          {open ? "Result" : proseSummary(detail) || "Show result"}
+        </span>
+      </button>
+      <Collapse open={open}>
+        <div className="min-w-0 pb-2">
+          <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-content/55">
+            {detail}
+          </pre>
+        </div>
+      </Collapse>
     </div>
   );
 }

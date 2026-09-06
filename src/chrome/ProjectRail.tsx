@@ -28,7 +28,7 @@ import {
   saveProjectRailWidth,
 } from "../lib/appearance";
 import { basename, revealPath, type GitDiffStats } from "../lib/fs";
-import { IS_MAC, IS_WIN, MOD } from "../lib/platform";
+import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
 import { projectName } from "../lib/paths";
 import {
   collectRailProjects,
@@ -114,6 +114,8 @@ type Props = {
   onOpenNotes?: () => void;
   notesActive?: boolean;
   onTogglePanel?: () => void;
+  onToggleWorkspace?: () => void;
+  workspaceActive?: boolean;
   onSelectProject: (path: string) => void;
   onOpenProject: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
@@ -147,6 +149,8 @@ export function ProjectRail({
   onOpenNotes,
   notesActive = false,
   onTogglePanel,
+  onToggleWorkspace,
+  workspaceActive = true,
   onSelectProject,
   onOpenProject,
   onRemoveProject,
@@ -353,7 +357,7 @@ export function ProjectRail({
     <nav
       ref={resize.setPaneRef}
       aria-label="Projects"
-      className="sidebar-glass relative flex shrink-0 flex-col border-r border-content/10"
+      className="sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
     >
       <div
         className="flex h-10 shrink-0 select-none items-center pr-1.5"
@@ -368,6 +372,13 @@ export function ProjectRail({
           onGoForward={onGoForward}
           onTogglePanel={settingsOpen ? undefined : onTogglePanel}
           panelActive
+          onToggleWorkspace={settingsOpen ? undefined : onToggleWorkspace}
+          workspaceActive={workspaceActive}
+          workspaceLabel={
+            workspaceActive
+              ? `Hide Workspace (${MOD}${SHIFT}B)`
+              : `Show Workspace (${MOD}${SHIFT}B)`
+          }
         />
       </div>
 
@@ -389,14 +400,16 @@ export function ProjectRail({
               ariaLabel={`Search (${MOD}K)`}
             />
             <div className="mt-0.5" />
-            <RailAction
-              label="Inbox"
-              icon={Inbox}
-              onClick={onOpenInbox}
-              active={inboxActive}
-              dot={inboxUnseen}
-              ariaLabel={inboxUnseen ? "Inbox, new items" : "Inbox"}
-            />
+            {onOpenInbox ? (
+              <RailAction
+                label="Inbox"
+                icon={Inbox}
+                onClick={onOpenInbox}
+                active={inboxActive}
+                dot={inboxUnseen}
+                ariaLabel={inboxUnseen ? "Inbox, new items" : "Inbox"}
+              />
+            ) : null}
             {notesEnabled ? (
               <RailAction
                 label="Notes"

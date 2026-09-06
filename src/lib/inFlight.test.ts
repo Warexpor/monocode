@@ -146,7 +146,14 @@ describe("markTurnInterrupted", () => {
 
   it("appends a new note when a later turn is quit after Continue", () => {
     const first = markTurnInterrupted(
-      chat("/tmp/a", { busy: true, providerSessionId: "p1" }),
+      chat("/tmp/a", {
+        busy: true,
+        providerSessionId: "p1",
+        blocks: [
+          { id: "u1", role: "user", text: "hello" },
+          { id: "a1", role: "assistant", text: "hi" },
+        ],
+      }),
     );
     const continued: Session = {
       ...first,
@@ -221,7 +228,14 @@ describe("workspaceFromResumed", () => {
 describe("canAutoContinue", () => {
   it("needs a provider thread and an interrupt note as the last block", () => {
     const interrupted = markTurnInterrupted(
-      chat("/tmp/a", { busy: true, providerSessionId: "p1" }),
+      chat("/tmp/a", {
+        busy: true,
+        providerSessionId: "p1",
+        blocks: [
+          { id: "u1", role: "user", text: "edit the readme" },
+          { id: "a1", role: "assistant", text: "Working on it", streaming: true },
+        ],
+      }),
     );
     expect(canAutoContinue(interrupted)).toBe(true);
     expect(canAutoContinue(chat("/tmp/a", { providerSessionId: "p1" }))).toBe(
@@ -240,6 +254,48 @@ describe("canAutoContinue", () => {
       }),
     ).toBe(false);
     expect(canAutoContinue({ ...interrupted, busy: true })).toBe(false);
+  });
+
+  it("skips auto-continue when quit cut a turn before any agent work", () => {
+    const greeting = markTurnInterrupted(
+      chat("/tmp/a", {
+        busy: true,
+        providerSessionId: "p1",
+        blocks: [{ id: "u1", role: "user", text: "hey! what are you?" }],
+      }),
+    );
+    expect(canAutoContinue(greeting)).toBe(false);
+  });
+
+  it("auto-continues when a tool or reasoning had already started", () => {
+    const withTool = markTurnInterrupted(
+      chat("/tmp/a", {
+        busy: true,
+        providerSessionId: "p1",
+        blocks: [
+          { id: "u1", role: "user", text: "list files" },
+          {
+            id: "t1",
+            role: "tool",
+            text: "list",
+            tool: { status: "running", title: "list" },
+          },
+        ],
+      }),
+    );
+    expect(canAutoContinue(withTool)).toBe(true);
+
+    const withReasoning = markTurnInterrupted(
+      chat("/tmp/a", {
+        busy: true,
+        providerSessionId: "p1",
+        blocks: [
+          { id: "u1", role: "user", text: "why" },
+          { id: "r1", role: "reasoning", text: "Considering the request." },
+        ],
+      }),
+    );
+    expect(canAutoContinue(withReasoning)).toBe(true);
   });
 });
 

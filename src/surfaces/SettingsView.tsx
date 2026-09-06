@@ -129,6 +129,7 @@ import {
   loadDiffViewer,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
+  loadInboxEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
   loadShowReasoning,
@@ -137,6 +138,7 @@ import {
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
+  saveInboxEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
   saveShowReasoning,
@@ -146,7 +148,18 @@ import {
   type FollowUpBehavior,
   type SettingsSectionId,
 } from "../lib/settings";
-import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../lib/sounds";
+import {
+  clearCompletionSound,
+  completionSoundLabel,
+  loadCompletionSoundEnabled,
+  loadCompletionSoundPath,
+  loadSoundsEnabled,
+  pickAndSetCompletionSound,
+  playCue,
+  previewCompletionSound,
+  saveCompletionSoundEnabled,
+  saveSoundsEnabled,
+} from "../lib/sounds";
 import {
   cachedNotificationPermission,
   loadNotificationsEnabled,
@@ -292,11 +305,18 @@ function GeneralPage({
     loadGridArcadeEnabled,
   );
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
+  const [inboxEnabled, setInboxEnabled] = useState(loadInboxEnabled);
   const [showReasoning, setShowReasoning] = useState(loadShowReasoning);
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
   const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
+  const [completionSoundEnabled, setCompletionSoundEnabled] = useState(
+    loadCompletionSoundEnabled,
+  );
+  const [completionSoundPath, setCompletionSoundPath] = useState(
+    loadCompletionSoundPath,
+  );
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     loadNotificationsEnabled,
   );
@@ -360,6 +380,12 @@ function GeneralPage({
     saveNotesEnabled(next);
     setNotesEnabled(next);
   };
+
+  const onInboxEnabled = (next: boolean) => {
+    saveInboxEnabled(next);
+    setInboxEnabled(next);
+  };
+
   const onShowReasoning = (next: boolean) => {
     saveShowReasoning(next);
     setShowReasoning(next);
@@ -373,6 +399,29 @@ function GeneralPage({
   const onSoundsEnabled = (next: boolean) => {
     saveSoundsEnabled(next);
     setSoundsEnabled(next);
+  };
+
+  const onCompletionSoundEnabled = (next: boolean) => {
+    saveCompletionSoundEnabled(next);
+    setCompletionSoundEnabled(next);
+  };
+
+  const onPickCompletionSound = () => {
+    void pickAndSetCompletionSound()
+      .then((path) => {
+        if (path == null) return;
+        setCompletionSoundPath(path);
+        previewCompletionSound();
+      })
+      .catch(() => {
+        // Dialog cancel or copy failure — leave the previous file.
+      });
+  };
+
+  const onClearCompletionSound = () => {
+    void clearCompletionSound().then(() => {
+      setCompletionSoundPath(null);
+    });
   };
 
   const onNotificationsEnabled = (next: boolean) => {
@@ -468,8 +517,14 @@ function GeneralPage({
         <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
       </Row>
       <Row
+        label="Inbox"
+        description="GitHub and Linear issues and PRs on the project rail. Turn this off to hide Inbox from the UI."
+      >
+        <Toggle label="Inbox" on={inboxEnabled} onChange={onInboxEnabled} />
+      </Row>
+      <Row
         label="Show reasoning in chat"
-        description="Show model reasoning under the turn's work line, above tool activity. Turn this off to keep thinking folded into activity until you expand a line."
+        description="Show model reasoning under the turn's work line, folded with tools until you expand Worked. Turn this off to keep thinking folded into activity until you expand a line."
       >
         <Toggle
           label="Show reasoning in chat"
@@ -489,9 +544,34 @@ function GeneralPage({
       </Row>
       <Row
         label="Sounds"
-        description="Short cues when a turn finishes, a new inbox item appears on the project rail, or an update is available. Switches and Copy on a finished turn also play."
+        description="Short cues when a new inbox item appears on the project rail, an update is available, or you use Switches and Copy. Turn completion is controlled separately below. Loudness is controlled in the system volume mixer under MonoCode."
       >
         <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
+      </Row>
+      <Row
+        label="Completion sound"
+        description="Play a chime when an agent turn finishes. Works even when Sounds above is off. Adjust loudness in the system volume mixer (MonoCode)."
+      >
+        <Toggle
+          label="Completion sound"
+          on={completionSoundEnabled}
+          onChange={onCompletionSoundEnabled}
+        />
+      </Row>
+      <Row
+        label="Custom completion sound"
+        description="Use your own audio file for the turn-finished chime. MP3, WAV, OGG, M4A, or AAC. Clear to restore the built-in sound."
+      >
+        <span className="max-w-40 truncate text-[12px] text-content/55">
+          {completionSoundLabel(completionSoundPath)}
+        </span>
+        <SecondaryButton onClick={() => previewCompletionSound()}>
+          Preview
+        </SecondaryButton>
+        <SecondaryButton onClick={onPickCompletionSound}>Choose…</SecondaryButton>
+        {completionSoundPath ? (
+          <SecondaryButton onClick={onClearCompletionSound}>Clear</SecondaryButton>
+        ) : null}
       </Row>
       <Row
         label="Notifications"

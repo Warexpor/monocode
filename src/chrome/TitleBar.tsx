@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Inbox,
   PanelLeft,
+  PanelRight,
   Plus,
   Search,
   Settings,
@@ -31,7 +32,7 @@ import { HarnessIcon } from "./HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { WindowControls } from "./WindowControls";
-import { IS_MAC, MOD } from "../lib/platform";
+import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 
 export type Tab = {
@@ -65,7 +66,9 @@ type Props = {
   activeId: string;
   cwd: string;
   projectRailOpen?: boolean;
+  workspaceSidebarOpen?: boolean;
   onToggleSidebar: () => void;
+  onToggleWorkspaceSidebar?: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
   onNewTerminal?: () => void;
@@ -433,6 +436,9 @@ export function TabVisitNav({
   onTogglePanel,
   panelActive = false,
   panelLabel = "Toggle Projects",
+  onToggleWorkspace,
+  workspaceActive = false,
+  workspaceLabel = "Toggle Workspace",
 }: {
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -441,6 +447,9 @@ export function TabVisitNav({
   onTogglePanel?: () => void;
   panelActive?: boolean;
   panelLabel?: string;
+  onToggleWorkspace?: () => void;
+  workspaceActive?: boolean;
+  workspaceLabel?: string;
 }) {
   return (
     <div className="flex shrink-0 items-center">
@@ -465,6 +474,15 @@ export function TabVisitNav({
           onClick={onTogglePanel}
         >
           <PanelLeft className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+      {onToggleWorkspace ? (
+        <IconButton
+          label={workspaceLabel}
+          active={workspaceActive}
+          onClick={onToggleWorkspace}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
         </IconButton>
       ) : null}
     </div>
@@ -504,7 +522,9 @@ function TitleBarComponent({
   activeId,
   cwd,
   projectRailOpen = true,
+  workspaceSidebarOpen = true,
   onToggleSidebar,
+  onToggleWorkspaceSidebar,
   onSelect,
   onNew,
   onNewTerminal,
@@ -602,6 +622,7 @@ function TitleBarComponent({
   }, [systemTitle]);
 
   const railClosed = !projectRailOpen;
+  const workspaceClosed = !workspaceSidebarOpen;
   const showCurrentProject = looksLikeProject(cwd);
   // Until a project is picked, the rail and the sidebar hide, so nothing
   // project-scoped is actionable and the window controls need room.
@@ -610,6 +631,26 @@ function TitleBarComponent({
   // Changes. Without a project that sidebar is gone, so the picker stays here.
   const showProjectButton =
     railClosed && Boolean(onSelectProject) && !showCurrentProject;
+  const showReopenSidebars =
+    showCurrentProject && railClosed && workspaceClosed;
+  const reopenSidebars = showReopenSidebars ? (
+    <div className="flex shrink-0 items-center gap-0.5 px-1.5">
+      <IconButton
+        label={`Show Projects (${MOD}B)`}
+        onClick={onToggleSidebar}
+      >
+        <PanelLeft className="size-3.5" strokeWidth={1.75} />
+      </IconButton>
+      {onToggleWorkspaceSidebar ? (
+        <IconButton
+          label={`Show Workspace (${MOD}${SHIFT}B)`}
+          onClick={onToggleWorkspaceSidebar}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+    </div>
+  ) : null;
   const trailingControls = (
     <div className="flex h-full shrink-0 items-stretch">
       <div className="flex items-center gap-0.5 px-2">
@@ -681,6 +722,7 @@ function TitleBarComponent({
           </div>
         </>
       ) : null}
+      {reopenSidebars}
       {showProjectButton && onSelectProject ? (
         <CwdPicker
           cwd={cwd}
@@ -696,7 +738,9 @@ function TitleBarComponent({
 
       <div
         className={`flex min-w-0 flex-1 items-stretch${
-          showProjectButton ? " border-l border-content/10" : ""
+          showProjectButton || showReopenSidebars
+            ? " border-l border-content/10"
+            : ""
         }`}
       >
         <div

@@ -606,6 +606,18 @@ export function foldableWork(items: TurnItem[]): WorkFold | undefined {
     if (isProseBlock(item.block)) answered = true;
   }
   if (end < 0) return undefined;
+  // Thoughts that sit between the last finished work and the answer belong
+  // with that work — they hide behind the same "worked for" line.
+  let extended = end;
+  for (let index = end + 1; index < items.length; index += 1) {
+    const item = items[index];
+    if (item.type === "block" && isThinkingBlock(item.block)) {
+      extended = index;
+      continue;
+    }
+    break;
+  }
+  end = extended;
   // Only work and the agent's commentary on it fold. A plan, a task list or a
   // call waiting on approval stays where the agent put it.
   let start = end;
@@ -614,7 +626,11 @@ export function foldableWork(items: TurnItem[]): WorkFold | undefined {
 }
 
 function isFoldableItem(item: TurnItem): boolean {
-  return item.type === "activity" || isProseBlock(item.block);
+  return (
+    item.type === "activity" ||
+    (item.type === "block" &&
+      (isProseBlock(item.block) || isThinkingBlock(item.block)))
+  );
 }
 
 /**

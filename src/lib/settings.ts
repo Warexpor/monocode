@@ -166,6 +166,42 @@ export function subscribeNotesEnabled(onStoreChange: () => void) {
     window.removeEventListener(NOTES_ENABLED_CHANGE_EVENT, onStoreChange);
 }
 
+const INBOX_ENABLED_KEY = "monocode.inboxEnabled";
+
+export const INBOX_ENABLED_DEFAULT = true;
+
+/** Fired on `window` when the Inbox UI setting flips. */
+export const INBOX_ENABLED_CHANGE_EVENT = "monocode:inbox-enabled-change";
+
+export function loadInboxEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(INBOX_ENABLED_KEY);
+    if (raw == null) return INBOX_ENABLED_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return INBOX_ENABLED_DEFAULT;
+  }
+}
+
+export function saveInboxEnabled(value: boolean) {
+  try {
+    localStorage.setItem(INBOX_ENABLED_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(INBOX_ENABLED_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeInboxEnabled(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(INBOX_ENABLED_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(INBOX_ENABLED_CHANGE_EVENT, onStoreChange);
+}
+
 const SHOW_REASONING_KEY = "monocode.showReasoning";
 
 export const SHOW_REASONING_DEFAULT = false;
@@ -362,7 +398,12 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
-  { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
+  { command: "App: Toggle Projects", keys: `${MOD}B`, when: "Always" },
+  {
+    command: "App: Toggle Workspace",
+    keys: `${MOD}${SHIFT}B`,
+    when: "Always",
+  },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
   { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
   { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },

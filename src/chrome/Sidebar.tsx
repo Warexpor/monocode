@@ -8,6 +8,7 @@ import {
   GitBranch,
   Inbox,
   ListFilter,
+  PanelRight,
   Pin,
   Plus,
   Search,
@@ -16,6 +17,7 @@ import {
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -29,7 +31,7 @@ import {
   type SidebarTabId,
 } from "../lib/appearance";
 import { basename, type GitHistoryCommit } from "../lib/fs";
-import { IS_MAC, MOD } from "../lib/platform";
+import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import { resolveModel } from "../lib/models";
 import { projectName } from "../lib/paths";
 import { sessionDisplayTitle } from "../lib/session";
@@ -213,6 +215,8 @@ type Props = {
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
+  onToggleWorkspaceSidebar?: () => void;
+  workspaceSidebarOpen?: boolean;
   unseenFinishedIds?: Set<string>;
   settingsOpen?: boolean;
   settingsSection?: SettingsSectionId;
@@ -282,6 +286,8 @@ function SidebarComponent({
   notesEnabled = true,
   onToggleProjectRail,
   projectRailOpen = true,
+  onToggleWorkspaceSidebar,
+  workspaceSidebarOpen = true,
   unseenFinishedIds: unseenFinishedIdsProp,
   settingsOpen = false,
   settingsSection = "general",
@@ -293,7 +299,7 @@ function SidebarComponent({
   onDismissUpdate,
 }: Props) {
   const gitRoot = gitCwd || cwd;
-  const inboxUnseen = useInboxUnseen(recents, cwd);
+  const inboxUnseen = useInboxUnseen(recents, cwd, onOpenInbox != null);
   const resize = useDragResize({
     min: MIN_WIDTH,
     max: () => Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)),
@@ -461,6 +467,27 @@ function SidebarComponent({
     !notesActive &&
     !settingsOpen &&
     inProject;
+  // Overlay surfaces force the left columns open/closed. Animate that with the
+  // main pane swap and it reads as two waves — snap chrome, keep folds for
+  // explicit Projects / Workspace toggles only.
+  const surfaceOverlay =
+    searchActive || inboxActive || notesActive || settingsOpen;
+  const [foldInstant, setFoldInstant] = useState(false);
+  const prevSurfaceOverlay = useRef(surfaceOverlay);
+  useLayoutEffect(() => {
+    if (prevSurfaceOverlay.current === surfaceOverlay) return;
+    prevSurfaceOverlay.current = surfaceOverlay;
+    setFoldInstant(true);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setFoldInstant(false));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [surfaceOverlay]);
+  const sideFoldInstant = surfaceOverlay || foldInstant;
   const gitStatuses = useGitFileStatuses(gitRoot, open && tab === "files");
   const changeStats = useProjectDiffStats(gitRoot, open);
 
@@ -932,7 +959,11 @@ function SidebarComponent({
             <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
               Workspace
             </span>
-            <WorkspaceTitleActions onSearch={onGoToFile} onNew={onNew} />
+            <WorkspaceTitleActions
+              onSearch={onGoToFile}
+              onNew={onNew}
+              onHide={onToggleWorkspaceSidebar}
+            />
           </div>
           <div
             role="tablist"
@@ -1202,8 +1233,12 @@ function SidebarComponent({
                                 }
                               />
                             )}
-                            {expanded ? (
-                              <>
+                            <div
+                              className="zen-phase-body"
+                              data-open={expanded}
+                              inert={!expanded}
+                            >
+                              <div>
                                 <ul className="flex flex-col gap-px p-1">
                                   {entry.sessions.map((session) => (
                                     <li key={session.id}>
@@ -1234,8 +1269,8 @@ function SidebarComponent({
                                     </button>
                                   </div>
                                 ) : null}
-                              </>
-                            ) : null}
+                              </div>
+                            </div>
                           </div>
                         </li>
                       );
@@ -1338,44 +1373,68 @@ function SidebarComponent({
   return (
     <div
       className={`flex h-full shrink-0 ${
-        railVisible || sidebarVisible ? "" : "hidden"
+        railVisible || sidebarVisible || inProject || settingsOpen
+          ? ""
+          : "hidden"
       }`}
     >
-      {railVisible && onSelectProject && onOpenProject ? (
-        <ProjectRail
-          cwd={cwd}
-          recents={recents}
-          inboxUnseen={inboxUnseen}
-          busyPaths={busyProjectPaths}
-          liveAgents={liveAgents}
-          activeSessionId={activeSessionId}
-          onSelectAgent={onSelectAgent}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onGoBack={onGoBack}
-          onGoForward={onGoForward}
-          onSearch={onSearch}
-          searchActive={searchActive}
-          onOpenInbox={onOpenInbox}
-          inboxActive={inboxActive}
-          notesEnabled={notesEnabled}
-          onOpenNotes={onOpenNotes}
-          notesActive={notesActive}
-          onTogglePanel={onToggleProjectRail}
-          onSelectProject={onSelectProject}
-          onOpenProject={onOpenProject}
-          onRemoveProject={onRemoveProject}
-          settingsOpen={settingsOpen}
-          settingsSection={settingsSection}
-          onOpenSettings={onOpenSettings}
-          onSelectSettingsSection={onSelectSettingsSection}
-          onCloseSettings={onCloseSettings}
-          updateNotice={updateNotice}
-          onOpenWhatsNew={onOpenWhatsNew}
-          onDismissUpdate={onDismissUpdate}
-        />
+      {showProjectRail && onSelectProject && onOpenProject ? (
+        <div
+          className="mono-side-fold"
+          data-open={railVisible}
+          data-instant={sideFoldInstant}
+          inert={!railVisible}
+        >
+          <div>
+            <ProjectRail
+              cwd={cwd}
+              recents={recents}
+              inboxUnseen={inboxUnseen}
+              busyPaths={busyProjectPaths}
+              liveAgents={liveAgents}
+              activeSessionId={activeSessionId}
+              onSelectAgent={onSelectAgent}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onGoBack={onGoBack}
+              onGoForward={onGoForward}
+              onSearch={onSearch}
+              searchActive={searchActive}
+              onOpenInbox={onOpenInbox}
+              inboxActive={inboxActive}
+              notesEnabled={notesEnabled}
+              onOpenNotes={onOpenNotes}
+              notesActive={notesActive}
+              onTogglePanel={onToggleProjectRail}
+              onToggleWorkspace={
+                inProject ? onToggleWorkspaceSidebar : undefined
+              }
+              workspaceActive={workspaceSidebarOpen}
+              onSelectProject={onSelectProject}
+              onOpenProject={onOpenProject}
+              onRemoveProject={onRemoveProject}
+              settingsOpen={settingsOpen}
+              settingsSection={settingsSection}
+              onOpenSettings={onOpenSettings}
+              onSelectSettingsSection={onSelectSettingsSection}
+              onCloseSettings={onCloseSettings}
+              updateNotice={updateNotice}
+              onOpenWhatsNew={onOpenWhatsNew}
+              onDismissUpdate={onDismissUpdate}
+            />
+          </div>
+        </div>
       ) : null}
-      {sidebarVisible ? sidebarContent : null}
+      {inProject ? (
+        <div
+          className="mono-side-fold"
+          data-open={sidebarVisible}
+          data-instant={sideFoldInstant}
+          inert={!sidebarVisible}
+        >
+          <div>{sidebarContent}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1500,11 +1559,13 @@ function SidebarProjectPicker({
 function WorkspaceTitleActions({
   onSearch,
   onNew,
+  onHide,
 }: {
   onSearch?: () => void;
   onNew?: () => void;
+  onHide?: () => void;
 }) {
-  if (!onSearch && !onNew) return null;
+  if (!onSearch && !onNew && !onHide) return null;
   return (
     <div
       className="flex shrink-0 items-center gap-0.5"
@@ -1518,6 +1579,14 @@ function WorkspaceTitleActions({
       {onNew ? (
         <IconButton label={`New session (${MOD}T)`} onClick={onNew}>
           <Plus className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+      {onHide ? (
+        <IconButton
+          label={`Hide Workspace (${MOD}${SHIFT}B)`}
+          onClick={onHide}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
         </IconButton>
       ) : null}
     </div>

@@ -22,7 +22,9 @@ import { useProjectBranches } from "./hooks/useProjectBranches";
 import {
   loadProjectRailOpen,
   loadSidebarTabOrder,
+  loadWorkspaceSidebarOpen,
   saveProjectRailOpen,
+  saveWorkspaceSidebarOpen,
   type SidebarTabId,
 } from "./lib/appearance";
 import { HAS_NATIVE_GLASS, IS_MAC } from "./lib/platform";
@@ -335,12 +337,14 @@ import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
 import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
   loadLiveAgentsEnabled,
+  loadInboxEnabled,
   loadNotesEnabled,
   loadDiffViewer,
   loadFollowUpBehavior,
   loadSettingsSection,
   saveSettingsSection,
   subscribeLiveAgentsEnabled,
+  subscribeInboxEnabled,
   subscribeNotesEnabled,
   type SettingsSectionId,
   type FollowUpBehavior,
@@ -610,6 +614,37 @@ export default function App({
     [],
   );
   const [projectRailOpen, setProjectRailOpen] = useState(loadProjectRailOpen);
+  const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(
+    loadWorkspaceSidebarOpen,
+  );
+  const onToggleSidebar = useCallback(() => {
+    setProjectRailOpen((open) => {
+      const next = !open;
+      saveProjectRailOpen(next);
+      return next;
+    });
+  }, []);
+  const onToggleProjectRail = useCallback(() => {
+    setProjectRailOpen((open) => {
+      const next = !open;
+      saveProjectRailOpen(next);
+      return next;
+    });
+  }, []);
+  const onToggleWorkspaceSidebar = useCallback(() => {
+    setWorkspaceSidebarOpen((open) => {
+      const next = !open;
+      saveWorkspaceSidebarOpen(next);
+      return next;
+    });
+  }, []);
+  const ensureWorkspaceSidebarOpen = useCallback(() => {
+    setWorkspaceSidebarOpen((open) => {
+      if (open) return open;
+      saveWorkspaceSidebarOpen(true);
+      return true;
+    });
+  }, []);
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
@@ -627,6 +662,11 @@ export default function App({
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
     loadNotesEnabled,
+    () => true,
+  );
+  const inboxEnabled = useSyncExternalStore(
+    subscribeInboxEnabled,
+    loadInboxEnabled,
     () => true,
   );
   const liveAgentsEnabled = useSyncExternalStore(
@@ -700,6 +740,10 @@ export default function App({
   useEffect(() => {
     if (!notesEnabled) setNotesViewOpen(false);
   }, [notesEnabled]);
+
+  useEffect(() => {
+    if (!inboxEnabled) setInboxViewOpen(false);
+  }, [inboxEnabled]);
 
   const tabVisitRef = useRef(emptyTabVisitHistory(activeTabId));
   const tabVisitFromHistoryRef = useRef(false);
@@ -2382,10 +2426,11 @@ export default function App({
           }),
         );
         setSidebarTab("changes");
+        ensureWorkspaceSidebarOpen();
         setComposerFocused(false);
       })();
     },
-    [activeTabId],
+    [activeTabId, ensureWorkspaceSidebarOpen],
   );
 
   const onOpenCommit = useCallback(
@@ -2407,8 +2452,9 @@ export default function App({
   );
 
   const onShowSourceControl = useCallback(() => {
+    ensureWorkspaceSidebarOpen();
     setSidebarTab("changes");
-  }, []);
+  }, [ensureWorkspaceSidebarOpen]);
 
   const onToggleChanges = useCallback(() => {
     onShowSourceControl();
@@ -4568,22 +4614,6 @@ export default function App({
     [projectBranches, sessions, sidebarCwd],
   );
 
-  const onToggleSidebar = useCallback(() => {
-    setProjectRailOpen((open) => {
-      const next = !open;
-      saveProjectRailOpen(next);
-      return next;
-    });
-  }, []);
-
-  const onToggleProjectRail = useCallback(() => {
-    setProjectRailOpen((open) => {
-      const next = !open;
-      saveProjectRailOpen(next);
-      return next;
-    });
-  }, []);
-
   const onGoToFile = useCallback(() => {
     setSearchViewOpen(false);
     setInboxViewOpen(false);
@@ -4595,10 +4625,11 @@ export default function App({
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    ensureWorkspaceSidebarOpen();
     setSidebarTab("files");
     setFilesSearchOpen(true);
     setSearchFocusToken((token) => token + 1);
-  }, []);
+  }, [ensureWorkspaceSidebarOpen]);
 
   const onOpenSearch = useCallback(() => {
     setFilePickerOpen(false);
@@ -4614,6 +4645,7 @@ export default function App({
   }, []);
 
   const onOpenInbox = useCallback(() => {
+    if (!loadInboxEnabled()) return;
     setFilePickerOpen(false);
     setSettingsOpen(false);
     setSearchViewOpen(false);
@@ -4777,6 +4809,7 @@ export default function App({
     onSplit,
     onFocusDir,
     onToggleSidebar,
+    onToggleWorkspaceSidebar,
     onGoToFile,
     onFindInProject,
     onOpenSearch,
@@ -4803,6 +4836,7 @@ export default function App({
     onSplit,
     onFocusDir,
     onToggleSidebar,
+    onToggleWorkspaceSidebar,
     onGoToFile,
     onFindInProject,
     onOpenSearch,
@@ -4971,6 +5005,15 @@ export default function App({
         run("toggle_sidebar", actions.current.onToggleSidebar);
         return;
       }
+      if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        e.stopPropagation();
+        run(
+          "toggle_workspace_sidebar",
+          actions.current.onToggleWorkspaceSidebar,
+        );
+        return;
+      }
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         e.stopPropagation();
@@ -5057,6 +5100,12 @@ export default function App({
       ),
       listen("toggle_sidebar", () =>
         run("toggle_sidebar", actions.current.onToggleSidebar),
+      ),
+      listen("toggle_workspace_sidebar", () =>
+        run(
+          "toggle_workspace_sidebar",
+          actions.current.onToggleWorkspaceSidebar,
+        ),
       ),
       listen("open_project", () => {
         void actions.current.pickProject();
@@ -5169,6 +5218,18 @@ export default function App({
     onNewTerminal: onNewTerminalInSession,
   };
 
+  // One full-pane app window at a time. Chrome folds snap; this surface gets
+  // the single enter animation (see .mono-window).
+  const windowSurface = settingsOpen
+    ? "settings"
+    : inboxViewOpen
+      ? "inbox"
+      : notesViewOpen
+        ? "notes"
+        : searchViewOpen
+          ? "search"
+          : null;
+
   return (
     <div
       className={`flex h-full text-content ${
@@ -5178,9 +5239,12 @@ export default function App({
       <Sidebar
         cwd={sidebarCwd}
         gitCwd={gitCwd}
-        open
+        open={workspaceSidebarOpen}
         tab={sidebarTab}
-        onTabChange={setSidebarTab}
+        onTabChange={(tab) => {
+          ensureWorkspaceSidebarOpen();
+          setSidebarTab(tab);
+        }}
         filesSearchOpen={filesSearchOpen}
         onFilesSearchOpenChange={setFilesSearchOpen}
         onOpenFilesSearch={onFindInProject}
@@ -5233,7 +5297,7 @@ export default function App({
         openSessions={openProjectSessions}
         onNewTerminal={onNewTerminal}
         onSearch={onOpenSearch}
-        onOpenInbox={onOpenInbox}
+        onOpenInbox={inboxEnabled ? onOpenInbox : undefined}
         onOpenNotes={notesEnabled ? onOpenNotes : undefined}
         onGoToFile={onGoToFile}
         searchActive={searchViewOpen}
@@ -5242,6 +5306,8 @@ export default function App({
         notesEnabled={notesEnabled}
         projectRailOpen={projectRailOpen}
         onToggleProjectRail={onToggleProjectRail}
+        workspaceSidebarOpen={workspaceSidebarOpen}
+        onToggleWorkspaceSidebar={onToggleWorkspaceSidebar}
         unseenFinishedIds={unseenFinishedIds}
         settingsOpen={settingsOpen}
         settingsSection={settingsSection}
@@ -5256,20 +5322,12 @@ export default function App({
       <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           className={
-            searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
+            windowSurface
               ? "hidden"
               : "flex min-h-0 min-w-0 flex-1 flex-col"
           }
-          aria-hidden={
-            searchViewOpen || settingsOpen || inboxViewOpen || notesViewOpen
-          }
-          inert={
-            searchViewOpen ||
-            settingsOpen ||
-            inboxViewOpen ||
-            notesViewOpen ||
-            undefined
-          }
+          aria-hidden={!!windowSurface}
+          inert={windowSurface ? true : undefined}
         >
           {!IS_MAC ? (
             <MenuBar
@@ -5278,6 +5336,7 @@ export default function App({
               onToggleTerminal={onToggleProjectTerminal}
               onGoToFile={onGoToFile}
               onToggleSidebar={onToggleSidebar}
+              onToggleWorkspaceSidebar={onToggleWorkspaceSidebar}
               onShowSourceControl={onToggleChanges}
               onCloseCurrentTab={
                 activeTabId ? () => onCloseTab(activeTabId) : undefined
@@ -5286,7 +5345,7 @@ export default function App({
               onPickProject={pickProject}
               onFindInProject={onFindInProject}
               onSearch={onOpenSearch}
-              onOpenInbox={onOpenInbox}
+              onOpenInbox={inboxEnabled ? onOpenInbox : undefined}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
               onOpenSettings={onOpenSettings}
               onSidebarAppearance={() => openSettings("appearance")}
@@ -5312,7 +5371,9 @@ export default function App({
             activeId={activeTabId}
             cwd={sidebarCwd}
             projectRailOpen={projectRailOpen}
+            workspaceSidebarOpen={workspaceSidebarOpen}
             onToggleSidebar={onToggleSidebar}
+            onToggleWorkspaceSidebar={onToggleWorkspaceSidebar}
             onSelect={activateTab}
             onNew={onNew}
             onNewTerminal={onNewTerminal}
@@ -5321,7 +5382,7 @@ export default function App({
               !!currentProjectDock && currentProjectDock.pane.files.length > 0
             }
             onOpenSettings={onOpenSettings}
-            onOpenInbox={onOpenInbox}
+            onOpenInbox={inboxEnabled ? onOpenInbox : undefined}
             onOpenNotes={notesEnabled ? onOpenNotes : undefined}
             onClose={onCloseTitleTab}
             onReorder={onReorderTabs}
@@ -5430,21 +5491,67 @@ export default function App({
             </div>
           </main>
         </div>
-        {searchViewOpen ? (
-          <SearchView
-            open
-            cwd={sidebarCwd}
-            recents={recents}
-            history={projectHistory}
-            sessions={sessions.filter(session => !session.inboxAsk)}
-            focusToken={searchViewFocusToken}
-            besideRail={projectRailOpen}
-            onClose={onLeaveSearch}
-            onToggleSidebar={onToggleSidebar}
-            onOpenFile={onOpenFile}
-            onOpenSession={onSelectHistorySession}
-            onOpenProject={onSelectProject}
-          />
+        {windowSurface ? (
+          <div
+            key={windowSurface}
+            className="mono-window flex min-h-0 min-w-0 flex-1 flex-col"
+            data-window={windowSurface}
+          >
+            {searchViewOpen ? (
+              <SearchView
+                open
+                cwd={sidebarCwd}
+                recents={recents}
+                history={projectHistory}
+                sessions={sessions.filter(session => !session.inboxAsk)}
+                focusToken={searchViewFocusToken}
+                besideRail={projectRailOpen}
+                onClose={onLeaveSearch}
+                onToggleSidebar={onToggleSidebar}
+                onOpenFile={onOpenFile}
+                onOpenSession={onSelectHistorySession}
+                onOpenProject={onSelectProject}
+              />
+            ) : null}
+            {inboxViewOpen ? (
+              <InboxView
+                cwd={sidebarCwd}
+                recents={recents}
+                besideRail={projectRailOpen}
+                onClose={onLeaveInbox}
+                onToggleSidebar={onToggleSidebar}
+                onStart={onStartInboxItem}
+                onAsk={onAskInboxItem}
+                onAskRestart={onRestartInboxAsk}
+                onAskMount={setInboxAskPortal}
+              />
+            ) : null}
+            {notesViewOpen ? (
+              <NotesView
+                besideRail={projectRailOpen}
+                cwd={projectCwd}
+                onClose={onLeaveNotes}
+                onToggleSidebar={onToggleSidebar}
+              />
+            ) : null}
+            {settingsOpen ? (
+              <SettingsView
+                section={settingsSection}
+                cwd={sidebarCwd}
+                sessions={sidebarHistory}
+                besideRail
+                onClose={onCloseSettings}
+                onOpenSession={onOpenArchivedSession}
+                onArchiveSession={onArchiveHistorySession}
+                onDeleteSession={onDeleteHistorySession}
+                onRestoreProject={onRestoreProject}
+                onDeleteProject={(path) =>
+                  onRemoveProject(path, { purgeData: true })
+                }
+                onOpenWhatsNew={onOpenWhatsNew}
+              />
+            ) : null}
+          </div>
         ) : null}
         <div className="hidden" aria-hidden>
           {sessions
@@ -5468,48 +5575,7 @@ export default function App({
               );
             })}
         </div>
-        {inboxViewOpen ? (
-          <InboxView
-            cwd={sidebarCwd}
-            recents={recents}
-            besideRail={projectRailOpen}
-            onClose={onLeaveInbox}
-            onToggleSidebar={onToggleSidebar}
-            onStart={onStartInboxItem}
-            onAsk={onAskInboxItem}
-            onAskRestart={onRestartInboxAsk}
-            onAskMount={setInboxAskPortal}
-          />
-        ) : null}
-        {notesViewOpen ? (
-          <NotesView
-            besideRail={projectRailOpen}
-            cwd={projectCwd}
-            onClose={onLeaveNotes}
-            onToggleSidebar={onToggleSidebar}
-          />
-        ) : null}
-        {settingsOpen ? (
-          <SettingsView
-            section={settingsSection}
-            cwd={sidebarCwd}
-            sessions={sidebarHistory}
-            besideRail
-            onClose={onCloseSettings}
-            onOpenSession={onOpenArchivedSession}
-            onArchiveSession={onArchiveHistorySession}
-            onDeleteSession={onDeleteHistorySession}
-            onRestoreProject={onRestoreProject}
-            onDeleteProject={(path) =>
-              onRemoveProject(path, { purgeData: true })
-            }
-            onOpenWhatsNew={onOpenWhatsNew}
-          />
-        ) : null}
-        {searchViewOpen ||
-        inboxViewOpen ||
-        notesViewOpen ||
-        settingsOpen ? null : (
+        {windowSurface ? null : (
           <UsageFooter
             providers={usageProviders}
             session={usageSession}

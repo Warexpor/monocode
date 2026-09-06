@@ -14,7 +14,7 @@ import {
   mergeToolPreview,
   stubFilePreview,
 } from "./preview";
-import { joinStreamText } from "./streamText";
+import { joinReasoningText, joinStreamText } from "./streamText";
 import { taskListText } from "../taskList";
 import { isReviewablePlan } from "../plan";
 import type { HarnessEvent } from "./types";
@@ -491,7 +491,10 @@ function patchStreaming(
   if (!text && role === "reasoning") return session;
   const last = session.blocks[session.blocks.length - 1];
   if (last?.role === role) {
-    const nextText = joinStreamText(last.text, text);
+    const nextText =
+      role === "reasoning"
+        ? joinReasoningText(last.text, text)
+        : joinStreamText(last.text, text);
     if (nextText === last.text && last.streaming === streaming) return session;
     const blocks = session.blocks.slice();
     blocks[blocks.length - 1] = {

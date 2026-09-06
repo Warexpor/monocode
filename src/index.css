@@ -31,6 +31,18 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --color-markdown-heading: #f9a8c9;
+  /*
+   * Window motion: one shared ease/duration family. Enter keyframes always
+   * move opacity + travel together (never staggered) so nothing "2-waves".
+   */
+  --mono-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --mono-ease-soft: cubic-bezier(0.33, 0, 0.2, 1);
+  --mono-ease-fold: cubic-bezier(0.4, 0, 0.2, 1);
+  --mono-dur-fold: 340ms;
+  --mono-dur-phase: 340ms;
+  --mono-dur-window: 320ms;
+  --mono-dur-modal: 260ms;
+  --mono-dur-popover: 220ms;
 }
 
 html {
@@ -632,6 +644,10 @@ header[data-tauri-drag-region] button {
   color: color-mix(in srgb, var(--color-content) 48%, transparent);
 }
 
+.agent-reasoning.agent-markdown p + p {
+  margin-top: 0.55em;
+}
+
 .agent-reasoning.agent-markdown p strong,
 .agent-reasoning.agent-markdown p em,
 .agent-reasoning.agent-markdown p [data-streamdown="strong"],
@@ -660,16 +676,16 @@ header[data-tauri-drag-region] button {
 @keyframes approval-toast-in {
   from {
     opacity: 0;
-    transform: translateY(-8px) scale(0.98);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 .approval-toast {
-  animation: approval-toast-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: approval-toast-in var(--mono-dur-popover) var(--mono-ease-out) both;
 }
 
 .shimmer-text {
@@ -824,14 +840,96 @@ header[data-tauri-drag-region] button {
 .zen-phase-body {
   display: grid;
   grid-template-rows: 1fr;
-  transition:
-    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease;
+  transition: grid-template-rows var(--mono-dur-phase) var(--mono-ease-fold);
+}
+
+/*
+ * Left chrome columns (Projects rail + Workspace): single width fold for
+ * explicit toggles. Overlay-driven open/close sets data-instant so chrome
+ * does not animate beside the pane window enter.
+ */
+.mono-side-fold {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: 0fr;
+  grid-template-rows: 100%;
+  transition: grid-template-columns var(--mono-dur-fold) var(--mono-ease-fold);
+}
+
+.mono-side-fold[data-open="true"] {
+  grid-template-columns: 1fr;
+}
+
+.mono-side-fold[data-instant="true"] {
+  transition: none;
+}
+
+.mono-side-fold > * {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/*
+ * Full-pane app windows (Settings / Inbox / Notes / Search).
+ * One keyframe: opacity and travel share the same curve — distinct direction
+ * per surface, never a second timed wave.
+ */
+@keyframes mono-window-in {
+  from {
+    opacity: 0;
+    transform: translate3d(
+      var(--mono-window-x, 0px),
+      var(--mono-window-y, 8px),
+      0
+    );
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.mono-window {
+  --mono-window-x: 0px;
+  --mono-window-y: 8px;
+  animation: mono-window-in var(--mono-dur-window) var(--mono-ease-soft) both;
+  background: var(--color-background-base);
+  backface-visibility: hidden;
+}
+
+html.has-native-glass.glass-body .mono-window {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
+    transparent
+  );
+}
+
+.mono-window[data-window="settings"] {
+  --mono-window-x: 0px;
+  --mono-window-y: 10px;
+}
+
+.mono-window[data-window="inbox"] {
+  --mono-window-x: -10px;
+  --mono-window-y: 0px;
+}
+
+.mono-window[data-window="notes"] {
+  --mono-window-x: 10px;
+  --mono-window-y: 0px;
+}
+
+.mono-window[data-window="search"] {
+  --mono-window-x: 0px;
+  --mono-window-y: -8px;
 }
 
 .zen-phase-body[data-open="false"] {
   grid-template-rows: 0fr;
-  opacity: 0;
 }
 
 .zen-phase-body > * {
@@ -988,13 +1086,13 @@ header[data-tauri-drag-region] button {
 }
 
 .zen-fold-item[data-fold-state="opening"] {
-  animation: zen-fold-open 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: zen-fold-open var(--mono-dur-phase) var(--mono-ease-fold) both;
 }
 
 .zen-fold-item[data-fold-state="closing"] {
   pointer-events: none;
   user-select: none;
-  animation: zen-fold-close 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: zen-fold-close var(--mono-dur-phase) var(--mono-ease-fold) both;
 }
 
 .zen-fold-item:is([data-fold-state="opening"], [data-fold-state="closing"]) > *,
@@ -1006,22 +1104,18 @@ header[data-tauri-drag-region] button {
 @keyframes zen-fold-open {
   from {
     grid-template-rows: 0fr;
-    opacity: 0;
   }
   to {
     grid-template-rows: 1fr;
-    opacity: 1;
   }
 }
 
 @keyframes zen-fold-close {
   from {
     grid-template-rows: 1fr;
-    opacity: 1;
   }
   to {
     grid-template-rows: 0fr;
-    opacity: 0;
   }
 }
 
@@ -1036,7 +1130,7 @@ header[data-tauri-drag-region] button {
 }
 
 .zen-step-in {
-  animation: zen-step-in 180ms ease-out both;
+  animation: zen-step-in 260ms var(--mono-ease-soft) both;
 }
 
 @keyframes zen-thinking-pulse {
@@ -1072,8 +1166,14 @@ header[data-tauri-drag-region] button {
     animation: none;
   }
 
-  .zen-phase-body {
+  .zen-phase-body,
+  .mono-side-fold {
     transition: none;
+  }
+
+  .mono-window,
+  .mono-dialog {
+    animation: none;
   }
 
   .zen-fold-item[data-fold-state="opening"] {
@@ -1088,16 +1188,12 @@ header[data-tauri-drag-region] button {
   }
 }
 
-/* Popover contents grow in from the edge they hang off, sliding the last few
-   pixels out of their trigger. The glass frame stays still: WebKit composites
-   `backdrop-filter` on its own layer and can flash a stale backdrop if that
-   same layer moves and a menu-item hover invalidates it. Still brief — a menu
-   that takes its time reads as lag rather than polish. */
+/* Popover: one keyframe from the anchor edge (opacity + travel together). */
 @keyframes popover-open {
   from {
     opacity: 0;
     transform: translate3d(var(--popover-shift, 0), var(--popover-lift, 0), 0)
-      scale(0.94);
+      scale(0.98);
   }
   to {
     opacity: 1;
@@ -1106,24 +1202,24 @@ header[data-tauri-drag-region] button {
 }
 
 .popover-open {
-  animation: popover-open 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: popover-open var(--mono-dur-popover) var(--mono-ease-out) both;
   backface-visibility: hidden;
 }
 
 .popover-open[data-popover-side="bottom"] {
-  --popover-lift: -8px;
+  --popover-lift: -5px;
 }
 
 .popover-open[data-popover-side="top"] {
-  --popover-lift: 8px;
+  --popover-lift: 5px;
 }
 
 .popover-open[data-popover-side="right"] {
-  --popover-shift: -8px;
+  --popover-shift: -5px;
 }
 
 .popover-open[data-popover-side="left"] {
-  --popover-shift: 8px;
+  --popover-shift: 5px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1132,9 +1228,11 @@ header[data-tauri-drag-region] button {
   }
 }
 
-/* Centered modals: a short lift rather than a fade. Glass already sits on
-   its own compositor layer, so opacity alone barely reads. */
-@keyframes modal-backdrop-in {
+/*
+ * Centered dialogs: fade the whole layer once. No separate backdrop vs panel
+ * timing — that reads as two waves.
+ */
+@keyframes mono-dialog-in {
   from {
     opacity: 0;
   }
@@ -1143,28 +1241,12 @@ header[data-tauri-drag-region] button {
   }
 }
 
-@keyframes modal-panel-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.modal-backdrop {
-  animation: modal-backdrop-in 160ms ease-out both;
-}
-
-.modal-panel {
-  animation: modal-panel-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+.mono-dialog {
+  animation: mono-dialog-in var(--mono-dur-modal) var(--mono-ease-soft) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .modal-backdrop,
-  .modal-panel {
+  .mono-dialog {
     animation: none;
   }
 }

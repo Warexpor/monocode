@@ -70,7 +70,7 @@ export function SwitchBranchDialog({
   };
 
   return createPortal(
-    <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
+    <div className="mono-dialog fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div
         className="absolute inset-0 bg-black/30"
         onMouseDown={() => {

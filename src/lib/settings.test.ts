@@ -11,14 +11,17 @@ import {
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
+  loadInboxEnabled,
   loadNotesEnabled,
   loadShowReasoning,
+  INBOX_ENABLED_DEFAULT,
   NOTES_ENABLED_DEFAULT,
   SHOW_REASONING_DEFAULT,
   saveComposerRunner,
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
+  saveInboxEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
   saveShowReasoning,
@@ -26,6 +29,7 @@ import {
 
 const KEY = "monocode.composerRunner";
 const NOTES_KEY = "monocode.notesEnabled";
+const INBOX_KEY = "monocode.inboxEnabled";
 const SHOW_REASONING_KEY = "monocode.showReasoning";
 const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
@@ -115,6 +119,26 @@ describe("notes enabled setting", () => {
     expect(loadNotesEnabled()).toBe(false);
     saveNotesEnabled(true);
     expect(loadNotesEnabled()).toBe(true);
+  });
+});
+
+describe("inbox enabled setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(INBOX_KEY);
+  });
+
+  it("defaults to on", () => {
+    expect(INBOX_ENABLED_DEFAULT).toBe(true);
+    expect(loadInboxEnabled()).toBe(true);
+  });
+
+  it("persists an off switch", () => {
+    saveInboxEnabled(false);
+    expect(localStorage.getItem(INBOX_KEY)).toBe("0");
+    expect(loadInboxEnabled()).toBe(false);
+    saveInboxEnabled(true);
+    expect(loadInboxEnabled()).toBe(true);
   });
 });
 

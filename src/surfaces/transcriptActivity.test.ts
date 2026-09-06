@@ -719,9 +719,26 @@ describe("foldableWork", () => {
       { showReasoning: true },
     );
     const workAt = firstFoldableIndex(turn);
-    expect(workAt).toBe(2);
+    expect(workAt).toBe(1);
     expect(foldLineIndex(turn, workAt, true)).toBe(1);
-    expect(foldLineIndex(turn, workAt, false)).toBe(2);
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 2 });
+    expect(foldedBlocks(turn, foldableWork(turn)!).map((block) => block.id)).toEqual([
+      "r1",
+      "c1",
+    ]);
+  });
+
+  it("folds trailing thoughts that sit between work and the answer", () => {
+    const turn = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "go" },
+        shell("c1"),
+        thought("r1"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 2 });
   });
 
   it("has nothing to fold in a turn that only answered", () => {

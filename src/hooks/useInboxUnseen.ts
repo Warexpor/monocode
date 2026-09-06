@@ -31,7 +31,11 @@ function seenEntries(items: readonly InboxItem[]): InboxSeenEntry[] {
   }));
 }
 
-export function useInboxUnseen(recents: RecentProject[], cwd: string): boolean {
+export function useInboxUnseen(
+  recents: RecentProject[],
+  cwd: string,
+  enabled = true,
+): boolean {
   const [unseen, setUnseen] = useState(false);
   const entriesRef = useRef<InboxSeenEntry[]>([]);
 
@@ -41,12 +45,23 @@ export function useInboxUnseen(recents: RecentProject[], cwd: string): boolean {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      entriesRef.current = [];
+      applyUnseen(false);
+      return;
+    }
     return subscribeInboxSeen(() => {
       applyUnseen(inboxHasUnseenItems(entriesRef.current));
     });
-  }, [applyUnseen]);
+  }, [applyUnseen, enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      entriesRef.current = [];
+      applyUnseen(false);
+      return;
+    }
+
     const projects = inboxProjectsForRail(recents, cwd);
     if (projects.length === 0) {
       entriesRef.current = [];
@@ -93,7 +108,7 @@ export function useInboxUnseen(recents: RecentProject[], cwd: string): boolean {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [applyUnseen, cwd, recents]);
+  }, [applyUnseen, cwd, enabled, recents]);
 
   return unseen;
 }

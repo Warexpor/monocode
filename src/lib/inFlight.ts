@@ -104,11 +104,34 @@ export function wasTurnInterrupted(session: Session): boolean {
 }
 
 /**
- * Provider thread exists and the quit note is still the last block.
- * A Continue (or any later user turn) appends after it, so this stays one-shot.
+ * Provider thread exists, the quit note is still the last block, and the cut
+ * turn had already produced agent work. A greeting that never got a reply
+ * must not auto-fire "Continue from where you left off."
  */
 export function canAutoContinue(session: Session): boolean {
-  return !!session.providerSessionId && !session.busy && lastBlockIsInterrupt(session);
+  return (
+    !!session.providerSessionId &&
+    !session.busy &&
+    lastBlockIsInterrupt(session) &&
+    interruptedTurnHasProgress(session)
+  );
+}
+
+/** True when the interrupted turn had assistant/tool/reasoning/approval work. */
+export function interruptedTurnHasProgress(session: Session): boolean {
+  const blocks = session.blocks;
+  if (blocks.length < 2) return false;
+  if (!lastBlockIsInterrupt(session)) return false;
+
+  for (let i = blocks.length - 2; i >= 0; i--) {
+    const block = blocks[i];
+    if (block.role === "user") return false;
+    if (block.role === "assistant" && block.text.trim()) return true;
+    if (block.role === "reasoning" && block.text.trim()) return true;
+    if (block.role === "tool") return true;
+    if (block.role === "approval") return true;
+  }
+  return false;
 }
 
 function lastBlockIsInterrupt(session: Session): boolean {

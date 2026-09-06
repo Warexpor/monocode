@@ -1,6 +1,8 @@
 use tauri::Manager;
 
+mod app_sound;
 mod checkpoint;
+mod completion_sound;
 mod cursor_store;
 mod fs;
 mod harness;
@@ -345,6 +347,9 @@ pub fn run() {
             window_transfer::take_window_transfer,
             project_logo::save_project_logo,
             project_logo::remove_project_logo,
+            completion_sound::save_completion_sound,
+            completion_sound::remove_completion_sound,
+            app_sound::play_app_sound,
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoCode");

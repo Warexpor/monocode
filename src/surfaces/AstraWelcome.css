@@ -80,10 +80,6 @@
   animation: astra-solar-wave 3.2s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
 }
 
-.astra-solar-wave-late {
-  animation-delay: 0.85s;
-}
-
 .astra-solar-orbit {
   position: absolute;
   inset: -45%;

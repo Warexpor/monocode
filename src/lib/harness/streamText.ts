@@ -31,6 +31,47 @@ export function joinStreamText(existing: string, incoming: string): string {
 }
 
 /**
+ * Join streamed reasoning the same way as body text, but break paragraphs when
+ * a completed sentence is glued to the next thought with no whitespace
+ * (`file.Extending` → `file.\n\nExtending`). Providers often emit discrete
+ * thoughts as separate deltas without a separator.
+ */
+export function joinReasoningText(existing: string, incoming: string): string {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+  if (incoming === existing) {
+    return incoming.length <= 1 ? existing + incoming : existing;
+  }
+  if (incoming.length > existing.length && incoming.startsWith(existing)) {
+    return incoming;
+  }
+  if (
+    existing.length > incoming.length &&
+    existing.startsWith(incoming) &&
+    existing.slice(incoming.length).trim() === ""
+  ) {
+    return existing;
+  }
+  if (needsReasoningParagraphBreak(existing, incoming)) {
+    return `${existing.replace(/\s+$/, "")}\n\n${incoming.replace(/^\s+/, "")}`;
+  }
+  return existing + incoming;
+}
+
+/** Insert paragraph breaks where sentence ends were glued to the next thought. */
+export function formatReasoningProse(text: string): string {
+  return text.replace(/([.!?])([A-Z])/g, "$1\n\n$2");
+}
+
+function needsReasoningParagraphBreak(
+  existing: string,
+  incoming: string,
+): boolean {
+  if (/\s$/.test(existing) || /^\s/.test(incoming)) return false;
+  return /[.!?]["')\]]*$/.test(existing) && /^["“]?[A-Z]/.test(incoming);
+}
+
+/**
  * How much of a completed snapshot to emit after tokens already landed.
  *
  * Claude and Codex send the full message again when a turn (or item) finishes.

@@ -12,6 +12,7 @@ type Props = {
   onToggleTerminal?: () => void;
   onGoToFile?: () => void;
   onToggleSidebar: () => void;
+  onToggleWorkspaceSidebar?: () => void;
   onShowSourceControl?: () => void;
   onCloseCurrentTab?: () => void;
   onCloseOtherTabs?: () => void;
@@ -34,6 +35,7 @@ export function MenuBar({
   onToggleTerminal,
   onGoToFile,
   onToggleSidebar,
+  onToggleWorkspaceSidebar,
   onShowSourceControl,
   onCloseCurrentTab,
   onCloseOtherTabs,
@@ -159,6 +161,9 @@ export function MenuBar({
         case "toggle_sidebar":
           onToggleSidebar();
           break;
+        case "toggle_workspace_sidebar":
+          onToggleWorkspaceSidebar?.();
+          break;
         case "open_model_picker":
           window.dispatchEvent(new Event("open_model_picker"));
           break;
@@ -197,6 +202,7 @@ export function MenuBar({
       onQuit,
       onShowSourceControl,
       onToggleSidebar,
+      onToggleWorkspaceSidebar,
       onZoomIn,
       onZoomOut,
       onZoomReset,
@@ -235,8 +241,25 @@ export function MenuBar({
         ];
       case "view":
         return [
-          { kind: "item", id: "toggle_sidebar", label: "Toggle Sidebar", shortcut: `${MOD}B` },
-          { kind: "item", id: "open_inbox", label: "Inbox" },
+          {
+            kind: "item",
+            id: "toggle_sidebar",
+            label: "Toggle Projects",
+            shortcut: `${MOD}B`,
+          },
+          ...(onToggleWorkspaceSidebar
+            ? [
+                {
+                  kind: "item" as const,
+                  id: "toggle_workspace_sidebar",
+                  label: "Toggle Workspace",
+                  shortcut: `${MOD}${SHIFT}B`,
+                },
+              ]
+            : []),
+          ...(onOpenInbox
+            ? [{ kind: "item" as const, id: "open_inbox", label: "Inbox" }]
+            : []),
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]
             : []),

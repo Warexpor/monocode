@@ -56,7 +56,6 @@ export function AstraWelcome({ onDone }: { onDone: () => void }) {
       <div className="astra-solar-system">
         <div className="astra-solar-corona" />
         <div className="astra-solar-wave" />
-        <div className="astra-solar-wave astra-solar-wave-late" />
         <div className="astra-solar-orbit">
           <span />
         </div>
