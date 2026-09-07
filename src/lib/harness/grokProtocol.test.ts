@@ -84,16 +84,13 @@ describe("grok protocol", () => {
   it("sets yoloMode only for full access", () => {
     expect(grokSessionNewParams("/repo", "supervised")).toEqual({
       cwd: "/repo",
-      mcpServers: [],
     });
     expect(grokSessionNewParams("/repo", "full-access")).toEqual({
       cwd: "/repo",
-      mcpServers: [],
       _meta: { yoloMode: true },
     });
     expect(grokSessionNewParams("/repo", "auto")).toEqual({
       cwd: "/repo",
-      mcpServers: [],
       _meta: { autoMode: true },
     });
   });

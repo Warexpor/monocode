@@ -356,7 +356,6 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             {
               sessionId: resume.acpSessionId,
               cwd: input.cwd,
-              mcpServers: [],
             },
             SESSION_TIMEOUT_MS,
           );

@@ -32,3 +32,9 @@ export {
   savePersistedQueue,
 } from "./queuePersist";
 export { createComfortSession } from "./createSession";
+export { FullSetupWizard } from "./FullSetupWizard";
+export {
+  isFullSetupSupported,
+  loadFullSetupComplete,
+  fullSetupStatus,
+} from "./fullSetup";

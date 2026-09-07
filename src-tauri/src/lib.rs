@@ -3,6 +3,7 @@ use tauri::Manager;
 mod checkpoint;
 mod cursor_store;
 mod fs;
+mod full_setup;
 mod harness;
 mod inbox_media;
 mod linear;
@@ -262,6 +263,13 @@ pub fn run() {
             linear::linear_issue_details,
             linear::linear_issue_thread,
             linear::linear_issue_comment,
+            full_setup::full_setup_status,
+            full_setup::full_setup_install_grok,
+            full_setup::full_setup_install_opencodex,
+            full_setup::full_setup_set_key,
+            full_setup::full_setup_fetch_catalogs,
+            full_setup::full_setup_apply,
+            full_setup::full_setup_verify,
             fs::git_branches,
             fs::git_checkout,
             fs::git_create_branch,

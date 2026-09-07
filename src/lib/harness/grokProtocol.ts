@@ -122,7 +122,8 @@ export function grokSessionNewParams(
   cwd: string,
   runtimeMode: RuntimeMode,
 ): Record<string, unknown> {
-  const params: Record<string, unknown> = { cwd, mcpServers: [] };
+  // Omit mcpServers so Grok inherits ~/.grok/config.toml (Exa MCP, etc.).
+  const params: Record<string, unknown> = { cwd };
   if (runtimeMode === "full-access") {
     params._meta = { yoloMode: true };
   } else if (runtimeMode === "auto") {

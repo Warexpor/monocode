@@ -19,6 +19,7 @@ dist/
 dist-ssr/
 build/
 target/
+target-msvc/
 gen/schemas/
 coverage/
 .vite/

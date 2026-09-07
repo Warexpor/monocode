@@ -106,7 +106,7 @@ async function discoverViaAcp() {
       }
       const created = await acp.request(
         "session/new",
-        { cwd, mcpServers: [] },
+        { cwd },
         REQUEST_TIMEOUT_MS,
       );
       return modelsFromSessionNew(created);

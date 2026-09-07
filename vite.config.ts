@@ -25,7 +25,9 @@ export default defineConfig(async ({ mode }) => {
             }
           : undefined,
       watch: {
-        ignored: stable ? ["**/*"] : ["**/src-tauri/**"],
+        // Ignore Rust build dirs — watching locked .exe files under target/
+        // blows up Vite on Windows with EBUSY.
+        ignored: stable ? ["**/*"] : ["**/src-tauri/**", "**/target/**"],
       },
     },
   };
