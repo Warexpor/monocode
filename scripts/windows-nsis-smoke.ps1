@@ -1,5 +1,4 @@
 # Silent-install the NSIS bundle and prove the app process stays up.
-# Unix analog: installing the .deb/.dmg and launching once.
 $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")

@@ -28,16 +28,15 @@ replaceFirst(
 );
 // The lockfile carries the version twice: once at the top and once on the
 // root package. Missing them left npm's lockfile claiming 0.1.0 sixteen
-// releases later. The second pattern is anchored on `packages` because the
-// top-level object repeats the same name/version pair.
+// releases later. Allow CRLF on Windows checkouts.
 replaceFirst(
   join(root, "package-lock.json"),
-  /^(\{\n\s*"name": "monocode-desktop",\n\s*"version": ")[^"]+(")/,
+  /^(\{\r?\n\s*"name": "monocode-desktop",\r?\n\s*"version": ")[^"]+(")/,
   `$1${version}$2`,
 );
 replaceFirst(
   join(root, "package-lock.json"),
-  /("packages": \{\n\s*"": \{\n\s*"name": "monocode-desktop",\n\s*"version": ")[^"]+(")/,
+  /("packages": \{\r?\n\s*"": \{\r?\n\s*"name": "monocode-desktop",\r?\n\s*"version": ")[^"]+(")/,
   `$1${version}$2`,
 );
 replaceFirst(
@@ -52,7 +51,7 @@ replaceFirst(
 );
 replaceFirst(
   join(root, "Cargo.lock"),
-  /(name = "monocode"\nversion = ")[^"]+(")/,
+  /(name = "monocode"\r?\nversion = ")[^"]+(")/,
   `$1${version}$2`,
 );
 

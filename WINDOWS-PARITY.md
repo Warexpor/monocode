@@ -8,15 +8,12 @@ This document does not claim a live Claude/`ocx` session or a pixel-level DWM sc
 
 ## What CI proves (and where)
 
-Workflow: `.github/workflows/ci.yml`. Latest green push on `origin/main` `472ed8f`: [run 34067333414](https://github.com/Warexpor/monocode/actions/runs/34067333414). Later `main` tips (including Full Setup at `5e58725`) may still be red until the web typecheck/`check` jobs catch up.
+Workflow: `.github/workflows/ci.yml`. This fork is **Windows-only**: `check` and `windows-nsis` both run on `windows-latest`. Non-Windows targets fail at compile time.
 
 | Job | Runner | What it actually ran |
 |-----|--------|----------------------|
-| `check` | `ubuntu-latest` | `npm test`, `tsc`, rustfmt, clippy, `cargo test` on Linux. POSIX harness/PTY paths. Some Windows-oriented unit tests still compile/run here when they are not `cfg(windows)`-only. |
-| `check` | `windows-latest` | Same suite on Windows. Job Objects, `taskkill`, PEB reap, PATH/shim tests that are `cfg(windows)` live here. |
+| `check` | `windows-latest` | `npm test`, `tsc`, rustfmt, clippy, `cargo test`. Job Objects, `taskkill`, PEB reap, PATH/shim tests that are `cfg(windows)` live here. |
 | `windows-nsis` | `windows-latest` | `npm run build:windows` → one NSIS `.exe` → `scripts/windows-nsis-smoke.ps1` silent `/S` install, launch, process still up, sidecar `DWM glass fallback=acrylic`. |
-
-Linux cloud VMs (this class of agent) are `check` on Ubuntu only unless you run the Windows jobs. They cannot prove DWM pixels, NSIS wizard UX, or a machine-local `ocx` session. There is no `macos-latest` `check` job: it duplicated the Linux suite and this fork does not ship macOS artifacts.
 
 `npm run check` locally is the `check` job, not NSIS.
 

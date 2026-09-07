@@ -28,4 +28,4 @@ These notes describe the Warexpor Windows PC that proved a live Claude session. 
 - Do not send harness traffic through a SOCKS or HTTP outbound proxy on `:10808`.
 - Prefer `opencode-go` over a poisoned `sk-proxy` or `:8090` Claude gateway.
 - Token `monocode-windows-ok` is machine-local. Do not invent API keys in cloud agents.
-- `SESSION_OK` on that PC is not transferable. Linux cloud VMs cannot claim it.
+- `SESSION_OK` on that PC is not transferable.

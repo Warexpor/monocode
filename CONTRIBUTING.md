@@ -17,7 +17,7 @@ You need Node.js 20+, a current stable Rust toolchain, and at least one provider
 - [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`
 - [fx](https://fx.sh) - `curl -fsSL https://fx.sh/setup.sh | bash` then `fx login`
 
-Linux and Windows are the platforms this fork ships. The source still builds on macOS. On Debian/Ubuntu, `npm run setup:linux:deb` installs the native Tauri build dependencies.
+Windows is the only platform this fork ships and builds. Develop on Windows with the MSVC Rust toolchain.
 
 ```bash
 npm install
@@ -42,7 +42,7 @@ One provider is enough. MonoCode probes for each CLI at startup and disables the
 npm run check
 ```
 
-That runs what CI runs: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test` on Linux and Windows. On Windows, `npm run check:rust` pins the MSVC rustup toolchain (see `scripts/check-rust.mjs`). If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
+That runs what CI runs on `windows-latest`: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test`. On Windows, `npm run check:rust` pins the MSVC rustup toolchain (see `scripts/check-rust.mjs`). If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
 
 ## New providers
 

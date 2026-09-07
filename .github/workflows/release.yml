@@ -9,53 +9,6 @@ permissions:
   contents: write
 
 jobs:
-  linux:
-    name: Linux packages
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux system dependencies
-        run: bash scripts/install-linux-deps-debian.sh
-
-      - run: npm ci
-
-      - name: Build Linux packages
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run build:linux
-
-      - name: Stage Linux packages
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          deb=(target/release/bundle/deb/*.deb)
-          appimage=(target/release/bundle/appimage/*.AppImage)
-          updater=(target/release/bundle/appimage/*.AppImage.tar.gz)
-          sig=(target/release/bundle/appimage/*.AppImage.tar.gz.sig)
-          if (( ${#deb[@]} != 1 || ${#appimage[@]} != 1 || ${#updater[@]} != 1 || ${#sig[@]} != 1 )); then
-            echo "Expected one .deb, AppImage, AppImage.tar.gz, and .sig" >&2
-            ls -la target/release/bundle/deb target/release/bundle/appimage || true
-            exit 1
-          fi
-          mkdir -p release-artifacts
-          cp "${deb[0]}" "${appimage[0]}" "${updater[0]}" "${sig[0]}" release-artifacts/
-
-      - name: Upload Linux packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-packages
-          path: release-artifacts/
-          if-no-files-found: error
-
   windows:
     name: Windows packages
     runs-on: windows-latest
@@ -102,7 +55,7 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [linux, windows]
+    needs: [windows]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -132,12 +85,6 @@ jobs:
           }
           NODE
 
-      - name: Download Linux packages
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-packages
-          path: release-artifacts/linux
-
       - name: Download Windows packages
         uses: actions/download-artifact@v4
         with:
@@ -156,22 +103,14 @@ jobs:
           WIN_ZIP=$(find release-artifacts/windows -maxdepth 1 -type f -name '*.nsis.zip' -print -quit)
           WIN_SIG=$(find release-artifacts/windows -maxdepth 1 -type f -name '*.nsis.zip.sig' -print -quit)
           WIN_EXE=$(find release-artifacts/windows -maxdepth 1 -type f -name '*-setup.exe' -print -quit)
-          LINUX_TAR=$(find release-artifacts/linux -maxdepth 1 -type f -name '*.AppImage.tar.gz' -print -quit)
-          LINUX_SIG=$(find release-artifacts/linux -maxdepth 1 -type f -name '*.AppImage.tar.gz.sig' -print -quit)
-          LINUX_APPIMAGE=$(find release-artifacts/linux -maxdepth 1 -type f -name '*.AppImage' -print -quit)
-          LINUX_DEB=$(find release-artifacts/linux -maxdepth 1 -type f -name '*.deb' -print -quit)
 
           test -n "$WIN_ZIP" && test -n "$WIN_SIG" && test -n "$WIN_EXE"
-          test -n "$LINUX_TAR" && test -n "$LINUX_SIG" && test -n "$LINUX_APPIMAGE" && test -n "$LINUX_DEB"
 
           WIN_ZIP_NAME=$(basename "$WIN_ZIP")
-          LINUX_TAR_NAME=$(basename "$LINUX_TAR")
 
           VERSION="$VERSION" \
           WIN_SIG="$WIN_SIG" \
-          LINUX_SIG="$LINUX_SIG" \
           WIN_URL="${BASE}/${WIN_ZIP_NAME}" \
-          LINUX_URL="${BASE}/${LINUX_TAR_NAME}" \
           node <<'NODE'
           const fs = require("fs");
           fs.writeFileSync(
@@ -186,10 +125,6 @@ jobs:
                     signature: fs.readFileSync(process.env.WIN_SIG, "utf8").trim(),
                     url: process.env.WIN_URL,
                   },
-                  "linux-x86_64": {
-                    signature: fs.readFileSync(process.env.LINUX_SIG, "utf8").trim(),
-                    url: process.env.LINUX_URL,
-                  },
                 },
               },
               null,
@@ -202,5 +137,4 @@ jobs:
             --title "MonoCode $VERSION" \
             --notes "See CHANGELOG.md for details. In-app updates use latest.json on this release." \
             "$WIN_EXE" "$WIN_ZIP" "$WIN_SIG" \
-            "$LINUX_DEB" "$LINUX_APPIMAGE" "$LINUX_TAR" "$LINUX_SIG" \
             latest.json

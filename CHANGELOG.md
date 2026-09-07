@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.38] - 2026-09-08
+
 ### Changed
 
-- Docs and package metadata describe [Warexpor/monocode](https://github.com/Warexpor/monocode) (install URLs, clone, security advisories, crate `repository` / `homepage`). CI `check` no longer runs a duplicate macOS matrix job; Linux and Windows remain.
+- This fork is Windows-only: CI and GitHub Releases ship x86_64 NSIS; macOS/Linux package jobs, configs, and install docs are removed. Non-Windows targets fail at compile time.
+- First Warexpor GitHub Release / in-app updater channel (`latest.json` with `windows-x86_64`). Windows builds now emit signed updater artifacts when `TAURI_SIGNING_PRIVATE_KEY` is set.
+- Docs and package metadata describe [Warexpor/monocode](https://github.com/Warexpor/monocode) (install URLs, clone, security advisories, crate `repository` / `homepage`).
 
 ## [0.1.37] - 2026-09-07
 

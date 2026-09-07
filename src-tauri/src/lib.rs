@@ -1,3 +1,6 @@
+#[cfg(not(windows))]
+compile_error!("Warexpor/monocode is Windows-only");
+
 use tauri::Manager;
 
 mod app_sound;

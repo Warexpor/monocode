@@ -30,9 +30,7 @@ Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCod
 > - [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`
 > - [fx](https://fx.sh) - `curl -fsSL https://fx.sh/setup.sh | bash` then `fx login`
 
-Prebuilt binaries for this fork are published on [GitHub Releases](https://github.com/Warexpor/monocode/releases/latest) (Linux x86_64 `.deb` / AppImage, Windows x86_64 NSIS). This fork does not publish macOS disk images; use [build from source](#build-from-source) on a Mac.
-
-Linux (x86_64): download the `.deb` or AppImage. Install the `.deb` with `sudo apt install ./MonoCode_*.deb`, or make the AppImage executable with `chmod +x MonoCode_*.AppImage` and run it directly.
+Prebuilt binaries for this fork are published on [GitHub Releases](https://github.com/Warexpor/monocode/releases/latest) (Windows x86_64 NSIS only). This fork does not ship macOS or Linux builds.
 
 Windows (x86_64): download the NSIS installer and run it.
 
@@ -42,13 +40,13 @@ This is very early and you should expect bugs.
 
 Small, focused pull requests are welcome. Anything large is worth an issue first - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Fork remotes, sync, and the Warexpor updater channel: [UPSTREAM.md](UPSTREAM.md). Windows vs Linux CI: [WINDOWS-PARITY.md](WINDOWS-PARITY.md). Product overlay (`src/custom/`, including Windows Grok Full Setup): [CUSTOM.md](CUSTOM.md).
+Fork remotes, sync, and the Warexpor updater channel: [UPSTREAM.md](UPSTREAM.md). Windows parity notes: [WINDOWS-PARITY.md](WINDOWS-PARITY.md). Product overlay (`src/custom/`, including Windows Grok Full Setup): [CUSTOM.md](CUSTOM.md).
 
 ## Build from source
 
-The source still builds on macOS, Linux, and Windows. Tagged releases from this fork cover Linux and Windows.
+This fork is **Windows-only**. Non-Windows targets fail at compile time.
 
-Need Node.js 20+ and a current stable Rust toolchain. On Linux, ensure standard Tauri prerequisites are installed (e.g. `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`, `libjavascriptcoregtk-4.1-dev`). On Windows, the installer bootstraps the [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) runtime when it is missing.
+Need Node.js 20+, a current stable Rust toolchain (MSVC on Windows), and the [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) runtime (the installer bootstraps it when missing).
 
 ```bash
 git clone https://github.com/Warexpor/monocode.git
@@ -56,19 +54,6 @@ cd monocode
 npm install
 npm run tauri dev
 ```
-
-### Ubuntu / Debian packages
-
-On an Ubuntu/Debian workstation, the repository can install the native Tauri prerequisites and build distributable Linux packages directly:
-
-```bash
-npm run setup:linux:deb
-npm ci
-npm run build:linux
-```
-
-The Linux build emits `.deb` and AppImage bundles under `target/release/bundle/`.
-Tauri loads `src-tauri/tauri.linux.conf.json` automatically for Linux development and builds.
 
 ### Windows packages
 

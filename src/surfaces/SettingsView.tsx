@@ -965,7 +965,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description={
           HAS_NATIVE_GLASS
             ? "How see-through the window is over the desktop. Sidebars always use this; turn on Main pane glass to include sessions and editors."
-            : "Requires the translucent window effect on macOS or Windows."
+            : "Requires the translucent window effect on Windows."
         }
       >
         <Slider
@@ -1030,7 +1030,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       </Row>
       <Row
         label="Interface scale"
-        description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS)."
+        description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0."
       >
         <Slider
           label="Interface scale"
