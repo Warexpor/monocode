@@ -36,15 +36,14 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           nsis=(target/release/bundle/nsis/*-setup.exe)
-          zip=(target/release/bundle/nsis/*.nsis.zip)
-          sig=(target/release/bundle/nsis/*.nsis.zip.sig)
-          if (( ${#nsis[@]} != 1 || ${#zip[@]} != 1 || ${#sig[@]} != 1 )); then
-            echo "Expected one NSIS installer, .nsis.zip, and .sig" >&2
+          sig=(target/release/bundle/nsis/*-setup.exe.sig)
+          if (( ${#nsis[@]} != 1 || ${#sig[@]} != 1 )); then
+            echo "Expected one NSIS installer and .exe.sig (Tauri 2 updater artifacts)" >&2
             ls -la target/release/bundle/nsis || true
             exit 1
           fi
           mkdir -p release-artifacts
-          cp "${nsis[0]}" "${zip[0]}" "${sig[0]}" release-artifacts/
+          cp "${nsis[0]}" "${sig[0]}" release-artifacts/
 
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
@@ -100,17 +99,16 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
           BASE="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}"
 
-          WIN_ZIP=$(find release-artifacts/windows -maxdepth 1 -type f -name '*.nsis.zip' -print -quit)
-          WIN_SIG=$(find release-artifacts/windows -maxdepth 1 -type f -name '*.nsis.zip.sig' -print -quit)
           WIN_EXE=$(find release-artifacts/windows -maxdepth 1 -type f -name '*-setup.exe' -print -quit)
+          WIN_SIG=$(find release-artifacts/windows -maxdepth 1 -type f -name '*-setup.exe.sig' -print -quit)
 
-          test -n "$WIN_ZIP" && test -n "$WIN_SIG" && test -n "$WIN_EXE"
+          test -n "$WIN_EXE" && test -n "$WIN_SIG"
 
-          WIN_ZIP_NAME=$(basename "$WIN_ZIP")
+          WIN_EXE_NAME=$(basename "$WIN_EXE")
 
           VERSION="$VERSION" \
           WIN_SIG="$WIN_SIG" \
-          WIN_URL="${BASE}/${WIN_ZIP_NAME}" \
+          WIN_URL="${BASE}/${WIN_EXE_NAME}" \
           node <<'NODE'
           const fs = require("fs");
           fs.writeFileSync(
@@ -136,5 +134,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "MonoCode $VERSION" \
             --notes "See CHANGELOG.md for details. In-app updates use latest.json on this release." \
-            "$WIN_EXE" "$WIN_ZIP" "$WIN_SIG" \
+            "$WIN_EXE" "$WIN_SIG" \
             latest.json

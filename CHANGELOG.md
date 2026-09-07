@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - This fork is Windows-only: CI and GitHub Releases ship x86_64 NSIS; macOS/Linux package jobs, configs, and install docs are removed. Non-Windows targets fail at compile time.
-- First Warexpor GitHub Release / in-app updater channel (`latest.json` with `windows-x86_64`). Windows builds now emit signed updater artifacts when `TAURI_SIGNING_PRIVATE_KEY` is set.
+- First Warexpor GitHub Release / in-app updater channel (`latest.json` with `windows-x86_64`). Windows builds emit Tauri 2 signed updater artifacts (`*-setup.exe` + `.sig`) when `TAURI_SIGNING_PRIVATE_KEY` is set.
 - Docs and package metadata describe [Warexpor/monocode](https://github.com/Warexpor/monocode) (install URLs, clone, security advisories, crate `repository` / `homepage`).
 
 ## [0.1.37] - 2026-09-07

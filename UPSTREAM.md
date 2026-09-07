@@ -94,7 +94,7 @@ If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Losing
 1. Bump `package.json`, `Cargo.toml` workspace version, and `src-tauri/tauri.conf.json` to the same `X.Y.Z` (`npm run set-version -- X.Y.Z`).
 2. Add a `## [X.Y.Z]` section to `CHANGELOG.md`.
 3. Commit, push `main`, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. Wait for the Release workflow. Confirm the release has `latest.json`, the NSIS installer, and `.nsis.zip` + `.sig`.
+4. Wait for the Release workflow. Confirm the release has `latest.json`, the NSIS installer (`*-setup.exe`), and `*-setup.exe.sig`.
 5. Install that build; the sidebar “Check for updates” control should hit your `latest.json`.
 
 Upstream’s Apple/R2 updater secrets are not used here.
