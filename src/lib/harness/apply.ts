@@ -90,11 +90,9 @@ export function applyHarnessEvent(
     case "plan":
       return upsertPlan(session, event);
     case "session.error":
-      return appendBlock(stopStreaming(session), {
-        id: crypto.randomUUID(),
-        role: "system",
-        text: event.message,
-      });
+      // Harnesses often emit then throw; App also records the catch. Collapse
+      // consecutive duplicates so the transcript shows one failure line.
+      return appendStatus(stopStreaming(session), event.message);
     case "session.providerBound":
       return { ...session, providerSessionId: event.providerSessionId };
     case "session.configChanged":

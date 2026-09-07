@@ -529,7 +529,12 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
     const percentage = numberField(update, "percentage");
     const reason = stringField(update, "reason");
     const pct = percentage != null ? ` (${percentage}%)` : "";
-    return [
+    const tokensUsed =
+      numberField(update, "tokens_used") ?? numberField(update, "tokensUsed");
+    const contextWindow =
+      numberField(update, "context_window") ??
+      numberField(update, "contextWindow");
+    const events: HarnessEvent[] = [
       {
         type: "status",
         text: reason?.trim()
@@ -537,12 +542,22 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
           : `Compacting context${pct}`,
       },
     ];
+    // Real window occupancy — not ledger spend.
+    if (tokensUsed != null || contextWindow != null) {
+      events.push({
+        type: "context",
+        used: tokensUsed ?? undefined,
+        window: contextWindow ?? undefined,
+      });
+    }
+    return events;
   }
 
   if (kind === "auto_compact_completed") {
-    const after = numberField(update, "tokens_after");
+    const after =
+      numberField(update, "tokens_after") ?? numberField(update, "tokensAfter");
     const preview = stringField(update, "summary_preview");
-    return [
+    const events: HarnessEvent[] = [
       {
         type: "status",
         text: preview?.trim()
@@ -550,11 +565,27 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
           : `Compacted context${after != null ? ` · ${after} tokens` : ""}`,
       },
     ];
+    if (after != null) events.push({ type: "context", used: after });
+    return events;
   }
 
   if (kind === "auto_compact_failed") {
     const error = stringField(update, "error") ?? "compaction failed";
     return [{ type: "status", text: `Compact failed: ${error}` }];
+  }
+
+  // Per-response prompt occupancy (Messages message_start / message_stop).
+  // This is the context-window level — unlike TurnCompleted.usage, which is
+  // cumulative ledger spend including folded subagents.
+  if (kind === "response_started" || kind === "response_completed") {
+    const occupancy = occupancyFromResponseUpdate(update);
+    return occupancy ? withPromptIndex([occupancy]) : withPromptIndex([]);
+  }
+
+  // TurnCompleted.usage is PromptUsage from the session ledger (main loop +
+  // agents). Never map it onto the context meter.
+  if (kind === "turn_completed") {
+    return withPromptIndex([]);
   }
 
   if (
@@ -580,33 +611,7 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
   if (backgroundEvent) return [backgroundEvent];
 
   if (kind === "goal_updated") {
-    const objective =
-      stringField(update, "objective") ?? stringField(update, "title") ?? "Goal";
-    const status = stringField(update, "status") ?? "active";
-    const phase = stringField(update, "phase");
-    const detail = [status, phase, stringField(update, "last_event_detail")]
-      .filter(Boolean)
-      .join(" · ");
-    return [
-      {
-        type: "background.updated",
-        id: `goal:${stringField(update, "goal_id") ?? "current"}`,
-        status:
-          status === "complete"
-            ? "completed"
-            : status === "cleared"
-              ? "cancelled"
-              : status.includes("paused") || status === "blocked"
-                ? "failed"
-                : "running",
-        title: objective,
-        detail,
-      },
-      {
-        type: "status",
-        text: `Goal (${status}): ${objective}`,
-      },
-    ];
+    return goalEventsFromUpdate(update);
   }
 
   if (kind === "workflow_updated") {
@@ -710,15 +715,32 @@ function agentEventFromUpdate(
     };
   }
   if (kind === "subagent_progress") {
-    const turns = numberField(update, "completed_turns") ?? numberField(update, "completedTurns");
-    const durationMs = numberField(update, "duration_ms") ?? numberField(update, "durationMs");
+    const turns =
+      numberField(update, "turn_count") ??
+      numberField(update, "completed_turns") ??
+      numberField(update, "completedTurns");
+    const tools =
+      numberField(update, "tool_call_count") ??
+      numberField(update, "toolCallCount");
+    const ctxPct =
+      numberField(update, "context_usage_pct") ??
+      numberField(update, "contextUsagePct");
+    const durationMs =
+      numberField(update, "duration_ms") ?? numberField(update, "durationMs");
+    const detail = [
+      turns != null ? `${turns} turn${turns === 1 ? "" : "s"}` : null,
+      tools != null ? `${tools} tool${tools === 1 ? "" : "s"}` : null,
+      ctxPct != null ? `${ctxPct}% ctx` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return {
       type: "agent.updated",
       id,
       status: "running",
       title,
       kind: kindLabel,
-      detail: turns != null ? `${turns} turn${turns === 1 ? "" : "s"}` : undefined,
+      detail: detail || undefined,
       durationMs: durationMs ?? undefined,
     };
   }
@@ -746,6 +768,92 @@ function agentEventFromUpdate(
       numberField(update, "durationMs") ??
       undefined,
   };
+}
+
+function goalEventsFromUpdate(
+  update: Record<string, unknown>,
+): HarnessEvent[] {
+  const goalId = stringField(update, "goal_id") ?? "current";
+  const objective =
+    stringField(update, "objective") ?? stringField(update, "title") ?? "Goal";
+  const status = (stringField(update, "status") ?? "active").toLowerCase();
+  const phase = stringField(update, "phase");
+  const pauseMessage = stringField(update, "pause_message");
+  const deliverable =
+    stringField(update, "current_deliverable_title") ??
+    stringField(update, "currentDeliverableTitle");
+  const completed =
+    numberField(update, "completed_deliverables") ??
+    numberField(update, "completedDeliverables");
+  const total =
+    numberField(update, "total_deliverables") ??
+    numberField(update, "totalDeliverables");
+  const tokensUsed =
+    numberField(update, "tokens_used") ?? numberField(update, "tokensUsed");
+  const tokenBudget =
+    numberField(update, "token_budget") ?? numberField(update, "tokenBudget");
+  const liveContextPct =
+    numberField(update, "live_context_pct") ??
+    numberField(update, "liveContextPct");
+  const lastDetail = stringField(update, "last_event_detail");
+  const verifying = update.verifying_completion === true || update.verifyingCompletion === true;
+  const planning = update.planning === true || phase === "planning";
+
+  const paused =
+    status.includes("paused") ||
+    status === "blocked" ||
+    status === "budget_limited";
+  const taskStatus: "running" | "completed" | "failed" | "cancelled" =
+    status === "complete"
+      ? "completed"
+      : status === "cleared"
+        ? "cancelled"
+        : "running";
+
+  const detailParts: string[] = [];
+  if (paused) detailParts.push(status.replace(/_/g, " "));
+  else if (verifying) detailParts.push("verifying");
+  else if (planning) detailParts.push("planning");
+  else if (phase && phase !== "idle") detailParts.push(phase);
+  if (
+    completed != null &&
+    total != null &&
+    total > 0
+  ) {
+    detailParts.push(`${completed}/${total} deliverables`);
+  }
+  if (deliverable?.trim()) detailParts.push(deliverable.trim());
+  if (tokensUsed != null && tokensUsed > 0) {
+    detailParts.push(
+      tokenBudget != null && tokenBudget > 0
+        ? `${formatCompactCount(tokensUsed)} / ${formatCompactCount(tokenBudget)} tokens`
+        : `${formatCompactCount(tokensUsed)} tokens`,
+    );
+  }
+  if (liveContextPct != null) detailParts.push(`${liveContextPct}% ctx`);
+  if (pauseMessage?.trim()) detailParts.push(pauseMessage.trim());
+  else if (lastDetail?.trim() && !paused) detailParts.push(lastDetail.trim());
+
+  return [
+    {
+      type: "background.updated",
+      id: `goal:${goalId}`,
+      status: taskStatus,
+      title: objective,
+      detail: detailParts.join(" · ") || status,
+    },
+  ];
+}
+
+function formatCompactCount(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return "0";
+  if (count < 1000) return String(Math.round(count));
+  if (count < 1_000_000) {
+    const thousands = count / 1000;
+    return `${thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, "") : Math.round(thousands)}K`;
+  }
+  const millions = count / 1_000_000;
+  return `${millions < 10 ? millions.toFixed(1).replace(/\.0$/, "") : Math.round(millions)}M`;
 }
 
 function backgroundEventFromUpdate(
@@ -1147,30 +1255,37 @@ function previewKind(kind?: string): ToolPreview["kind"] {
   return "read";
 }
 
+/**
+ * Context-window occupancy from a Grok ACP update.
+ *
+ * Grok's PromptUsage / `totalTokens` on TurnCompleted and `x.ai/session/usage`
+ * are cumulative ledger spend (main loop + folded subagents) and must never
+ * drive the meter. Prefer explicit occupancy fields, then a single-response
+ * prompt sum (input + disjoint cache buckets).
+ */
 function usageFromUpdate(update: Record<string, unknown>): HarnessEvent | null {
   const usage =
     asRecord(update.usage) ??
     asRecord(update.tokenUsage) ??
     asRecord(update.token_usage) ??
-    (hasUsageFields(update) ? update : null);
+    (hasOccupancyFields(update) ? update : null);
   if (!usage) return null;
-  const used =
-    numberField(usage, "totalTokens") ??
-    numberField(usage, "used") ??
-    numberField(usage, "usedTokens") ??
-    numberField(usage, "used_tokens") ??
-    sumNumbers(usage, [
-      "inputTokens",
-      "outputTokens",
-      "input_tokens",
-      "output_tokens",
-    ]);
+
+  // Ledger-shaped PromptUsage (session/turn bill) — not a window level.
+  if (isLedgerUsage(usage)) return null;
+
+  const used = occupancyTokens(usage);
   const window =
     numberField(usage, "window") ??
     numberField(usage, "contextWindow") ??
     numberField(usage, "context_window") ??
-    numberField(usage, "maxTokens");
+    numberField(update, "context_window") ??
+    numberField(update, "contextWindow") ??
+    numberField(update, "context_window_tokens");
   if (used == null && window == null) return null;
+  if (used != null && window != null && used > window) {
+    return { type: "context", window };
+  }
   return {
     type: "context",
     used: used ?? undefined,
@@ -1178,11 +1293,76 @@ function usageFromUpdate(update: Record<string, unknown>): HarnessEvent | null {
   };
 }
 
-function hasUsageFields(rec: Record<string, unknown>): boolean {
+function occupancyFromResponseUpdate(
+  update: Record<string, unknown>,
+): HarnessEvent | null {
+  const usage = asRecord(update.usage) ?? update;
+  const used = occupancyTokens(usage);
+  if (used == null || used <= 0) return null;
+  return { type: "context", used };
+}
+
+/** True when the payload is a session/turn spend ledger, not window occupancy. */
+function isLedgerUsage(usage: Record<string, unknown>): boolean {
+  if (usage.modelUsage != null || usage.model_usage != null) return true;
+  if (numberField(usage, "numTurns") != null) return true;
+  if (numberField(usage, "modelCalls") != null) return true;
+  if (numberField(usage, "model_calls") != null) return true;
+  // totalTokens without an explicit occupancy field is almost always spend.
+  if (
+    numberField(usage, "totalTokens") != null &&
+    numberField(usage, "used") == null &&
+    numberField(usage, "tokens_used") == null &&
+    numberField(usage, "tokensUsed") == null &&
+    numberField(usage, "tokens_after") == null
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function occupancyTokens(usage: Record<string, unknown>): number | undefined {
+  const explicit =
+    numberField(usage, "tokens_used") ??
+    numberField(usage, "tokensUsed") ??
+    numberField(usage, "used") ??
+    numberField(usage, "usedTokens") ??
+    numberField(usage, "used_tokens") ??
+    numberField(usage, "tokens_after") ??
+    numberField(usage, "tokensAfter");
+  if (explicit != null) return explicit;
+
+  const input =
+    numberField(usage, "inputTokens") ?? numberField(usage, "input_tokens");
+  if (input == null) return undefined;
+
+  // ResponseUsage keeps cache buckets disjoint from input_tokens.
+  const hasDisjointCache =
+    numberField(usage, "cache_read_input_tokens") != null ||
+    numberField(usage, "cacheReadInputTokens") != null ||
+    numberField(usage, "cache_creation_input_tokens") != null ||
+    numberField(usage, "cacheCreationInputTokens") != null;
+  if (!hasDisjointCache) return input;
+
+  const cacheRead =
+    numberField(usage, "cache_read_input_tokens") ??
+    numberField(usage, "cacheReadInputTokens") ??
+    0;
+  const cacheCreate =
+    numberField(usage, "cache_creation_input_tokens") ??
+    numberField(usage, "cacheCreationInputTokens") ??
+    0;
+  return input + cacheRead + cacheCreate;
+}
+
+function hasOccupancyFields(rec: Record<string, unknown>): boolean {
   return (
     numberField(rec, "used") != null ||
-    numberField(rec, "totalTokens") != null ||
-    numberField(rec, "inputTokens") != null
+    numberField(rec, "tokens_used") != null ||
+    numberField(rec, "tokensUsed") != null ||
+    numberField(rec, "tokens_after") != null ||
+    numberField(rec, "inputTokens") != null ||
+    numberField(rec, "input_tokens") != null
   );
 }
 

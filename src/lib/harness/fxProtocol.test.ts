@@ -148,6 +148,18 @@ describe("fx protocol", () => {
         usage: { used: 1200, window: 200000 },
       }),
     ).toEqual([{ type: "context", used: 1200, window: 200000 }]);
+
+    expect(
+      eventsFromAcpUpdate({
+        usage: { used: 5_000_000, contextWindow: 256_000 },
+      }),
+    ).toEqual([{ type: "context", window: 256_000 }]);
+
+    expect(
+      eventsFromAcpUpdate({
+        usage: { used: 90_000, maxTokens: 4096 },
+      }),
+    ).toEqual([{ type: "context", used: 90_000 }]);
   });
 
   it("parses fx models --json", () => {

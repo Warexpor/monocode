@@ -135,6 +135,8 @@ type Props = {
   onJumpToBottomReady?: (jump: () => void) => void;
   /** False while another tab is in front; local transcript state is retained. */
   visible?: boolean;
+  /** Overlay / reader surfaces that always show reasoning folds. */
+  forceShowReasoning?: boolean;
 };
 
 function AgentTranscriptComponent({
@@ -158,6 +160,7 @@ function AgentTranscriptComponent({
   onJumpToBottomChange,
   onJumpToBottomReady,
   visible = true,
+  forceShowReasoning = false,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scroller = useRef<HTMLDivElement>(null);
@@ -183,11 +186,12 @@ function AgentTranscriptComponent({
   );
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
-  const showReasoning = useSyncExternalStore(
+  const preferShowReasoning = useSyncExternalStore(
     subscribeShowReasoning,
     loadShowReasoning,
     loadShowReasoning,
   );
+  const showReasoning = forceShowReasoning || preferShowReasoning;
   const lastUserId = lastUserBlockId(blocks);
   const seenUserId = useRef(lastUserId);
   if (lastUserId !== seenUserId.current) {
@@ -804,7 +808,10 @@ function IconActionButton({
       title={title}
       aria-label={ariaLabel}
       className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
     >
       {children}
     </button>
@@ -1094,44 +1101,10 @@ function UserMessageBlock({
       }
     >
       <div className="group/user-msg relative min-w-0">
-        {showMutate ? (
-          <div
-            className={`mb-1 flex gap-1 ${chat ? "justify-end" : "justify-start"}`}
-          >
-            {showEdit ? (
-              <button
-                type="button"
-                title="Edit — load into composer"
-                aria-label="Edit message"
-                className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onEditResend?.(block.id);
-                }}
-              >
-                <PenLine className="size-3" strokeWidth={1.75} />
-                Edit
-              </button>
-            ) : null}
-            {showRevert ? (
-              <button
-                type="button"
-                title="Revert after — keep this turn, drop later"
-                aria-label="Revert after this turn"
-                className="inline-flex items-center gap-1 rounded-md bg-content/10 px-1.5 py-0.5 font-sans text-[11px] text-content/55 hover:bg-content/15 hover:text-content/80"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRevertAfter?.(block.id);
-                }}
-              >
-                <RotateCcw className="size-3" strokeWidth={1.75} />
-                Revert after
-              </button>
-            ) : null}
-          </div>
-        ) : null}
         <div
-          className={`min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
+          className={`relative min-w-0 bg-content/10 px-3 py-2 font-sans text-content ${
+            showMutate ? "pr-12" : ""
+          } ${
             chat
               ? `w-fit max-w-xl ${singleLine ? "rounded-full" : "rounded-xl"}`
               : "rounded-lg border border-content/10"
@@ -1139,6 +1112,28 @@ function UserMessageBlock({
           style={{ zIndex: stickyIndex }}
           onClick={overflows ? toggle : undefined}
         >
+          {showMutate ? (
+            <div className="absolute top-1/2 right-2 z-10 flex -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100">
+              {showEdit ? (
+                <IconActionButton
+                  title="Edit — load into composer"
+                  ariaLabel="Edit message"
+                  onClick={() => onEditResend?.(block.id)}
+                >
+                  <PenLine className="size-3.5" strokeWidth={1.75} />
+                </IconActionButton>
+              ) : null}
+              {showRevert ? (
+                <IconActionButton
+                  title="Revert after — keep this turn, drop later"
+                  ariaLabel="Revert after this turn"
+                  onClick={() => onRevertAfter?.(block.id)}
+                >
+                  <RotateCcw className="size-3.5" strokeWidth={1.75} />
+                </IconActionButton>
+              ) : null}
+            </div>
+          ) : null}
           {block.attachments?.length ? (
             <div
               className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
@@ -1683,7 +1678,8 @@ function ActivityRow({
 
 /**
  * Shown reasoning under the work line: a one-line summary until you open it.
- * Stays open while the thought streams so you can watch it grow.
+ * Stays open while the thought streams so you can watch it grow, then folds
+ * when the stream ends so settled thoughts stay quiet in the transcript.
  */
 function ReasoningPanel({
   block,
@@ -1702,6 +1698,7 @@ function ReasoningPanel({
 
   useEffect(() => {
     if (streaming) setOpen(true);
+    else setOpen(false);
   }, [streaming]);
 
   const summary = proseSummary(prose) || "Thought";
@@ -1711,44 +1708,42 @@ function ReasoningPanel({
     <div
       className={`agent-reasoning-panel min-w-0 px-4 ${underLine ? "pt-0.5 pb-1" : "py-1"}`}
     >
-      <div className="rounded-md border border-content/8 bg-content/[0.03] px-2.5 py-1 text-content/55">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={open ? "Hide thought" : `Show thought: ${summary}`}
-          onClick={() => setOpen((value) => !value)}
-          className="group flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left"
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={open ? "Hide thought" : `Show thought: ${summary}`}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex w-full min-w-0 items-center gap-1.5 py-1 text-left"
+      >
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <AiIdea
+            className={`size-3.5 text-content/40 transition-opacity duration-200 group-hover:opacity-0 ${pulse}`}
+            strokeWidth={1.75}
+          />
+          <ChevronRight
+            className={`absolute size-3.5 text-content/45 opacity-0 transition-[opacity,transform] duration-200 ease-out group-hover:opacity-100 ${
+              open ? "rotate-90" : ""
+            }`}
+            strokeWidth={1.75}
+          />
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/75 ${pulse}`}
         >
-          <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-            <AiIdea
-              className={`size-3.5 text-content/40 transition-opacity duration-200 group-hover:opacity-0 ${pulse}`}
-              strokeWidth={1.75}
-            />
-            <ChevronRight
-              className={`absolute size-3.5 text-content/45 opacity-0 transition-[opacity,transform] duration-200 ease-out group-hover:opacity-100 ${
-                open ? "rotate-90" : ""
-              }`}
-              strokeWidth={1.75}
-            />
-          </span>
-          <span
-            className={`min-w-0 flex-1 truncate font-sans text-[12px] text-content/45 transition-colors duration-200 group-hover:text-content/70 ${pulse}`}
-          >
-            {open ? "Thought" : summary}
-          </span>
-        </button>
-        <Collapse open={open}>
-          <div className="min-w-0 px-0.5 pt-1 pb-1.5">
-            <AgentMarkdown
-              text={prose}
-              streaming={streaming}
-              className="agent-reasoning"
-              cwd={cwd}
-              onOpenFile={onOpenFile}
-            />
-          </div>
-        </Collapse>
-      </div>
+          {open ? "Thought" : summary}
+        </span>
+      </button>
+      <Collapse open={open}>
+        <div className="min-w-0 pb-2 pl-5">
+          <AgentMarkdown
+            text={prose}
+            streaming={streaming}
+            className="agent-reasoning"
+            cwd={cwd}
+            onOpenFile={onOpenFile}
+          />
+        </div>
+      </Collapse>
     </div>
   );
 }

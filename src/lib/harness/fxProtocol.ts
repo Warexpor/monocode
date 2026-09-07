@@ -532,10 +532,11 @@ function usageFromUpdate(update: Record<string, unknown>): HarnessEvent | null {
     numberField(usage, "window") ??
     numberField(usage, "size") ??
     numberField(usage, "contextWindow") ??
-    numberField(usage, "context_window") ??
-    numberField(usage, "maxTokens") ??
-    numberField(usage, "max_tokens");
+    numberField(usage, "context_window");
   if (used == null && window == null) return null;
+  if (used != null && window != null && used > window) {
+    return { type: "context", window };
+  }
   return { type: "context", used: used ?? undefined, window: window ?? undefined };
 }
 

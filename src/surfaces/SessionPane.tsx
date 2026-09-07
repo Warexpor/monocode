@@ -1,4 +1,4 @@
-import { ChevronDown, GripVertical, X } from "../chrome/icons";
+import { ChevronDown, GripVertical, Maximize2, X } from "../chrome/icons";
 import {
   memo,
   useCallback,
@@ -121,6 +121,7 @@ type Props = {
   onRevertAfter?: (sessionId: string, userBlockId: string) => void;
   onNewTerminal: (sessionId: string) => void;
   onBtwAsideDismiss?: (sessionId: string) => void;
+  onOpenTranscriptOverlay?: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
@@ -164,6 +165,7 @@ export const SessionPane = memo(function SessionPane({
   onRevertAfter,
   onNewTerminal,
   onBtwAsideDismiss,
+  onOpenTranscriptOverlay,
   onPaneDragStart,
 }: Props) {
   const title = sessionDisplayTitle(session.title, session.harness);
@@ -387,6 +389,23 @@ export const SessionPane = memo(function SessionPane({
           >
             {title}
           </span>
+          {onOpenTranscriptOverlay && !isEmpty ? (
+            <button
+              type="button"
+              title="Open full transcript"
+              aria-label="Open full transcript"
+              data-no-drag
+              className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenTranscriptOverlay(session.id);
+              }}
+            >
+              <Maximize2 className="size-3" strokeWidth={1.75} />
+            </button>
+          ) : null}
           <button
             type="button"
             title={`Close Pane (${MOD}W)`}
@@ -419,6 +438,19 @@ export const SessionPane = memo(function SessionPane({
         ) : (
           <div className="flex h-full min-h-0">
             <div className="relative min-h-0 min-w-0 flex-1">
+              {onOpenTranscriptOverlay && !inSplit ? (
+                <div className="pointer-events-none absolute top-2 right-2 z-30">
+                  <button
+                    type="button"
+                    title="Open full transcript"
+                    aria-label="Open full transcript"
+                    onClick={() => onOpenTranscriptOverlay(session.id)}
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/60 shadow-md backdrop-blur-md hover:bg-content/5 hover:text-content"
+                  >
+                    <Maximize2 className="size-3.5" strokeWidth={1.75} />
+                  </button>
+                </div>
+              ) : null}
               <AgentTranscript
                 blocks={session.blocks}
                 busy={!!session.busy}

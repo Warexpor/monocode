@@ -198,7 +198,7 @@ export const GROK_FEATURE_MAP: GrokFeature[] = [
     id: "goals",
     title: "Autonomous goals progress",
     coverage: "ui",
-    notes: "goal_updated → Activity panel + status",
+    notes: "goal_updated → Activity Goal card (deliverables/tokens/ctx); no status spam",
   },
   {
     id: "steer",

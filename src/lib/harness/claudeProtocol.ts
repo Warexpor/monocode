@@ -1010,6 +1010,10 @@ export function contextUsedFromAssistant(
  * of `usage.iterations` is what actually sits in the window. `modelUsage`
  * carries the window itself, which is why we let the CLI tell us rather than
  * keeping a model table in sync.
+ *
+ * When `iterations` is missing, top-level usage is only trusted if it still
+ * looks like a single window level (≤ window). A multi-million turn sum with
+ * no iterations must not overwrite the last assistant reading on the meter.
  */
 export function contextFromResult(
   rec: Record<string, unknown>,
@@ -1017,7 +1021,9 @@ export function contextFromResult(
   const usage = asRecord(rec.usage);
   const iterations = Array.isArray(usage?.iterations) ? usage.iterations : [];
   const last = asRecord(iterations[iterations.length - 1]);
-  const used = contextUsedFromUsage(last ?? usage);
+  let used = contextUsedFromUsage(
+    last ?? (iterations.length ? null : usage),
+  );
 
   let window: number | undefined;
   const modelUsage = asRecord(rec.modelUsage);
@@ -1027,6 +1033,10 @@ export function contextFromResult(
       window = Math.max(window ?? 0, contextWindow);
     }
   }
+
+  // Turn-summed usage without a last iteration can exceed the window; that is
+  // spend, not occupancy. Drop `used` so merge keeps the last assistant level.
+  if (window && used > window) used = 0;
 
   if (!used && !window) return undefined;
   return { used: used > 0 ? used : undefined, window };

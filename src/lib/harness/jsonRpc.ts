@@ -31,6 +31,39 @@ export type JsonRpcClientOptions = {
   label?: string;
 };
 
+/** Prefer nested provider detail when the top-level message is a generic shell. */
+export function formatJsonRpcError(
+  error: { code?: number; message?: string; data?: unknown },
+  label: string,
+): string {
+  const headline =
+    error.message?.trim() || `${label} error ${error.code ?? ""}`.trim();
+  const detail = jsonRpcErrorDetail(error.data);
+  if (!detail) return headline || `${label} error`;
+  if (!headline || /^internal error$/i.test(headline)) return detail;
+  if (detail === headline || headline.includes(detail)) return headline;
+  return `${headline}: ${detail}`;
+}
+
+function jsonRpcErrorDetail(data: unknown): string | undefined {
+  if (data == null) return undefined;
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    return trimmed || undefined;
+  }
+  if (typeof data !== "object") return String(data);
+  const rec = data as Record<string, unknown>;
+  for (const key of ["message", "error", "detail", "reason"] as const) {
+    const value = rec[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Bidirectional JSON-RPC / JSONL client over a harness child process stdin/stdout.
  * Supports numeric and string request ids; Codex app-server uses headerless frames.
@@ -173,11 +206,7 @@ export class JsonRpcClient {
       if (!pending) return;
       this.pending.delete(key);
       if (msg.error) {
-        pending.reject(
-          new Error(
-            msg.error.message || `${this.label} error ${msg.error.code ?? ""}`,
-          ),
-        );
+        pending.reject(new Error(formatJsonRpcError(msg.error, this.label)));
         return;
       }
       pending.resolve(msg.result);

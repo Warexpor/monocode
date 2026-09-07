@@ -1,4 +1,4 @@
-import { Bot, Loader, Terminal } from "./icons";
+import { Bot, Loader, Sparkles, Terminal } from "./icons";
 import type {
   SessionAgent,
   SessionBackgroundTask,
@@ -9,13 +9,22 @@ type Props = {
   backgroundTasks?: SessionBackgroundTask[];
 };
 
+export function isGoalTask(task: SessionBackgroundTask): boolean {
+  return task.id.startsWith("goal:");
+}
+
+export function isVisibleActivityTask(task: SessionBackgroundTask): boolean {
+  if (task.status === "running" || task.status === "failed") return true;
+  // Keep Grok /goal chrome in the panel after settle so progress doesn't vanish.
+  if (isGoalTask(task) && task.status === "completed") return true;
+  return false;
+}
+
 export function AgentActivityPanel({ agents = [], backgroundTasks = [] }: Props) {
   const visibleAgents = agents.filter(
     (agent) => agent.status === "running" || agent.status === "failed",
   );
-  const visibleTasks = backgroundTasks.filter(
-    (task) => task.status === "running" || task.status === "failed",
-  );
+  const visibleTasks = backgroundTasks.filter(isVisibleActivityTask);
   if (visibleAgents.length === 0 && visibleTasks.length === 0) return null;
 
   return (
@@ -58,30 +67,39 @@ export function AgentActivityPanel({ agents = [], backgroundTasks = [] }: Props)
             </div>
           </li>
         ))}
-        {visibleTasks.map((task) => (
-          <li
-            key={`task:${task.id}`}
-            className="flex min-w-0 items-start gap-2.5 px-2.5 py-1.5"
-          >
-            <span className="mt-px grid size-4 shrink-0 place-items-center text-sky-300">
-              {task.status === "running" ? (
-                <Loader className="size-3.5 animate-spin" strokeWidth={2} />
-              ) : (
-                <Terminal className="size-3.5" strokeWidth={1.75} />
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-sans text-[12.5px] leading-4.5 text-content/85">
-                {task.title}
-              </div>
-              {task.detail ? (
-                <div className="truncate font-mono text-[10.5px] text-content/45">
-                  {task.detail}
+        {visibleTasks.map((task) => {
+          const goal = isGoalTask(task);
+          return (
+            <li
+              key={`task:${task.id}`}
+              className="flex min-w-0 items-start gap-2.5 px-2.5 py-1.5"
+            >
+              <span
+                className={`mt-px grid size-4 shrink-0 place-items-center ${
+                  goal ? "text-amber-300" : "text-sky-300"
+                }`}
+              >
+                {task.status === "running" ? (
+                  <Loader className="size-3.5 animate-spin" strokeWidth={2} />
+                ) : goal ? (
+                  <Sparkles className="size-3.5" strokeWidth={1.75} />
+                ) : (
+                  <Terminal className="size-3.5" strokeWidth={1.75} />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-sans text-[12.5px] leading-4.5 text-content/85">
+                  {goal ? `Goal · ${task.title}` : task.title}
                 </div>
-              ) : null}
-            </div>
-          </li>
-        ))}
+                {task.detail ? (
+                  <div className="truncate font-mono text-[10.5px] text-content/45">
+                    {task.detail}
+                  </div>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

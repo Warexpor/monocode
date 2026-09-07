@@ -292,6 +292,51 @@ describe("grok protocol", () => {
 
     expect(
       eventsFromAcpUpdate({
+        sessionUpdate: "goal_updated",
+        goal_id: "g1",
+        objective: "Ship context meter fix",
+        status: "active",
+        phase: "executing",
+        tokens_used: 12500,
+        token_budget: 200000,
+        completed_deliverables: 1,
+        total_deliverables: 3,
+        current_deliverable_title: "Prove occupancy mapping",
+        live_context_pct: 41,
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "goal:g1",
+        status: "running",
+        title: "Ship context meter fix",
+        detail:
+          "executing · 1/3 deliverables · Prove occupancy mapping · 13K / 200K tokens · 41% ctx",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "goal_updated",
+        goal_id: "g1",
+        objective: "Ship context meter fix",
+        status: "user_paused",
+        phase: "idle",
+        pause_message: "Waiting on your call",
+        tokens_used: 12500,
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "goal:g1",
+        status: "running",
+        title: "Ship context meter fix",
+        detail: "user paused · 13K tokens · Waiting on your call",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
         sessionUpdate: "auto_compact_started",
         percentage: 87,
         reason: "threshold",
@@ -361,7 +406,7 @@ describe("grok protocol", () => {
     ).toEqual([{ type: "status", text: "Summary: Done reviewing the diff" }]);
   });
 
-  it("maps turn_completed usage onto the context meter", () => {
+  it("ignores turn_completed ledger usage — that is spend, not occupancy", () => {
     expect(
       eventsFromAcpUpdate({
         sessionUpdate: "turn_completed",
@@ -371,7 +416,89 @@ describe("grok protocol", () => {
           totalTokens: 19798,
         },
       }),
-    ).toEqual([{ type: "context", used: 19798 }]);
+    ).toEqual([]);
+  });
+
+  it("ignores multi-million agent ledger totals on the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "turn_completed",
+        usage: {
+          inputTokens: 4_200_000,
+          outputTokens: 800_000,
+          totalTokens: 5_000_000,
+          numTurns: 48,
+          modelUsage: { "muse-spark": { inputTokens: 4_200_000 } },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("maps response_started prompt tokens onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "response_started",
+        input_tokens: 12_000,
+        cache_read_input_tokens: 80_000,
+        cache_creation_input_tokens: 1_500,
+      }),
+    ).toEqual([{ type: "context", used: 93_500 }]);
+  });
+
+  it("maps auto_compact_started occupancy onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_started",
+        tokens_used: 210_000,
+        context_window: 256_000,
+        percentage: 82,
+        reason: "threshold",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacting context (82%): threshold",
+      },
+      { type: "context", used: 210_000, window: 256_000 },
+    ]);
+  });
+
+  it("maps auto_compact_completed tokens_after onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_completed",
+        tokens_after: 42_000,
+        summary_preview: "trimmed history",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacted context · 42000 tokens: trimmed history",
+      },
+      { type: "context", used: 42_000 },
+    ]);
+  });
+
+  it("does not treat maxTokens as the context window", () => {
+    expect(
+      eventsFromAcpUpdate({
+        usage: {
+          used: 12_000,
+          maxTokens: 8192,
+        },
+      }),
+    ).toEqual([{ type: "context", used: 12_000 }]);
+  });
+
+  it("drops spend that exceeds the reported window", () => {
+    expect(
+      eventsFromAcpUpdate({
+        usage: {
+          used: 4_200_000,
+          contextWindow: 200_000,
+        },
+      }),
+    ).toEqual([{ type: "context", window: 200_000 }]);
   });
 
   it("maps plan entries", () => {

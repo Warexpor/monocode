@@ -117,6 +117,9 @@ type Shared = {
     turn: Block[],
     model: string,
   ) => void;
+  onEditResend?: (sessionId: string, userBlockId: string) => void;
+  onRevertAfter?: (sessionId: string, userBlockId: string) => void;
+  onOpenTranscriptOverlay?: (sessionId: string) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
@@ -179,6 +182,9 @@ function PaneTreeComponent({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onEditResend,
+  onRevertAfter,
+  onOpenTranscriptOverlay,
   onMovePane,
   onNewTerminal,
   onTerminalMetaChange,
@@ -383,6 +389,9 @@ function PaneTreeComponent({
                 onBuildPlan={onBuildPlan}
                 onSecondOpinion={onSecondOpinion}
                 onHandoff={onHandoff}
+                onEditResend={onEditResend}
+                onRevertAfter={onRevertAfter}
+                onOpenTranscriptOverlay={onOpenTranscriptOverlay}
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
               />

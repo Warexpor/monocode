@@ -337,6 +337,7 @@ import { InboxView } from "./surfaces/InboxView";
 import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { NotesView } from "./surfaces/NotesView";
+import { TranscriptOverlayView } from "./surfaces/TranscriptOverlayView";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
 import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
@@ -663,6 +664,7 @@ export default function App({
   const [inboxAskPortal, setInboxAskPortal] = useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [notesViewOpen, setNotesViewOpen] = useState(false);
+  const [transcriptOverlayOpen, setTranscriptOverlayOpen] = useState(false);
   const notesEnabled = useSyncExternalStore(
     subscribeNotesEnabled,
     loadNotesEnabled,
@@ -733,6 +735,8 @@ export default function App({
   inboxViewOpenRef.current = inboxViewOpen;
   const notesViewOpenRef = useRef(notesViewOpen);
   notesViewOpenRef.current = notesViewOpen;
+  const transcriptOverlayOpenRef = useRef(transcriptOverlayOpen);
+  transcriptOverlayOpenRef.current = transcriptOverlayOpen;
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
@@ -1489,6 +1493,7 @@ export default function App({
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
     const session = newDefaultSession(cwd, sessionDefaults?.runtimeMode);
     const tab = newTab(session.id);
@@ -1510,6 +1515,7 @@ export default function App({
       const start = (description?: string) => {
         setInboxViewOpen(false);
         setNotesViewOpen(false);
+        setTranscriptOverlayOpen(false);
         setSidebarTab("sessions");
         const cwd =
           item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
@@ -1563,6 +1569,7 @@ export default function App({
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setNotesViewOpen(false);
+      setTranscriptOverlayOpen(false);
       setSidebarTab("sessions");
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
@@ -3165,6 +3172,7 @@ export default function App({
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setNotesViewOpen(false);
+      setTranscriptOverlayOpen(false);
       const normalized = normalizeProjectPath(path);
       if (!looksLikeProject(normalized)) return;
 
@@ -4709,6 +4717,7 @@ export default function App({
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setNotesViewOpen(false);
+      setTranscriptOverlayOpen(false);
       onOpenApprovalSession(sessionId);
     },
     [onOpenApprovalSession],
@@ -4766,6 +4775,7 @@ export default function App({
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     setFilePickerOpen(true);
   }, []);
 
@@ -4773,6 +4783,7 @@ export default function App({
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     ensureWorkspaceSidebarOpen();
     setSidebarTab("files");
     setFilesSearchOpen(true);
@@ -4784,6 +4795,7 @@ export default function App({
     setSettingsOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     setSearchViewOpen(true);
     setSearchViewFocusToken((token) => token + 1);
   }, []);
@@ -4798,6 +4810,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     setInboxViewOpen(true);
   }, []);
 
@@ -4811,6 +4824,7 @@ export default function App({
     setSettingsOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
+    setTranscriptOverlayOpen(false);
     setNotesViewOpen(true);
   }, []);
 
@@ -4818,11 +4832,26 @@ export default function App({
     setNotesViewOpen(false);
   }, []);
 
+  const onOpenTranscriptOverlay = useCallback((sessionId: string) => {
+    onFocusPane(sessionId);
+    setFilePickerOpen(false);
+    setSettingsOpen(false);
+    setSearchViewOpen(false);
+    setInboxViewOpen(false);
+    setNotesViewOpen(false);
+    setTranscriptOverlayOpen(true);
+  }, [onFocusPane]);
+
+  const onLeaveTranscriptOverlay = useCallback(() => {
+    setTranscriptOverlayOpen(false);
+  }, []);
+
   const openSettings = useCallback((section?: SettingsSectionId) => {
     setFilePickerOpen(false);
     setSearchViewOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     if (section) {
       setSettingsSection(section);
       saveSettingsSection(section);
@@ -4866,14 +4895,26 @@ export default function App({
       setNotesViewOpen(false);
       return;
     }
+    if (transcriptOverlayOpen) {
+      setTranscriptOverlayOpen(false);
+      return;
+    }
     onVisitBack();
-  }, [onVisitBack, searchViewOpen, settingsOpen, inboxViewOpen, notesViewOpen]);
+  }, [
+    onVisitBack,
+    searchViewOpen,
+    settingsOpen,
+    inboxViewOpen,
+    notesViewOpen,
+    transcriptOverlayOpen,
+  ]);
 
   const onRailForward = useCallback(() => {
     setSearchViewOpen(false);
     setSettingsOpen(false);
     setInboxViewOpen(false);
     setNotesViewOpen(false);
+    setTranscriptOverlayOpen(false);
     onVisitForward();
   }, [onVisitForward]);
 
@@ -5055,6 +5096,7 @@ export default function App({
             searchViewOpenRef.current ||
             inboxViewOpenRef.current ||
             notesViewOpenRef.current ||
+            transcriptOverlayOpenRef.current ||
             settingsOpenRef.current ||
             filePickerOpenRef.current ||
             Boolean(whatsNewVersionRef.current);
@@ -5129,6 +5171,7 @@ export default function App({
         !searchViewOpenRef.current &&
         !inboxViewOpenRef.current &&
         !notesViewOpenRef.current &&
+        !transcriptOverlayOpenRef.current &&
         handleEditorFindKey(e)
       ) {
         e.stopPropagation();
@@ -5364,6 +5407,7 @@ export default function App({
     onHandoff,
     onEditResend,
     onRevertAfter,
+    onOpenTranscriptOverlay,
     onNewTerminal: onNewTerminalInSession,
   };
 
@@ -5375,9 +5419,11 @@ export default function App({
       ? "inbox"
       : notesViewOpen
         ? "notes"
-        : searchViewOpen
-          ? "search"
-          : null;
+        : transcriptOverlayOpen
+          ? "transcript"
+          : searchViewOpen
+            ? "search"
+            : null;
 
   return (
     <div
@@ -5423,7 +5469,8 @@ export default function App({
           searchViewOpen ||
           settingsOpen ||
           inboxViewOpen ||
-          notesViewOpen
+          notesViewOpen ||
+          transcriptOverlayOpen
         }
         canGoForward={tabVisitNav.canForward}
         onGoBack={onRailBack}
@@ -5455,6 +5502,7 @@ export default function App({
         searchActive={searchViewOpen}
         inboxActive={inboxViewOpen}
         notesActive={notesViewOpen}
+        transcriptActive={transcriptOverlayOpen}
         notesEnabled={notesEnabled}
         projectRailOpen={projectRailOpen}
         onToggleProjectRail={onToggleProjectRail}
@@ -5685,6 +5733,40 @@ export default function App({
                 cwd={projectCwd}
                 onClose={onLeaveNotes}
                 onToggleSidebar={onToggleSidebar}
+              />
+            ) : null}
+            {transcriptOverlayOpen ? (
+              <TranscriptOverlayView
+                session={
+                  active && !active.inboxAsk
+                    ? active
+                    : (sessions.find((session) => !session.inboxAsk) ?? null)
+                }
+                besideRail={projectRailOpen}
+                onClose={onLeaveTranscriptOverlay}
+                onToggleSidebar={onToggleSidebar}
+                onApproval={
+                  active && !active.inboxAsk
+                    ? (requestId, decision) =>
+                        onApproval(active.id, requestId, decision)
+                    : undefined
+                }
+                onOpenFile={(path) => {
+                  setTranscriptOverlayOpen(false);
+                  onOpenFile(path);
+                }}
+                onOpenDiff={(path) => {
+                  setTranscriptOverlayOpen(false);
+                  onOpenDiff(path);
+                }}
+                onOpenPlan={
+                  active && !active.inboxAsk
+                    ? (blockId) => {
+                        setTranscriptOverlayOpen(false);
+                        onOpenPlan(active.id, blockId);
+                      }
+                    : undefined
+                }
               />
             ) : null}
             {settingsOpen ? (
