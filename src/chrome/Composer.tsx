@@ -1351,7 +1351,7 @@ export function Composer({
                     }}
                     className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                   >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                    <AiIdea className="mt-0.5 size-4 shrink-0 text-warning/80" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px]">Plan mode</span>
                       <span className="block text-[11px] leading-4 text-content/45">
@@ -1374,7 +1374,7 @@ export function Composer({
                   setPlanSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-[11px] text-yellow-200/90 hover:bg-yellow-300/18"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-warning/12 px-1.5 text-[11px] text-warning hover:bg-warning/18"
               >
                 <AiIdea className="size-3.5" />
                 Plan
@@ -1533,7 +1533,7 @@ function ComposerAction({
             title="Send"
             aria-label="Send"
             onClick={onSend}
-            className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+            className="grid size-6.5 place-items-center rounded-md bg-content text-background-base hover:bg-content/80"
           >
             <ArrowUp className="size-3.5" strokeWidth={2.25} />
           </button>
@@ -1543,7 +1543,7 @@ function ComposerAction({
           title="Stop"
           aria-label="Stop"
           onClick={onStop}
-          className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+          className="grid size-6.5 place-items-center rounded-md bg-content text-background-base hover:bg-content/80"
         >
           <Square className="size-2.5 fill-current" strokeWidth={0} />
         </button>
@@ -1558,7 +1558,7 @@ function ComposerAction({
       aria-label="Send"
       disabled={!hasValue}
       onClick={onSend}
-      className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
+      className="grid size-6.5 place-items-center rounded-md bg-content text-background-base hover:bg-content/80 disabled:cursor-default disabled:bg-content/30 disabled:text-background-base/60 disabled:hover:bg-content/30"
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>

@@ -204,7 +204,7 @@ function SelectSetting({
         }}
         className={`flex h-6.5 max-w-36 items-center gap-1 rounded-md px-1.5 ${
           open
-            ? "bg-content/10 text-content"
+            ? "bg-content/15 text-content"
             : "bg-content/10 text-content hover:bg-content/15"
         }`}
       >

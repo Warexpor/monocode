@@ -13,6 +13,18 @@
   --color-accent: hsl(211 92% 62%);
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
+  /*
+   * Semantic status colors. The pastel Tailwind palette values (red-400,
+   * emerald-400, …) read well on the dark base but fail contrast on the
+   * light one, so both themes route through these tokens instead.
+   */
+  --color-danger: #f87171;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-info: #7dd3fc;
+  --color-violet: #c4b5fd;
+  --color-link: var(--link-color);
+  --color-on-accent: #ffffff;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
@@ -57,6 +69,11 @@ html.theme-light {
   --color-skill: #a07c10;
   --color-mention: #0284c7;
   --color-markdown-heading: #be185d;
+  --color-danger: #dc2626;
+  --color-success: #059669;
+  --color-warning: #b45309;
+  --color-info: #0284c7;
+  --color-violet: #7c3aed;
   color-scheme: light;
 }
 
@@ -294,6 +311,28 @@ html.is-resizing * {
   app-region: no-drag;
 }
 
+/*
+ * One visible keyboard-focus indicator for the whole app. `:where()` keeps
+ * specificity at zero so component-level `outline-none` / ring utilities
+ * still win where a control styles focus itself (e.g. border swaps).
+ */
+:where(
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="switch"],
+  [role="slider"],
+  [role="treeitem"],
+  a[href]
+):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 [data-tauri-drag-region="false"] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -327,6 +366,10 @@ header[data-tauri-drag-region] button {
   border-radius: 999px;
   background: var(--color-content);
   cursor: pointer;
+}
+
+.sidebar-opacity-slider:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .agent-markdown [data-streamdown="code-block"],
@@ -1177,8 +1220,31 @@ html.has-native-glass.glass-body .mono-window {
 @media (prefers-reduced-motion: reduce) {
   .zen-step-in,
   .zen-tool-spin,
-  .zen-thinking-pulse {
+  .zen-thinking-pulse,
+  .shimmer-text,
+  /* Tailwind's looping utilities, frozen app-wide under reduced motion. */
+  .animate-spin,
+  .animate-pulse {
     animation: none;
+  }
+
+  /* Static mascot frame: resting face visible, talking face hidden. */
+  .mascot-active,
+  .mascot-rest,
+  .mascot-talk,
+  .composer-coin-face,
+  .composer-coin-edge {
+    animation: none;
+  }
+
+  .mascot-rest,
+  .composer-coin-face {
+    opacity: 1;
+  }
+
+  .mascot-talk,
+  .composer-coin-edge {
+    opacity: 0;
   }
 
   .zen-phase-body,

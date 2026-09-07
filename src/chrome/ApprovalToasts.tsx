@@ -62,7 +62,7 @@ function ApprovalToastCard({
   return (
     <article
       className="approval-toast pointer-events-auto overflow-hidden rounded-xl border border-content/20 border-dashed bg-content/10 shadow-xl backdrop-blur-xl"
-      role="status"
+      aria-label={`${notice.kind === "question" ? "Question" : "Approval"}: ${title}`}
     >
       <button
         type="button"
@@ -74,7 +74,7 @@ function ApprovalToastCard({
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-content">
             {title}
           </span>
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-amber-400">
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-warning">
             <CircleAlert className="size-3.5" strokeWidth={1.75} />
             <span>{notice.kind === "question" ? "Question" : "Approval"}</span>
           </span>

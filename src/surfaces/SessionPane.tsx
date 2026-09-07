@@ -409,7 +409,7 @@ export const SessionPane = memo(function SessionPane({
           <button
             type="button"
             title={`Close Pane (${MOD}W)`}
-            aria-label="Close pane"
+            aria-label={`Close pane (${MOD}W)`}
             data-no-drag
             className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
             onPointerDown={(e) => e.stopPropagation()}
@@ -445,7 +445,7 @@ export const SessionPane = memo(function SessionPane({
                     title="Open full transcript"
                     aria-label="Open full transcript"
                     onClick={() => onOpenTranscriptOverlay(session.id)}
-                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/60 shadow-md backdrop-blur-md hover:bg-content/5 hover:text-content"
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/60 shadow-md backdrop-blur-md hover:bg-content/20 hover:text-content"
                   >
                     <Maximize2 className="size-3.5" strokeWidth={1.75} />
                   </button>
@@ -499,7 +499,7 @@ export const SessionPane = memo(function SessionPane({
                     aria-label="Jump to latest"
                     data-jump-to-bottom
                     onClick={() => jumpToBottomRef.current?.()}
-                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md backdrop-blur-md hover:bg-content/20"
                   >
                     <ChevronDown className="size-4" strokeWidth={2} />
                   </button>

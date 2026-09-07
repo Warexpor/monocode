@@ -141,11 +141,12 @@ export function SurfaceTabs({
         className="scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
       >
       {onPaneDragStart ? (
+        // Pointer-only drag grip. Presentational: a non-focusable "button"
+        // inside a tablist is contradictory ARIA, and pane reorder has no
+        // keyboard model today.
         <div
-          role="button"
           title="Drag to reorder pane"
-          aria-label="Drag to reorder pane"
-          tabIndex={-1}
+          aria-hidden="true"
           className="grid h-full w-5 shrink-0 cursor-grab place-items-center text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
           onPointerDown={(event) => {
             if (event.button !== 0) return;
@@ -232,8 +233,8 @@ export function SurfaceTabs({
                 className={`min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
                   errors
                     ? active
-                      ? "text-red-400"
-                      : "text-red-400/75 group-hover:text-red-400"
+                      ? "text-danger"
+                      : "text-danger/75 group-hover:text-danger"
                     : ""
                 }`}
               >
@@ -258,7 +259,9 @@ export function SurfaceTabs({
                 onCloseFile(file.id);
               }}
               className={`absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
-                active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                active
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
               }`}
             >
               <X className="size-3" strokeWidth={1.75} />

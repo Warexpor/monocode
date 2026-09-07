@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { generateCommitMessage } from "../lib/harness";
 import { LAYER } from "../lib/layers";
 import { MOD } from "../lib/platform";
+import { useFocusTrap } from "./Modal";
 
 type Busy = "stash" | "commit" | null;
 
@@ -31,6 +32,8 @@ export function SwitchBranchDialog({
   const [message, setMessage] = useState("");
   const [generating, setGenerating] = useState(false);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const trimmed = message.trim();
   const canCommit = trimmed.length > 0 && !busy && !generating;
 
@@ -78,6 +81,7 @@ export function SwitchBranchDialog({
         }}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-busy={Boolean(busy) || generating}
@@ -134,7 +138,7 @@ export function SwitchBranchDialog({
         </div>
 
         {error ? (
-          <p className="whitespace-pre-wrap text-[11px] leading-4 text-red-400/90">
+          <p className="whitespace-pre-wrap text-[11px] leading-4 text-danger/90">
             {error}
           </p>
         ) : null}

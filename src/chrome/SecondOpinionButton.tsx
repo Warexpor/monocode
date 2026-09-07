@@ -341,6 +341,7 @@ export function SecondOpinionButton({
                     disabled={!available && probed}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => {
+                      if (!available && probed) return;
                       setActive(index);
                       setInSubmenu(true);
                     }}
@@ -350,7 +351,7 @@ export function SecondOpinionButton({
                     }}
                     className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-none ${
                       !available && probed
-                        ? "text-content/30"
+                        ? "cursor-not-allowed text-content/30"
                         : highlighted
                           ? "bg-content/10 text-content"
                           : "text-content hover:bg-content/5"

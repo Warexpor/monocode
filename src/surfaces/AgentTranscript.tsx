@@ -679,6 +679,7 @@ function TurnDuration({
   );
   return (
     <div
+      role="group"
       aria-label={label}
       className="flex min-w-0 items-center gap-2.5 px-4 pt-1 pb-3 font-sans text-sm text-content/40"
     >
@@ -1111,6 +1112,26 @@ function UserMessageBlock({
           }`}
           style={{ zIndex: stickyIndex }}
           onClick={overflows ? toggle : undefined}
+          role={overflows ? "button" : undefined}
+          tabIndex={overflows ? 0 : undefined}
+          aria-expanded={overflows ? expanded : undefined}
+          aria-label={
+            overflows
+              ? expanded
+                ? "Collapse message"
+                : "Expand message"
+              : undefined
+          }
+          onKeyDown={
+            overflows
+              ? (event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (event.target !== event.currentTarget) return;
+                  event.preventDefault();
+                  toggle();
+                }
+              : undefined
+          }
         >
           {showMutate ? (
             <div className="absolute top-1/2 right-2 z-10 flex -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100">
@@ -1300,13 +1321,11 @@ function WorkFoldLine({
     open ? " zen-fold-drop" : ""
   }`;
 
+  // No aria-live here: while `live`, the label's elapsed clock re-renders
+  // every second, and a polite live region would announce each tick.
   if (!expandable) {
     return (
-      <div
-        className={`group ${row}`}
-        role={live ? "status" : undefined}
-        aria-live={live ? "polite" : undefined}
-      >
+      <div className={`group ${row}`}>
         {icon}
         {label}
       </div>
@@ -1317,7 +1336,6 @@ function WorkFoldLine({
       type="button"
       aria-expanded={open}
       aria-label={open ? "Hide the work" : "Show the work"}
-      aria-live={live ? "polite" : undefined}
       onClick={onToggle}
       className={`group ${row}`}
     >
@@ -1810,6 +1828,7 @@ function ActivityThinkingRow({
   if (!expandable) {
     return (
       <div
+        role="group"
         aria-label={`Thinking: ${text}`}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
@@ -1877,6 +1896,7 @@ function ActivityNoteRow({
   if (!expandable) {
     return (
       <div
+        role="group"
         aria-label={`Agent said: ${text}`}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
@@ -1949,6 +1969,7 @@ function ActivityToolRow({
     return (
       <div className="flex min-w-0 flex-col">
         <div
+          role="group"
           aria-label={`Tool call: ${label}`}
           className="flex min-w-0 items-center gap-1.5 py-1"
         >
@@ -2030,7 +2051,7 @@ function ActivityToolIcon({
 /** Failure stays marked. Running and success do not get a trailing icon. */
 function ToolCallStatusIcon({ state }: { state: ToolCallState }) {
   if (state === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
+    return <X className="size-3.5 shrink-0 text-danger" strokeWidth={2} />;
   }
   return null;
 }
@@ -2176,6 +2197,7 @@ function ToolCall({
     return (
       <div className={frame}>
         <div
+          role="group"
           aria-label={`${stateLabel} tool call: ${label}`}
           className="flex w-full min-w-0 flex-col gap-2"
         >
@@ -2216,6 +2238,7 @@ function ToolCall({
     return (
       <div className={frame}>
         <div
+          role="group"
           aria-label={`${stateLabel} tool call: ${label}`}
           className="flex w-full min-w-0 items-center gap-2"
         >
@@ -2355,7 +2378,7 @@ function ToolCallSummary({
     return (
       <span
         className={`min-w-0 flex-1 truncate font-mono text-[13px] ${
-          failed ? "text-red-400" : chip ? "text-content/65" : "text-content/80"
+          failed ? "text-danger" : chip ? "text-content/65" : "text-content/80"
         }`}
       >
         {label}
@@ -2373,9 +2396,9 @@ function ToolCallSummary({
     "file";
   const filePath = resolveWorkspacePath(preview?.path || target, cwd);
   const canOpen = interactive && !!onOpenFile && !!filePath;
-  const actionTone = failed ? "text-red-400" : "text-content/50";
+  const actionTone = failed ? "text-danger" : "text-content/50";
   const targetTone = failed
-    ? "text-red-400"
+    ? "text-danger"
     : chip
       ? "text-content/70"
       : "text-content/85";
@@ -2389,7 +2412,7 @@ function ToolCallSummary({
         canOpen ? (
           <button
             type="button"
-            className={`-my-0.5 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left hover:text-sky-300 ${
+            className={`-my-0.5 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left hover:text-link ${
               chip
                 ? `max-w-full bg-content/6 hover:bg-content/10 ${targetTone}`
                 : `flex-1 hover:underline ${targetTone}`
@@ -2430,7 +2453,7 @@ function ToolCallSummary({
 
 function ToolCallIcon({ state }: { state: ToolCallState }) {
   if (state === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
+    return <X className="size-3.5 shrink-0 text-danger" strokeWidth={2} />;
   }
   if (state === "pending") {
     return (

@@ -10,6 +10,7 @@ import {
   type LinearProjectOption,
 } from "../lib/inboxFilters";
 import type { LinearTeam } from "../lib/linear";
+import { onMenuRovingKeyDown } from "../lib/menuKeys";
 import { Popover } from "./Popover";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 
@@ -131,6 +132,7 @@ export function InboxFiltersMenu({
       onDismiss={onClose}
       role="menu"
       aria-label="Filter inbox"
+      onKeyDown={onMenuRovingKeyDown}
       onContextMenu={(event) => event.preventDefault()}
       className="overflow-y-auto overscroll-none p-1"
     >

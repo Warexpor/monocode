@@ -5595,7 +5595,7 @@ export default function App({
           <main className="relative min-h-0 min-w-0 flex-1">
             <div
               ref={dockGridRef}
-              className="absolute inset-0 grid h-full min-h-0 min-w-0"
+              className="absolute inset-0 grid min-h-0 min-w-0"
             >
               {projectTerminals.map((dock) => {
                 const show =
@@ -5631,7 +5631,7 @@ export default function App({
                 );
               })}
               <div
-                className="relative flex min-h-0 min-w-0 flex-row"
+                className="relative flex min-h-0 min-w-0"
                 style={{ gridArea: "main" }}
               >
                 <div className="relative min-h-0 min-w-0 flex-1">
@@ -5693,8 +5693,11 @@ export default function App({
           </main>
         </div>
         {windowSurface ? (
+          // The shell's <main> is hidden while a full-pane window is open,
+          // so the window surface carries the landmark itself.
           <div
             key={windowSurface}
+            role="main"
             className="mono-window flex min-h-0 min-w-0 flex-1 flex-col"
             data-window={windowSurface}
           >

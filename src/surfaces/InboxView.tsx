@@ -801,18 +801,18 @@ function inboxStatusMark(item: InboxItem): InboxStatusMark {
     };
   }
   if (label === "Merged") {
-    return { Icon: GitMerge, className: "text-violet-400/90", label };
+    return { Icon: GitMerge, className: "text-violet/90", label };
   }
   if (label === "Closed") {
     return {
       Icon: pr ? GitPullRequestClosed : CircleX,
-      className: "text-rose-400/90",
+      className: "text-danger/90",
       label,
     };
   }
   return {
     Icon: pr ? GitPullRequest : CircleDot,
-    className: "text-emerald-400/90",
+    className: "text-success/90",
     label,
   };
 }
@@ -853,10 +853,10 @@ function InboxCard({
         item,
       )}: ${item.title}${unseen ? ", new" : ""}`}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
+      className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "bg-content/10 text-content"
+          : "text-content/80 hover:bg-content/5 hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -908,7 +908,7 @@ function InboxCard({
           <span className="min-w-0 truncate">{source}</span>
         </span>
         {item.labels.length > 0 ? (
-          <span className="flex min-w-0 shrink-0 items-center gap-1">
+          <span className="flex shrink-0 items-center gap-1">
             {item.labels.slice(0, 2).map((label) => (
               <InboxLabel key={label.name} label={label} compact />
             ))}
@@ -995,9 +995,9 @@ function InboxDetail({
   const reviewLabel = githubReviewDecisionLabel(reviewDecision);
   const reviewClass =
     reviewDecision.toUpperCase() === "APPROVED"
-      ? "text-emerald-400/90"
+      ? "text-success/90"
       : reviewDecision.toUpperCase() === "CHANGES_REQUESTED"
-        ? "text-rose-400/90"
+        ? "text-danger/90"
         : "text-content/50";
   const baseRef =
     details?.baseRefName?.trim() || thread?.baseRefName?.trim() || "";
@@ -1191,7 +1191,7 @@ function InboxDetail({
   };
 
   return (
-    <div className={`mx-auto flex w-full flex-col gap-5 px-8 py-8 max-w-5xl`}>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
       <header className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-[12px] text-content/50">
           <InboxProviderMark provider={item.provider} className="size-3.5" />
@@ -1201,7 +1201,9 @@ function InboxDetail({
             <statusMark.Icon className="size-3.5" strokeWidth={1.75} />
             {status}
           </span>
-          {source ? <span className="truncate">{source}</span> : null}
+          {source ? (
+            <span className="min-w-0 truncate">{source}</span>
+          ) : null}
         </div>
         <h1 className="text-[20px] font-semibold leading-tight text-content">
           {item.title}
@@ -1337,7 +1339,7 @@ function InboxDetail({
           </button>
         </div>
         {startError ? (
-          <p className="text-[12px] text-red-400/90">{startError}</p>
+          <p className="text-[12px] text-danger/90">{startError}</p>
         ) : null}
       </header>
       {isPr ? (
@@ -1512,6 +1514,8 @@ function InboxProjectPicker({
         ref={button}
         type="button"
         disabled={projects.length === 0}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((next) => !next)}
         className="inline-flex h-7 max-w-48 items-center gap-1.5 rounded-md border border-content/10 bg-content/5 px-2 text-[12px] text-content/80 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40"
       >

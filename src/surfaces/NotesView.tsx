@@ -213,11 +213,11 @@ export function NotesView({
           aria-label="New note"
           disabled={creating}
           onClick={() => void onCreate()}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-content/45"
         >
           {creating ? (
             <LoaderCircle
-              className="size-3.5 animate-spin"
+              className="size-3.5 motion-safe:animate-spin"
               strokeWidth={1.75}
             />
           ) : (
@@ -431,10 +431,10 @@ function NoteCard({
       title={hint}
       aria-current={active ? "true" : undefined}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
+      className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "bg-content/10 text-content"
+          : "text-content/80 hover:bg-content/5 hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
@@ -660,14 +660,14 @@ function NoteEditor({
                   window.clearTimeout(saveTimer.current);
                 void onDelete(note.id);
               }}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400"
+              className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-danger"
             >
               <Trash2 className="size-3.5" strokeWidth={1.75} />
               Delete
             </button>
           </div>
           {saveError ? (
-            <p className="text-[12px] text-red-400/90">{saveError}</p>
+            <p className="text-[12px] text-danger/90">{saveError}</p>
           ) : null}
         </header>
         <div
@@ -746,6 +746,7 @@ function NoteSource({
       <textarea
         value={value}
         autoFocus={autoFocus}
+        aria-label="Note markdown source"
         onChange={(event) => onChange(event.target.value)}
         spellCheck={false}
         placeholder="Write markdown…"

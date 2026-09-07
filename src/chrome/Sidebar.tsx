@@ -1073,6 +1073,24 @@ function SidebarComponent({
     );
   });
 
+  const onTablistKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const tabs = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    const index = tabs.indexOf(document.activeElement as HTMLElement);
+    if (index < 0) return;
+    let next = -1;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft")
+      next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    if (next >= 0) {
+      event.preventDefault();
+      tabs[next].focus();
+    }
+  };
+
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
@@ -1096,6 +1114,7 @@ function SidebarComponent({
           <div
             role="tablist"
             aria-label="Workspace"
+            onKeyDown={onTablistKeyDown}
             className="flex h-9 shrink-0 items-center gap-px border-b border-content/10 px-2"
           >
             {workspaceTabItems}
@@ -1138,6 +1157,7 @@ function SidebarComponent({
           <div
             role="tablist"
             aria-label="Workspace"
+            onKeyDown={onTablistKeyDown}
             className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-content/10 px-2"
           >
             {workspaceTabItems}
@@ -1946,7 +1966,7 @@ function SessionsHeaderButton({
       aria-haspopup={hasPopup ? "menu" : undefined}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
+      className={`relative grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
         open || active ? "bg-content/10 text-content" : ""
       }`}
     >
@@ -2088,11 +2108,11 @@ function FolderRow({
       </span>
       <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
         {!expanded && needsApproval ? (
-          <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
+          <CircleAlert className="size-3 text-warning" strokeWidth={1.75} />
         ) : !expanded && busy ? (
           <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
         ) : !expanded && done ? (
-          <Check className="size-3 text-emerald-400" strokeWidth={2.25} />
+          <Check className="size-3 text-success" strokeWidth={2.25} />
         ) : null}
         <span>{count}</span>
       </span>
@@ -2228,11 +2248,11 @@ function SessionCard({
     ? null
     : resolveModel(session.harness, session.model).name;
   const statusClass = needsApproval
-    ? "text-amber-400"
+    ? "text-warning"
     : busy
       ? "text-accent"
       : done
-        ? "text-emerald-400"
+        ? "text-success"
         : "text-content/45";
   const status = (
     <span
@@ -2543,7 +2563,7 @@ function SessionRenameRow({
     <div
       className={`flex w-full flex-col rounded-md px-2.5 py-2 ${
         needsApproval
-          ? "bg-amber-400/10 text-content"
+          ? "bg-warning/10 text-content"
           : isActive
             ? "bg-content/10 text-content"
             : "text-content/80"
@@ -2584,10 +2604,10 @@ function DiffStat({
       className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums"
     >
       {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-success">+{additions}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
+        <span className="text-danger">-{deletions}</span>
       ) : null}
     </span>
   );

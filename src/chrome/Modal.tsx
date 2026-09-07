@@ -1,5 +1,11 @@
 import { X } from "./icons";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { LAYER } from "../lib/layers";
@@ -31,6 +37,39 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
   return Array.from(
     root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
   ).filter((el) => el.getClientRects().length > 0);
+}
+
+/**
+ * Trap Tab inside the referenced panel while it is mounted. For dialogs that
+ * are modal in behavior (backdrop dismiss, Escape) but don't use ModalPanel.
+ */
+export function useFocusTrap(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const panel = ref.current;
+      if (!panel) return;
+      const items = focusablesIn(panel);
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (event.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !panel.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [ref]);
 }
 
 type Props = {
@@ -67,19 +106,33 @@ export function ModalPanel({
   const descriptionId = description ? `${uid}-desc` : undefined;
 
   useEffect(() => {
+    const returnFocusTo =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const body = bodyRef.current;
     const panel = panelRef.current;
     const inBody = body ? focusablesIn(body) : [];
     if (inBody[0]) {
       inBody[0].focus();
-      return;
-    }
-    if (!initialCloseDisabled) {
+    } else if (!initialCloseDisabled) {
       closeRef.current?.focus();
-      return;
+    } else {
+      const inPanel = panel ? focusablesIn(panel) : [];
+      inPanel[0]?.focus();
     }
-    const inPanel = panel ? focusablesIn(panel) : [];
-    inPanel[0]?.focus();
+    return () => {
+      // Give the focus back to whatever opened the dialog, unless that
+      // element is gone or something else already took focus.
+      if (
+        returnFocusTo?.isConnected &&
+        (!document.activeElement ||
+          document.activeElement === document.body ||
+          panelRef.current?.contains(document.activeElement))
+      ) {
+        returnFocusTo.focus();
+      }
+    };
   }, [initialCloseDisabled]);
 
   useEffect(() => {

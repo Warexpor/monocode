@@ -66,6 +66,8 @@ export function CwdPicker({
   const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // -1: keyboard is on the main list; >= 0: index into the "More" flyout.
+  const [subActive, setSubActive] = useState(-1);
   const root = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const closeMoreTimer = useRef<number | null>(null);
@@ -98,6 +100,7 @@ export function CwdPicker({
     setOpen(false);
     setMoreOpen(false);
     setActive(0);
+    setSubActive(-1);
     if (closeMoreTimer.current != null) {
       window.clearTimeout(closeMoreTimer.current);
       closeMoreTimer.current = null;
@@ -119,6 +122,7 @@ export function CwdPicker({
     closeMoreTimer.current = window.setTimeout(() => {
       closeMoreTimer.current = null;
       setMoreOpen(false);
+      setSubActive(-1);
     }, HOVER_CLOSE_MS);
   };
 
@@ -143,12 +147,25 @@ export function CwdPicker({
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      if (subActive >= 0) {
+        setSubActive((i) => Math.min(overflowRecents.length - 1, i + 1));
+        return;
+      }
       const row = rows[active + 1];
       if (row?.kind === "more") openMore();
       setActive((i) => Math.min(rows.length - 1, i + 1));
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
+      if (subActive > 0) {
+        setSubActive((i) => i - 1);
+        return;
+      }
+      if (subActive === 0) {
+        // Back out of the flyout onto its "More Projects" parent row.
+        setSubActive(-1);
+        return;
+      }
       setActive((i) => Math.max(0, i - 1));
     }
     if (e.key === "ArrowRight") {
@@ -156,9 +173,15 @@ export function CwdPicker({
       if (row?.kind === "more") {
         e.preventDefault();
         openMore();
+        setSubActive(0);
       }
     }
     if (e.key === "ArrowLeft") {
+      if (subActive >= 0) {
+        e.preventDefault();
+        setSubActive(-1);
+        return;
+      }
       if (moreOpen) {
         e.preventDefault();
         setMoreOpen(false);
@@ -166,9 +189,15 @@ export function CwdPicker({
     }
     if (e.key === "Enter") {
       e.preventDefault();
+      if (subActive >= 0) {
+        const item = overflowRecents[subActive];
+        if (item) pick({ kind: "recent", path: item.path });
+        return;
+      }
       const row = rows[active];
       if (row?.kind === "more") {
         openMore();
+        setSubActive(0);
         return;
       }
       if (row) pick(row);
@@ -277,6 +306,7 @@ export function CwdPicker({
                     onMouseDown={(e) => e.stopPropagation()}
                     onMouseEnter={() => {
                       setMoreOpen(false);
+                      setSubActive(-1);
                       setActive(index);
                     }}
                     onClick={() => pick({ kind: "recent", path: item.path })}
@@ -335,6 +365,7 @@ export function CwdPicker({
                 onMouseDown={(e) => e.stopPropagation()}
                 onMouseEnter={() => {
                   setMoreOpen(false);
+                  setSubActive(-1);
                   setActive(newTerminalIndex);
                 }}
                 onClick={() => pick({ kind: "new-terminal" })}
@@ -368,15 +399,20 @@ export function CwdPicker({
           onMouseEnter={openMore}
           onMouseLeave={scheduleCloseMore}
         >
-          {overflowRecents.map((item) => (
+          {overflowRecents.map((item, index) => (
             <button
               key={item.path}
               type="button"
               role="menuitem"
               title={item.path}
               onMouseDown={(e) => e.stopPropagation()}
+              onMouseEnter={() => setSubActive(-1)}
               onClick={() => pick({ kind: "recent", path: item.path })}
-              className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left text-content/80 hover:bg-content/5 hover:text-content"
+              className={`flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left ${
+                subActive === index
+                  ? "bg-content/10 text-content"
+                  : "text-content/80 hover:bg-content/5 hover:text-content"
+              }`}
             >
               <span className="min-w-0 truncate text-[13px]">
                 {basename(item.path)}

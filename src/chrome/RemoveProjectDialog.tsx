@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { LAYER } from "../lib/layers";
 import { prettyCwd } from "../lib/paths";
 import { projectSessionCount } from "../lib/projectData";
+import { useFocusTrap } from "./Modal";
 
 type Props = {
   name: string;
@@ -18,6 +19,8 @@ type Props = {
 export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) {
   const [sessions, setSessions] = useState<number | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
 
   useEffect(() => {
     cancelRef.current?.focus();
@@ -48,6 +51,7 @@ export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) 
     <div className="mono-dialog fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div className="absolute inset-0 bg-black/30" onMouseDown={onCancel} />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Delete ${name}`}
@@ -87,7 +91,7 @@ export function RemoveProjectDialog({ name, path, onCancel, onConfirm }: Props) 
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-md bg-red-500/20 px-3 py-1.5 text-[12px] font-medium text-red-300 hover:bg-red-500/30"
+            className="rounded-md bg-danger/20 px-3 py-1.5 text-[12px] font-medium text-danger hover:bg-danger/30"
           >
             Delete
           </button>

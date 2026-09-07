@@ -191,6 +191,24 @@ export function Popover({
     if (autoFocus) surface.current?.focus();
   }, [autoFocus]);
 
+  // Give focus back to whatever had it before the popover opened, unless the
+  // user has already moved it somewhere else.
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const surfaceEl = surface.current;
+    return () => {
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        previous?.isConnected &&
+        (!active ||
+          active === document.body ||
+          (surfaceEl?.contains(active) ?? false))
+      ) {
+        previous.focus();
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!onDismiss) return;
     const onPointerDown = (event: PointerEvent) => {

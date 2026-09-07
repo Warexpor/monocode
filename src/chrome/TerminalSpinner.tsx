@@ -21,6 +21,9 @@ export function TerminalSpinner({
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
     const id = window.setInterval(
       () => setFrame((n) => (n + 1) % FRAMES.length),
       80,

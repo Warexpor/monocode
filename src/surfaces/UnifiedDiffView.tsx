@@ -182,7 +182,7 @@ export function UnifiedDiffView({
       }
     >
       <div
-        className={`flex h-8 shrink-0 items-center gap-3 border-b border-content/10 px-3 text-[12px]`}
+        className="flex h-8 shrink-0 items-center gap-3 border-b border-content/10 px-3 text-[12px]"
       >
         <span className="text-content/70">{fileLabel}</span>
         <DiffCounts additions={additions} deletions={deletions} />
@@ -354,8 +354,10 @@ const FileSection = memo(function FileSection({
     >
       <header
         className={`${
-          fileLayout === "stacked" ? "sticky top-0 z-30 backdrop-blur-xl" : ""
-        } flex items-center gap-2 bg-content/2 px-3 py-1.5 ${
+          fileLayout === "stacked"
+            ? "sticky top-0 z-30 bg-background-base/80 backdrop-blur-xl"
+            : "bg-content/2"
+        } flex items-center gap-2 px-3 py-1.5 ${
           fileLayout === "stacked" || expanded
             ? "border-b border-content/10"
             : ""
@@ -909,16 +911,16 @@ const DiffLineRow = memo(function DiffLineRow({
   const added = line.kind === "add";
   const deleted = line.kind === "del";
   const number = deleted ? line.oldNumber : line.newNumber;
-  const row = added ? "bg-emerald-500/15" : deleted ? "bg-rose-500/15" : "";
+  const row = added ? "bg-success/15" : deleted ? "bg-danger/15" : "";
   const gutterTint = added
-    ? "bg-emerald-500/25"
+    ? "bg-success/25"
     : deleted
-      ? "bg-rose-500/25"
+      ? "bg-danger/25"
       : "";
   const gutterText = added
-    ? "text-emerald-300"
+    ? "text-success"
     : deleted
-      ? "text-rose-300"
+      ? "text-danger"
       : "text-content/35";
 
   if (lane === "gutter") {
@@ -960,7 +962,7 @@ const DiffLineRow = memo(function DiffLineRow({
             title="Stage hunk"
             aria-label="Stage hunk"
             onClick={onStage}
-            className={`absolute top-0.5 left-full z-10 ml-0.5 grid size-4 place-items-center rounded-[3px] bg-white text-[11px] font-bold text-black ${
+            className={`absolute top-0.5 left-full z-10 ml-0.5 grid size-4 place-items-center rounded-[3px] bg-content text-[11px] font-bold text-background-base outline-none transition-opacity hover:opacity-80 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50 ${
               hovered ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
           >
@@ -1021,10 +1023,10 @@ function DiffCounts({
   return (
     <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums">
       {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-success">+{additions}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
+        <span className="text-danger">-{deletions}</span>
       ) : null}
     </span>
   );

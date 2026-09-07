@@ -186,6 +186,32 @@ export function ColorPickerPopover({ value, onChange }: Props) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(hsv.s)}
+        aria-valuetext={`saturation ${Math.round(hsv.s)}%, brightness ${Math.round(hsv.v)}%`}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 10 : 2;
+          let ds = 0;
+          let dv = 0;
+          if (event.key === "ArrowLeft") ds = -step;
+          else if (event.key === "ArrowRight") ds = step;
+          else if (event.key === "ArrowDown") dv = -step;
+          else if (event.key === "ArrowUp") dv = step;
+          else if (event.key === "Home") {
+            applyHsv((prev) => ({ ...prev, s: 0, v: 100 }));
+            event.preventDefault();
+            return;
+          } else if (event.key === "End") {
+            applyHsv((prev) => ({ ...prev, s: 100, v: 0 }));
+            event.preventDefault();
+            return;
+          } else return;
+          event.preventDefault();
+          applyHsv((prev) => ({
+            ...prev,
+            s: Math.min(100, Math.max(0, prev.s + ds)),
+            v: Math.min(100, Math.max(0, prev.v + dv)),
+          }));
+        }}
         className="relative h-28 w-full cursor-crosshair touch-none rounded-md"
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})`,
@@ -209,6 +235,20 @@ export function ColorPickerPopover({ value, onChange }: Props) {
         aria-valuemin={0}
         aria-valuemax={360}
         aria-valuenow={Math.round(hsv.h)}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 30 : 5;
+          if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+            applyHsv((prev) => ({ ...prev, h: Math.max(0, prev.h - step) }));
+          } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+            applyHsv((prev) => ({ ...prev, h: Math.min(360, prev.h + step) }));
+          } else if (event.key === "Home") {
+            applyHsv((prev) => ({ ...prev, h: 0 }));
+          } else if (event.key === "End") {
+            applyHsv((prev) => ({ ...prev, h: 360 }));
+          } else return;
+          event.preventDefault();
+        }}
         className="relative mt-2 h-3 w-full cursor-ew-resize touch-none rounded-full"
         style={{
           background:

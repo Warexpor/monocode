@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Modal } from "../chrome/Modal";
 import { probeHarnessAvailability } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
@@ -401,8 +402,10 @@ export function FullSetupWizard({ onClose }: Props) {
                 <a
                   className="underline decoration-content/25 hover:decoration-content/50"
                   href="https://opencode.ai/auth"
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void openUrl("https://opencode.ai/auth");
+                  }}
                 >
                   opencode.ai/auth
                 </a>
@@ -561,13 +564,13 @@ export function FullSetupWizard({ onClose }: Props) {
             {error ? (
               <p
                 role="alert"
-                className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400/90"
+                className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger/90"
               >
                 {error}
               </p>
             ) : null}
             {log.length > 0 ? (
-              <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-content/10 bg-black/20 p-3 text-[11px] leading-relaxed text-content/55 whitespace-pre-wrap">
+              <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-content/10 bg-content/5 p-3 text-[11px] leading-relaxed text-content/55 whitespace-pre-wrap">
                 {log.join("\n\n")}
               </pre>
             ) : null}
@@ -605,10 +608,10 @@ function StatusLine({ ok, label }: { ok?: boolean; label: string }) {
     ok === true ? "ready" : ok === false ? "not ready" : "checking";
   const dot =
     ok === true
-      ? "bg-emerald-400"
+      ? "bg-success"
       : ok === false
         ? "bg-content/25"
-        : "bg-amber-400";
+        : "bg-warning";
   return (
     <p className="text-[12px] text-content/60" aria-label={`${state}: ${label}`}>
       <span className={`mr-2 inline-block size-1.5 rounded-full ${dot}`} />
@@ -635,7 +638,7 @@ function PrimaryButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="rounded-lg bg-content px-3 py-1.5 text-[12px] font-medium text-background-base disabled:opacity-40"
+      className="rounded-lg bg-content px-3 py-1.5 text-[12px] font-medium text-background-base hover:bg-content/85 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-content"
     >
       {children}
     </button>

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../lib/platform";
 import { runUpdateFlow } from "../lib/updater";
@@ -54,7 +54,6 @@ export function MenuBar({
   const [open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
-  const barRef = useRef<HTMLDivElement>(null);
 
   // Toggle with standalone Alt key tap
   useEffect(() => {
@@ -294,7 +293,8 @@ export function MenuBar({
 
   return (
     <div
-      ref={barRef}
+      role="menubar"
+      aria-label="Application"
       className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-[12px]"
       data-tauri-drag-region="false"
     >
@@ -305,6 +305,8 @@ export function MenuBar({
             key={key}
             type="button"
             data-tauri-drag-region="false"
+            aria-haspopup="menu"
+            aria-expanded={isActive}
             onClick={(e) => {
               if (isActive) {
                 closeMenu();

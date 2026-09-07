@@ -44,7 +44,7 @@ export function BtwAsidePanel({ aside, cwd, onDismiss, onOpenFile }: Props) {
           </div>
         ) : null}
         {aside.status === "error" ? (
-          <p className="font-sans text-[12.5px] leading-4.5 text-rose-300/90">
+          <p className="font-sans text-[12.5px] leading-4.5 text-danger/90">
             {aside.error?.trim() || "btw failed"}
           </p>
         ) : null}

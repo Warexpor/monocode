@@ -8,6 +8,7 @@ import {
   type SessionTimeFilter,
 } from "../lib/sessionFilters";
 import { HARNESS_TITLE, type HarnessId } from "../lib/session";
+import { onMenuRovingKeyDown } from "../lib/menuKeys";
 import { HarnessIcon } from "./HarnessIcon";
 
 const MENU_WIDTH = 228;
@@ -57,8 +58,9 @@ export function SessionFiltersMenu({
   };
 
   const toggleArchived = () => {
+    // Like the other toggles here, keep the menu open so several filters
+    // can be flipped in one visit.
     onChange({ ...filters, showArchived: !filters.showArchived });
-    onClose();
   };
 
   return (
@@ -70,6 +72,7 @@ export function SessionFiltersMenu({
       onDismiss={onClose}
       role="menu"
       aria-label="Filter sessions"
+      onKeyDown={onMenuRovingKeyDown}
       onContextMenu={(event) => event.preventDefault()}
       className="overflow-y-auto overscroll-none p-1"
     >

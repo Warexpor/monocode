@@ -80,10 +80,19 @@ export function InboxMedia({ src, alt }: Props) {
     <img
       src={state.url}
       alt={alt ?? ""}
-      title={label}
+      title={`${label} — open full size`}
       draggable={false}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open image full size: ${label}`}
       className="inbox-media my-2 inline-block max-h-[28rem] w-full max-w-xl cursor-zoom-in rounded-[10px] border border-content/10 bg-content/6 object-contain"
       onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void openUrl(src);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         event.stopPropagation();
         void openUrl(src);
@@ -97,7 +106,7 @@ function MediaFallback({ src, alt }: { src: string; alt?: string }) {
   return (
     <a
       href={src}
-      className="text-sky-400/90 hover:text-sky-300 hover:underline"
+      className="text-link hover:underline"
       onClick={(event) => {
         event.preventDefault();
         void openUrl(src);

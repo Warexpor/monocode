@@ -43,7 +43,7 @@ export function AgentActivityPanel({ agents = [], backgroundTasks = [] }: Props)
             key={`agent:${agent.id}`}
             className="flex min-w-0 items-start gap-2.5 px-2.5 py-1.5"
           >
-            <span className="mt-px grid size-4 shrink-0 place-items-center text-violet-300">
+            <span className="mt-px grid size-4 shrink-0 place-items-center text-violet">
               {agent.status === "running" ? (
                 <Loader className="size-3.5 animate-spin" strokeWidth={2} />
               ) : (
@@ -76,7 +76,7 @@ export function AgentActivityPanel({ agents = [], backgroundTasks = [] }: Props)
             >
               <span
                 className={`mt-px grid size-4 shrink-0 place-items-center ${
-                  goal ? "text-amber-300" : "text-sky-300"
+                  goal ? "text-warning" : "text-info"
                 }`}
               >
                 {task.status === "running" ? (

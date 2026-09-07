@@ -70,7 +70,7 @@ export function InboxDiscussionPanel({
         aria-orientation="vertical"
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
-        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize max-[1100px]:hidden"
+        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize transition-colors hover:bg-content/10 max-[1100px]:hidden"
       />
       <header className="flex h-11 shrink-0 items-center border-b border-content/10 px-3">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
@@ -97,7 +97,7 @@ export function InboxDiscussionPanel({
         </IconButton>
       </header>
       {error ? (
-        <p role="alert" className="p-3 text-xs text-red-400">
+        <p role="alert" className="p-3 text-xs text-danger">
           {error}
         </p>
       ) : null}

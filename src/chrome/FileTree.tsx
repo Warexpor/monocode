@@ -57,10 +57,10 @@ import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 const GIT_STATUS_COLOR: Record<string, string> = {
-  modified: "text-amber-400",
-  added: "text-emerald-400",
-  untracked: "text-emerald-400",
-  deleted: "text-red-400",
+  modified: "text-warning",
+  added: "text-success",
+  untracked: "text-success",
+  deleted: "text-danger",
 };
 
 type Props = {
@@ -672,7 +672,7 @@ export function FileTree({
                 e.clientY,
               );
             }}
-            className={`flex min-w-0 flex-1 items-center gap-1 h-full pl-2 text-left`}
+            className="flex min-w-0 flex-1 items-center gap-1 h-full pl-2 text-left rounded-sm hover:bg-content/5"
           >
             <span className="grid size-4 shrink-0 place-items-center text-content/50">
               {rootOpen ? (
@@ -691,7 +691,7 @@ export function FileTree({
           className="min-h-0 flex-1 overflow-y-auto overscroll-none"
         >
           {opError ? (
-            <p className="px-3 py-1 text-[12px] leading-4 text-red-400">
+            <p className="px-3 py-1 text-[12px] leading-4 text-danger">
               {opError}
             </p>
           ) : null}
@@ -800,7 +800,7 @@ function FileTreeDiffButton({
       <span className="relative">
         <GitCompare className="size-3.5" strokeWidth={1.75} />
         {files > 0 ? (
-          <span className="pointer-events-none absolute -top-1.5 -right-2 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-accent px-0.5 text-[7px] font-semibold leading-none text-white tabular-nums">
+          <span className="pointer-events-none absolute -top-1.5 -right-2 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-accent px-0.5 text-[7px] font-semibold leading-none text-on-accent tabular-nums">
             {badge}
           </span>
         ) : null}
@@ -946,6 +946,8 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           role="treeitem"
           title={entry.path}
           aria-expanded={entry.isDir ? open : undefined}
+          aria-selected={selected}
+          aria-level={depth + 1}
           onClick={onClick}
           onContextMenu={(e) => onItemContextMenu(entry, e)}
           style={{ paddingLeft: 8 + depth * 12 }}
@@ -977,13 +979,15 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
         </button>
       )}
       {entry.isDir && open ? (
-        <TreeChildren
-          parent={entry.path}
-          depth={depth + 1}
-          entries={children}
-          loading={children === null && !error}
-          error={error}
-        />
+        <div role="group">
+          <TreeChildren
+            parent={entry.path}
+            depth={depth + 1}
+            entries={children}
+            loading={children === null && !error}
+            error={error}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -1152,7 +1156,7 @@ function NameIssueView({
   return (
     <p
       className={`pr-2 pb-1 text-[12px] leading-4 ${
-        error ? "text-red-400" : "text-amber-400"
+        error ? "text-danger" : "text-warning"
       }`}
       style={{ paddingLeft: 28 + depth * 12 }}
     >

@@ -24,7 +24,7 @@ export function InboxMiniCard({ card, onDismiss }: Props) {
           onClick={() => {
             if (card.url) void openUrl(card.url);
           }}
-          className="flex w-full flex-col text-left disabled:cursor-default"
+          className="flex w-full flex-col text-left disabled:cursor-default disabled:opacity-60"
         >
           <span className="flex min-w-0 items-center gap-1.5">
             <InboxProviderMark

@@ -36,14 +36,17 @@ export function TranscriptOverlayView({
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    // Bubble phase, not capture: popovers/dialogs inside the overlay handle
+    // Escape in the capture phase and preventDefault it. Closing the whole
+    // overlay must yield to dismissing whatever is open on top of it.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       event.stopPropagation();
       onCloseRef.current();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const title = session

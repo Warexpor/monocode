@@ -741,7 +741,7 @@ function LinearSettings() {
         )}
       </Row>
       {error ? (
-        <p className="pb-2 text-[12px] text-red-400/90">{error}</p>
+        <p className="pb-2 text-[12px] text-danger/90">{error}</p>
       ) : null}
       {connected && teams.length > 0 ? (
         <div className="border-b border-content/5 py-4">
@@ -1642,7 +1642,7 @@ function Toggle({
       }`}
     >
       <span
-        className={`absolute top-0.5 size-4 rounded-full bg-white transition-[left] ${
+        className={`absolute top-0.5 size-4 rounded-full bg-on-accent transition-[left] ${
           on ? "left-4.5" : "left-0.5"
         }`}
       />
@@ -1666,7 +1666,7 @@ function Select({
       aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="max-w-52 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-[12px] text-content outline-none hover:border-content/20"
+      className="max-w-52 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-[12px] text-content outline-none hover:border-content/20 focus-visible:border-accent"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -1695,7 +1695,7 @@ function SecondaryButton({
       disabled={disabled}
       className={`flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] ${
         danger
-          ? "text-red-400 hover:border-red-400/40 hover:bg-red-400/10"
+          ? "text-danger hover:border-danger/40 hover:bg-danger/10"
           : "text-content/70 hover:bg-content/10 hover:text-content"
       } disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent`}
     >

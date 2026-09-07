@@ -8,6 +8,7 @@ export function FollowUpChips({ suggestions, disabled, onSelect }: Props) {
   if (suggestions.length === 0) return null;
   return (
     <div
+      role="group"
       aria-label="Suggested follow-ups"
       className="flex flex-wrap gap-1.5 px-0.5 pb-2"
     >

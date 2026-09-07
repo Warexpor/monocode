@@ -130,7 +130,7 @@ export function UsageFooter({
   return (
     <footer
       aria-label={ariaLabel}
-      className="flex h-7 shrink-0 items-center gap-3 overflow-x-auto border-t border-content/10 px-3 text-[11px] text-content/55"
+      className="scrollbar-none flex h-7 shrink-0 items-center gap-3 overflow-x-auto overflow-y-hidden border-t border-content/10 px-3 text-[11px] text-content/55"
     >
       {showUsage ? (
         <>
@@ -370,7 +370,7 @@ function MiniBar({ usedPct }: { usedPct: number }) {
 }
 
 function barClass(pct: number): string {
-  if (pct >= 90) return "bg-red-400";
-  if (pct >= 80) return "bg-amber-400";
+  if (pct >= 90) return "bg-danger";
+  if (pct >= 80) return "bg-warning";
   return "bg-content/45";
 }

@@ -27,7 +27,7 @@ export function RailAction({
       onClick={onClick}
       disabled={!onClick}
       aria-label={ariaLabel ?? label}
-      className={`relative flex w-full items-center gap-2 rounded-md px-2 h-8  text-left ${
+      className={`relative flex w-full items-center gap-2 rounded-md px-2 h-8 text-left ${
         active
           ? "bg-content/10 text-content"
           : "text-content/50 hover:bg-content/10 hover:text-content"
@@ -36,7 +36,7 @@ export function RailAction({
       {badge != null ? (
         <span
           aria-hidden
-          className="absolute left-1 top-1/2 grid min-w-4 -translate-y-1/2 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-white tabular-nums"
+          className="absolute left-1 top-1/2 grid min-w-4 -translate-y-1/2 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-on-accent tabular-nums"
         >
           {badge > 99 ? "99+" : badge}
         </span>

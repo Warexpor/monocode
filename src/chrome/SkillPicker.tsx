@@ -251,7 +251,7 @@ function CreateSkillForm({
           e.preventDefault();
           onCancel();
         }}
-        className="mb-2 w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-[13px] text-content outline-none placeholder:text-content/40"
+        className="mb-2 w-full rounded-md border border-transparent bg-content/10 px-2 py-1.5 font-mono text-[13px] text-content outline-none placeholder:text-content/40 focus:border-content/30"
       />
       <div className="mb-2 flex gap-1">
         <ScopeButton
@@ -316,7 +316,9 @@ function ScopeButton({
       disabled={disabled}
       onClick={onClick}
       className={`flex min-w-0 flex-1 flex-col rounded-md px-2 py-1.5 text-left ${
-        selected ? "bg-content/20 text-content" : "bg-content/10 text-content/70"
+        selected
+          ? "bg-content/20 text-content"
+          : "bg-content/10 text-content/70 hover:bg-content/15 hover:text-content"
       } disabled:opacity-40`}
     >
       <span className="text-[12px]">{label}</span>

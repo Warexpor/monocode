@@ -216,7 +216,7 @@ export function ProjectSearch({
             <span>Searching…</span>
           </>
         ) : error ? (
-          <span className="text-red-400">{error}</span>
+          <span className="text-danger">{error}</span>
         ) : query.trim() ? (
           <span>
             {matchCount === 0
