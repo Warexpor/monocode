@@ -121,6 +121,11 @@ import {
   saveLinearToken,
   type LinearTeam,
 } from "../lib/linear";
+import {
+  FullSetupWizard,
+  isFullSetupSupported,
+  loadFullSetupComplete,
+} from "../custom";
 import { loadTabGroupLabels, resolveTabGroupLabel } from "../lib/tabGroups";
 import {
   filterKeybindings,
@@ -1110,6 +1115,8 @@ function ProvidersPage() {
   );
   const [choice, setChoice] = useState(loadLastModelChoice);
   const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
+  const [fullSetupOpen, setFullSetupOpen] = useState(false);
+  const showFullSetup = isFullSetupSupported();
 
   useEffect(() => {
     void probeHarnessAvailability();
@@ -1139,6 +1146,23 @@ function ProvidersPage() {
         The model beside each provider is what new conversations use when that
         provider is selected; Use by default picks the provider itself.
       </p>
+      {showFullSetup ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-content/10 px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-content">
+              Grok Full Setup
+            </div>
+            <p className="text-[12px] text-content/45">
+              Install Grok + OpenCodex, wire Zen free / Go models, and enable Exa
+              web search
+              {loadFullSetupComplete() ? " · previously completed" : ""}.
+            </p>
+          </div>
+          <SecondaryButton onClick={() => setFullSetupOpen(true)}>
+            Full Setup
+          </SecondaryButton>
+        </div>
+      ) : null}
       {HARNESSES.map((harness) => (
         <ProviderRow
           key={harness}
@@ -1152,8 +1176,16 @@ function ProvidersPage() {
           isDefault={choice?.harness === harness}
           onDefault={onDefault}
           onModelChange={onModelChange}
+          onFullSetup={
+            showFullSetup && harness === "grok"
+              ? () => setFullSetupOpen(true)
+              : undefined
+          }
         />
       ))}
+      {fullSetupOpen ? (
+        <FullSetupWizard onClose={() => setFullSetupOpen(false)} />
+      ) : null}
     </>
   );
 }
@@ -1164,12 +1196,14 @@ function ProviderRow({
   isDefault,
   onDefault,
   onModelChange,
+  onFullSetup,
 }: {
   harness: HarnessId;
   selectedModel: string;
   isDefault: boolean;
   onDefault: (harness: HarnessId, model: string) => void;
   onModelChange: (harness: HarnessId, model: string) => void;
+  onFullSetup?: () => void;
 }) {
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
@@ -1227,6 +1261,9 @@ function ProviderRow({
       >
         {isDefault ? "Default" : "Use by default"}
       </SecondaryButton>
+      {onFullSetup ? (
+        <SecondaryButton onClick={onFullSetup}>Full Setup</SecondaryButton>
+      ) : null}
       {available ? (
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-content/50">Show in picker</span>
