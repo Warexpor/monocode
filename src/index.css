@@ -848,6 +848,7 @@ header[data-tauri-drag-region] button {
 .zen-phase-body {
   display: grid;
   grid-template-rows: 1fr;
+  overflow: hidden;
   transition: grid-template-rows var(--mono-dur-phase) var(--mono-ease-fold);
 }
 

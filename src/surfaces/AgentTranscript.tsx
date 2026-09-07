@@ -1550,45 +1550,49 @@ function ActivityPhaseGroup({
         </span>
         {label}
       </button>
-      <div className="zen-phase-body" data-open={open}>
-        {open ? (
-          <div
-            ref={setLiveScroller}
-            className={active || !open ? "zen-phase-live" : undefined}
-          >
-            <div className="flex min-w-0 flex-col">
-              {headline ? (
-                <div className="zen-phase-step py-1">
-                  <AgentMarkdown
-                    className={
-                      headline.role === "reasoning"
-                        ? "agent-reasoning"
-                        : undefined
-                    }
-                    text={headline.text}
-                    cwd={cwd}
-                    onOpenFile={onOpenFile}
-                  />
-                </div>
-              ) : null}
-              {phase.steps.map((block) => (
-                <div
-                  key={block.id}
-                  className={`zen-phase-step${active ? " zen-step-in" : ""}`}
-                >
-                  <ActivityRow
-                    block={block}
-                    cwd={cwd}
-                    live={active}
-                    onApproval={onApproval}
-                    onOpenFile={onOpenFile}
-                    onOpenDiff={onOpenDiff}
-                  />
-                </div>
-              ))}
-            </div>
+      {/*
+       * Keep the body mounted while closed. Unmounting on fold drops height
+       * in one frame (a snap); thoughts already avoid that via Collapse.
+       * `zen-phase-live` stays on when closed so an auto-fold still shrinks
+       * from the live window, not a flash of the full list.
+       */}
+      <div className="zen-phase-body" data-open={open} inert={!open}>
+        <div
+          ref={setLiveScroller}
+          className={active || !open ? "zen-phase-live" : undefined}
+        >
+          <div className="flex min-w-0 flex-col">
+            {headline ? (
+              <div className="zen-phase-step py-1">
+                <AgentMarkdown
+                  className={
+                    headline.role === "reasoning"
+                      ? "agent-reasoning"
+                      : undefined
+                  }
+                  text={headline.text}
+                  cwd={cwd}
+                  onOpenFile={onOpenFile}
+                />
+              </div>
+            ) : null}
+            {phase.steps.map((block) => (
+              <div
+                key={block.id}
+                className={`zen-phase-step${active ? " zen-step-in" : ""}`}
+              >
+                <ActivityRow
+                  block={block}
+                  cwd={cwd}
+                  live={active}
+                  onApproval={onApproval}
+                  onOpenFile={onOpenFile}
+                  onOpenDiff={onOpenDiff}
+                />
+              </div>
+            ))}
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );
