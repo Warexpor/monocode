@@ -3860,6 +3860,7 @@ export default function App({
           cwd: workCwd,
           message:
             harnessText || attachments.map((file) => file.name).join(", "),
+          model: current.model,
         })
           .then((title) => {
             if (!title) return;

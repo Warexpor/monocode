@@ -1,4 +1,4 @@
-import { modelsFor } from "../models";
+import { modelsFor, nativeModelId } from "../models";
 import {
   killChild,
   resolveCodexBinary,
@@ -38,7 +38,8 @@ type LiveText = {
 let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
-function pickTextModel(): string {
+function pickTextModel(requested?: string): string {
+  if (requested?.trim()) return nativeModelId(requested);
   const models = modelsFor("codex");
   const luna = models.find((model) =>
     /5\.6-luna/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
@@ -64,7 +65,7 @@ export async function stopCodexTextPrompt(): Promise<void> {
 export function warmupCodexText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
   const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
+    await ensureLive(cwd, undefined);
   });
   turns = run.then(
     () => undefined,
@@ -78,6 +79,7 @@ export async function runCodexTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -91,8 +93,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.model);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -140,8 +143,8 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
-  const model = pickTextModel();
+async function ensureLive(cwd: string, requestedModel?: string): Promise<LiveText> {
+  const model = pickTextModel(requestedModel);
   const effort = pickTextEffort(model);
   if (live && !live.closed) {
     if (live.cwd === cwd && live.model === model && live.effort === effort) {
@@ -156,10 +159,10 @@ async function ensureLive(cwd: string): Promise<LiveText> {
       await dropLive();
     }
   }
-  return startLive(cwd);
+  return startLive(cwd, model);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
+async function startLive(cwd: string, model: string): Promise<LiveText> {
   await dropLive();
   const { path } = await resolveCodexBinary();
   const sessionRef: { session: LiveText | null } = { session: null };
@@ -176,7 +179,6 @@ async function startLive(cwd: string): Promise<LiveText> {
     { includeJsonrpc: false, label: "codex-text" },
   );
 
-  const model = pickTextModel();
   const session: LiveText = {
     rpc,
     cwd,

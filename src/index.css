@@ -25,6 +25,7 @@
   --theme-hue: 240;
   --theme-saturation: 0%;
   --sidebar-opacity: 0.85;
+  --app-opacity: var(--sidebar-opacity);
   --background-lightness: 9%;
   --content-lightness: 92%;
   --link-color: #7dd3fc;
@@ -124,7 +125,7 @@ html.theme-light .sidebar-glass {
 html.has-native-glass .sidebar-glass {
   background: hsl(
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
-      var(--sidebar-opacity)
+      var(--app-opacity)
   );
 }
 
@@ -158,7 +159,7 @@ html.has-native-glass .sidebar-glass {
 html.has-native-glass.glass-body .body-glass {
   background: color-mix(
     in srgb,
-    var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
+    var(--color-background-base) calc(var(--app-opacity) * 100%),
     transparent
   );
 }
@@ -851,21 +852,24 @@ header[data-tauri-drag-region] button {
 }
 
 /*
- * Left chrome columns (Projects rail + Workspace): single width fold for
- * explicit toggles. Overlay-driven open/close sets data-instant so chrome
- * does not animate beside the pane window enter.
+ * Left chrome columns (Projects rail + Workspace).
+ *
+ * Animate the fold's width to the panel's real pixel width while the inner
+ * panel stays that full width the whole time. That clips one already-painted
+ * surface (glass + chrome together) instead of growing an empty track that
+ * the sidebar then fills — the "blank window, then content" double beat.
  */
 .mono-side-fold {
-  display: grid;
   height: 100%;
   min-height: 0;
-  grid-template-columns: 0fr;
-  grid-template-rows: 100%;
-  transition: grid-template-columns var(--mono-dur-fold) var(--mono-ease-fold);
+  flex-shrink: 0;
+  overflow: hidden;
+  width: 0;
+  transition: width var(--mono-dur-fold) var(--mono-ease-fold);
 }
 
 .mono-side-fold[data-open="true"] {
-  grid-template-columns: 1fr;
+  width: var(--mono-side-w, 0px);
 }
 
 .mono-side-fold[data-instant="true"] {
@@ -873,10 +877,10 @@ header[data-tauri-drag-region] button {
 }
 
 .mono-side-fold > * {
-  min-width: 0;
+  box-sizing: border-box;
+  width: var(--mono-side-w, max-content);
   min-height: 0;
   height: 100%;
-  overflow: hidden;
 }
 
 /*
@@ -908,11 +912,9 @@ header[data-tauri-drag-region] button {
 }
 
 html.has-native-glass.glass-body .mono-window {
-  background: color-mix(
-    in srgb,
-    var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
-    transparent
-  );
+  /* Full-pane reading surfaces (Notes, Search, Transcript, Settings) need a
+   * solid plane. Sidebar opacity is for the rail, not these overlays. */
+  background: var(--color-background-base);
 }
 
 .mono-window[data-window="settings"] {
@@ -933,6 +935,11 @@ html.has-native-glass.glass-body .mono-window {
 .mono-window[data-window="search"] {
   --mono-window-x: 0px;
   --mono-window-y: -8px;
+}
+
+.mono-window[data-window="transcript"] {
+  --mono-window-x: 0px;
+  --mono-window-y: 8px;
 }
 
 .zen-phase-body[data-open="false"] {

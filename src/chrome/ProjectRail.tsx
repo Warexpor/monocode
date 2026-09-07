@@ -29,7 +29,8 @@ import {
 } from "../lib/appearance";
 import { basename, revealPath, type GitDiffStats } from "../lib/fs";
 import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
-import { projectKey, projectName } from "../lib/paths";import {
+import { projectKey, projectName } from "../lib/paths";
+import {
   collectRailProjects,
   loadPinnedProjects,
   loadProjectRailOrder,
@@ -129,6 +130,10 @@ type Props = {
   updateNotice?: InstalledUpdate | null;
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
+  /** Live fold clip while dragging (DOM only). */
+  onPaintWidth?: (width: number) => void;
+  /** Committed rail width for the outer fold. */
+  onWidthChange?: (width: number) => void;
 };
 
 export function ProjectRail({
@@ -164,6 +169,8 @@ export function ProjectRail({
   updateNotice = null,
   onOpenWhatsNew,
   onDismissUpdate,
+  onPaintWidth,
+  onWidthChange,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -171,8 +178,15 @@ export function ProjectRail({
       Math.min(PROJECT_RAIL_WIDTH_MAX, Math.floor(window.innerWidth * 0.35)),
     defaultWidth: PROJECT_RAIL_WIDTH_DEFAULT,
     initial: loadProjectRailWidth(),
-    onCommit: saveProjectRailWidth,
+    onPaint: onPaintWidth,
+    onCommit: (next) => {
+      saveProjectRailWidth(next);
+      onWidthChange?.(next);
+    },
   });
+  useEffect(() => {
+    onWidthChange?.(resize.width);
+  }, [onWidthChange, resize.width]);
   const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
   const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
   const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);

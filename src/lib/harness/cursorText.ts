@@ -1,3 +1,4 @@
+import { nativeModelId } from "../models";
 import { AcpClient } from "./acp";
 import {
   killChild,
@@ -22,6 +23,7 @@ const CLIENT_CAPABILITIES = {
 type LiveText = {
   acp: AcpClient;
   cwd: string;
+  model: string;
   acpSessionId: string;
   collecting: boolean;
   output: string;
@@ -30,6 +32,11 @@ type LiveText = {
 
 let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
+
+function pickTextModel(requested?: string): string {
+  if (requested?.trim()) return nativeModelId(requested);
+  return TEXT_MODEL;
+}
 
 export async function stopCursorTextPrompt(childId?: string): Promise<void> {
   await dropLive();
@@ -43,7 +50,7 @@ export async function stopCursorTextPrompt(childId?: string): Promise<void> {
 export function warmupCursorText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
   const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
+    await ensureLive(cwd, undefined);
   });
   turns = run.then(
     () => undefined,
@@ -57,6 +64,7 @@ export async function runCursorTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs: number;
+  model?: string;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -70,8 +78,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs: number;
+  model?: string;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.model);
   session.output = "";
   session.collecting = true;
   try {
@@ -96,20 +105,22 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
+async function ensureLive(cwd: string, requestedModel?: string): Promise<LiveText> {
+  const model = pickTextModel(requestedModel);
   if (live && !live.closed) {
-    if (live.cwd === cwd) return live;
+    if (live.cwd === cwd && live.model === model) return live;
     try {
+      live.model = model;
       await openSession(live, cwd);
       return live;
     } catch {
       await dropLive();
     }
   }
-  return startLive(cwd);
+  return startLive(cwd, model);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
+async function startLive(cwd: string, model: string): Promise<LiveText> {
   await dropLive();
   const { path } = await resolveCursorBinary();
   const acpRef: { session: LiveText | null } = { session: null };
@@ -126,6 +137,7 @@ async function startLive(cwd: string): Promise<LiveText> {
   const session: LiveText = {
     acp,
     cwd,
+    model,
     acpSessionId: "",
     collecting: false,
     output: "",
@@ -196,7 +208,7 @@ async function openSession(session: LiveText, cwd: string): Promise<void> {
       {
         sessionId: acpSessionId,
         configId: modelConfigId,
-        value: TEXT_MODEL,
+        value: session.model,
       },
       REQUEST_TIMEOUT_MS,
     )
@@ -204,7 +216,7 @@ async function openSession(session: LiveText, cwd: string): Promise<void> {
       session.acp
         .request(
           "session/set_model",
-          { sessionId: acpSessionId, modelId: TEXT_MODEL },
+          { sessionId: acpSessionId, modelId: session.model },
           REQUEST_TIMEOUT_MS,
         )
         .catch(() => undefined),

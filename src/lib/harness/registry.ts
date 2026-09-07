@@ -14,6 +14,8 @@ export type TitleInput = {
   sessionId: string;
   cwd: string;
   message: string;
+  /** Session / settings model id (`harness:native`). */
+  model: string;
 };
 
 /**

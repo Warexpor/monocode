@@ -13,6 +13,7 @@ async function generateSessionTitle(
     sessionId: string;
     cwd: string;
     message: string;
+    model: string;
   },
 ): Promise<string | null> {
   try {
@@ -20,6 +21,7 @@ async function generateSessionTitle(
       cwd: input.cwd,
       prompt: buildThreadTitlePrompt(input.message),
       timeoutMs: TITLE_TIMEOUT_MS,
+      model: input.model,
     });
     return parseGeneratedThreadTitle(output);
   } catch (error) {
@@ -32,6 +34,7 @@ export function generatePiSessionTitle(input: {
   sessionId: string;
   cwd: string;
   message: string;
+  model: string;
 }): Promise<string | null> {
   return generateSessionTitle(PI_FLAVOR, input);
 }
@@ -40,6 +43,7 @@ export function generateOmpSessionTitle(input: {
   sessionId: string;
   cwd: string;
   message: string;
+  model: string;
 }): Promise<string | null> {
   return generateSessionTitle(OMP_FLAVOR, input);
 }

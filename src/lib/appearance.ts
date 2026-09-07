@@ -241,6 +241,8 @@ export function saveSidebarOpacity(value: number) {
 
 export function applySidebarOpacity(value: number) {
   const next = clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX);
+  // One token for the whole translucent chrome (rails + optional main pane).
+  document.documentElement.style.setProperty("--app-opacity", String(next));
   document.documentElement.style.setProperty("--sidebar-opacity", String(next));
   return next;
 }

@@ -16,6 +16,7 @@ import {
 } from "./icons";
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -224,6 +225,7 @@ type Props = {
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
+  transcriptActive?: boolean;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
@@ -297,6 +299,7 @@ function SidebarComponent({
   searchActive = false,
   inboxActive = false,
   notesActive = false,
+  transcriptActive = false,
   notesEnabled = true,
   onToggleProjectRail,
   projectRailOpen = true,
@@ -314,15 +317,30 @@ function SidebarComponent({
 }: Props) {
   const gitRoot = gitCwd || cwd;
   const inboxUnseen = useInboxUnseen(recents, cwd, onOpenInbox != null);
+  const workspaceFoldRef = useRef<HTMLDivElement>(null);
+  const paintWorkspaceFold = useCallback((width: number) => {
+    workspaceFoldRef.current?.style.setProperty(
+      "--mono-side-w",
+      `${width}px`,
+    );
+  }, []);
   const resize = useDragResize({
     min: MIN_WIDTH,
     max: () => Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)),
     defaultWidth: DEFAULT_WIDTH,
     initial: rememberedWidth,
+    onPaint: paintWorkspaceFold,
     onCommit: (next) => {
       rememberedWidth = next;
     },
   });
+  useLayoutEffect(() => {
+    paintWorkspaceFold(resize.width);
+  }, [paintWorkspaceFold, resize.width]);
+  const railFoldRef = useRef<HTMLDivElement>(null);
+  const paintRailFold = useCallback((width: number) => {
+    railFoldRef.current?.style.setProperty("--mono-side-w", `${width}px`);
+  }, []);
   const [tabOrder, setTabOrder] = useState<SidebarTab[]>(loadSidebarTabOrder);
   const [now, setNow] = useState(() => Date.now());
   const sessionsLock = useLockOverscroll<HTMLDivElement>();
@@ -492,13 +510,18 @@ function SidebarComponent({
     !searchActive &&
     !inboxActive &&
     !notesActive &&
+    !transcriptActive &&
     !settingsOpen &&
     inProject;
-  // Overlay surfaces force the left columns open/closed. Animate that with the
-  // main pane swap and it reads as two waves — snap chrome, keep folds for
-  // explicit Projects / Workspace toggles only.
+  // Overlay surfaces force the left columns open/closed. Animate that beside
+  // the pane window enter and it reads as two waves — snap chrome then, keep
+  // the fold only for explicit Projects / Workspace toggles.
   const surfaceOverlay =
-    searchActive || inboxActive || notesActive || settingsOpen;
+    searchActive ||
+    inboxActive ||
+    notesActive ||
+    transcriptActive ||
+    settingsOpen;
   const [foldInstant, setFoldInstant] = useState(false);
   const prevSurfaceOverlay = useRef(surfaceOverlay);
   useLayoutEffect(() => {
@@ -1490,6 +1513,7 @@ function SidebarComponent({
     >
       {showProjectRail && onSelectProject && onOpenProject ? (
         <div
+          ref={railFoldRef}
           className="mono-side-fold"
           data-open={railVisible}
           data-instant={sideFoldInstant}
@@ -1531,12 +1555,15 @@ function SidebarComponent({
               updateNotice={updateNotice}
               onOpenWhatsNew={onOpenWhatsNew}
               onDismissUpdate={onDismissUpdate}
+              onPaintWidth={paintRailFold}
+              onWidthChange={paintRailFold}
             />
           </div>
         </div>
       ) : null}
       {inProject ? (
         <div
+          ref={workspaceFoldRef}
           className="mono-side-fold"
           data-open={sidebarVisible}
           data-instant={sideFoldInstant}

@@ -91,7 +91,7 @@ import {
   subscribeModels,
 } from "../lib/models";
 import { prettyCwd, projectKey, projectName } from "../lib/paths";
-import { IS_MAC } from "../lib/platform";
+import { HAS_NATIVE_GLASS, IS_MAC, IS_WIN } from "../lib/platform";
 import {
   loadArchivedProjects,
   looksLikeProject,
@@ -956,16 +956,32 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         />
       </Row>
       <Row
-        label="Sidebar opacity"
-        description="How much of the desktop shows through the sidebar and the project rail."
+        label="Transparency"
+        description={
+          HAS_NATIVE_GLASS
+            ? "How see-through the window is over the desktop. Sidebars always use this; turn on Main pane glass to include sessions and editors."
+            : "Requires the translucent window effect on macOS or Windows."
+        }
       >
         <Slider
-          label="Sidebar opacity"
+          label="Transparency"
           value={percent}
           display={`${percent}%`}
           min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
           max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
           onChange={appearance.onOpacity}
+          disabled={!HAS_NATIVE_GLASS}
+        />
+      </Row>
+      <Row
+        label="Main pane glass"
+        description="Apply the same transparency to the main pane behind sessions and editors."
+      >
+        <Toggle
+          label="Main pane glass"
+          on={appearance.bodyGlass}
+          onChange={appearance.onBodyGlass}
+          disabled={!HAS_NATIVE_GLASS}
         />
       </Row>
       <Row
@@ -979,6 +995,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           min={SIDEBAR_BLUR_MIN}
           max={SIDEBAR_BLUR_MAX}
           onChange={appearance.onBlur}
+          disabled={!HAS_NATIVE_GLASS}
         />
       </Row>
       <Row label="Hue" description="Base hue for accents and tinted surfaces.">
@@ -1004,16 +1021,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           min={THEME_SATURATION_MIN}
           max={THEME_SATURATION_MAX}
           onChange={(value) => appearance.onTint(appearance.themeHue, value)}
-        />
-      </Row>
-      <Row
-        label="Main pane glass"
-        description="Extend the translucent treatment to the main pane behind sessions and editors."
-      >
-        <Toggle
-          label="Main pane glass"
-          on={appearance.bodyGlass}
-          onChange={appearance.onBodyGlass}
         />
       </Row>
       <Row
@@ -1519,6 +1526,7 @@ function Slider({
   max,
   step = 1,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -1527,15 +1535,19 @@ function Slider({
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex w-56 items-center gap-3">
+    <div
+      className={`flex w-56 items-center gap-3 ${disabled ? "opacity-40" : ""}`}
+    >
       <input
         type="range"
         min={min}
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={value}
@@ -1550,12 +1562,12 @@ function Slider({
   );
 }
 
-/** macOS keeps the decision after the first prompt; only System Settings can flip it. */
+/** OS keeps the decision after the first prompt; only system settings can flip it. */
 function NotificationsBlocked() {
   return (
     <span className="flex items-center gap-2 text-[12px] text-content/45">
       Permission needed
-      {IS_MAC ? (
+      {IS_MAC || IS_WIN ? (
         <button
           type="button"
           onClick={() => {
@@ -1563,7 +1575,7 @@ function NotificationsBlocked() {
           }}
           className="rounded-md border border-content/10 px-2 py-1 text-content/70 hover:bg-content/10 hover:text-content"
         >
-          Open System Settings
+          {IS_MAC ? "Open System Settings" : "Open Windows Settings"}
         </button>
       ) : null}
     </span>
@@ -1574,10 +1586,12 @@ function Toggle({
   label,
   on,
   onChange,
+  disabled = false,
 }: {
   label: string;
   on: boolean;
   onChange: (on: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -1585,11 +1599,12 @@ function Toggle({
       role="switch"
       aria-label={label}
       aria-checked={on}
+      disabled={disabled}
       onClick={() => {
         playCue("switch");
         onChange(!on);
       }}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-default disabled:opacity-40 ${
         on ? "bg-accent" : "bg-content/20"
       }`}
     >

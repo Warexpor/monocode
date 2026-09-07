@@ -14,6 +14,8 @@ type Options = {
   defaultWidth: number;
   initial: number;
   onCommit?: (width: number) => void;
+  /** Fires on every painted width, including drags (no React state). */
+  onPaint?: (width: number) => void;
 };
 
 function clampTo(value: number, min: number, max: number) {
@@ -28,6 +30,7 @@ export function useDragResize({
   defaultWidth,
   initial,
   onCommit,
+  onPaint,
 }: Options) {
   const minRef = useRef(min);
   minRef.current = min;
@@ -35,6 +38,8 @@ export function useDragResize({
   maxRef.current = max;
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
+  const onPaintRef = useRef(onPaint);
+  onPaintRef.current = onPaint;
   const defaultRef = useRef(defaultWidth);
   defaultRef.current = defaultWidth;
 
@@ -52,11 +57,15 @@ export function useDragResize({
     widthRef.current = next;
     const pane = paneRef.current;
     if (pane) pane.style.width = `${next}px`;
+    onPaintRef.current?.(next);
   };
 
   const setPaneRef = useCallback((el: HTMLElement | null) => {
     paneRef.current = el;
-    if (el) el.style.width = `${widthRef.current}px`;
+    if (el) {
+      el.style.width = `${widthRef.current}px`;
+      onPaintRef.current?.(widthRef.current);
+    }
   }, []);
 
   const commit = (next: number) => {

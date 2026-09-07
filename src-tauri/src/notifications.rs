@@ -3,15 +3,16 @@
 //!
 //! macOS goes through `UNUserNotificationCenter` directly: the app already
 //! links it for the Dock badge, it reports the real authorization state, and
-//! a delegate turns a click into a jump back to the session. Linux uses the
-//! freedesktop notification bus, which has no permission model.
+//! a delegate turns a click into a jump back to the session. Linux and Windows
+//! use `notify-rust` (freedesktop / WinRT toast); neither has a permission
+//! prompt comparable to macOS.
 
 use serde::Serialize;
 use tauri::AppHandle;
 
 /// Emitted to every window when the user clicks a notification. Payload is
 /// the session id; the window that owns that session handles it.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub const CLICK_EVENT: &str = "monocode:notification-click";
 
 #[cfg(target_os = "macos")]
@@ -490,7 +491,78 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(target_os = "windows")]
+mod platform {
+    use notify_rust::NotificationResponse;
+    use tauri::{AppHandle, Emitter};
+
+    use super::{Permission, CLICK_EVENT};
+
+    pub(super) async fn permission() -> Permission {
+        Permission::Granted
+    }
+
+    pub(super) async fn request_permission() -> Permission {
+        Permission::Granted
+    }
+
+    pub(super) async fn show(
+        app: &AppHandle,
+        session_id: &str,
+        title: &str,
+        subtitle: &str,
+        body: &str,
+        sound: bool,
+    ) -> Result<(), String> {
+        let mut notification = notify_rust::Notification::new();
+        notification
+            .appname("MonoCode")
+            .summary(title)
+            .subtitle(subtitle)
+            .body(body)
+            .action("default", "Show");
+        // Release installs register this AUMID. Under `tauri dev` an unknown
+        // id silently drops toasts, so leave the PowerShell host default.
+        #[cfg(not(debug_assertions))]
+        {
+            notification.app_id(&app.config().identifier);
+        }
+        if sound {
+            // WinRT named sound; see tauri-winrt-notification::Sound.
+            notification.sound_name("Default");
+        }
+        let handle = notification.show().map_err(|err| err.to_string())?;
+        let app = app.clone();
+        let session_id = session_id.to_string();
+        // Keep the toast alive until activation or dismissal so the click
+        // callback can jump back to the session.
+        std::thread::spawn(move || {
+            let _ = handle.wait_for_response(|response: &NotificationResponse| {
+                if matches!(
+                    response,
+                    NotificationResponse::Default | NotificationResponse::Action(_)
+                ) {
+                    let _ = app.emit(CLICK_EVENT, session_id.as_str());
+                }
+            });
+        });
+        Ok(())
+    }
+
+    pub(super) fn open_settings(_app: &AppHandle) -> Result<(), String> {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "ms-settings:notifications"])
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| err.to_string())
+    }
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "windows"
+)))]
 mod platform {
     use tauri::AppHandle;
 

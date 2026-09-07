@@ -168,7 +168,7 @@ export function grokSpawnArgs(input: {
   return args;
 }
 
-export function grokTextSpawnArgs(): string[] {
+export function grokTextSpawnArgs(model = TEXT_MODEL): string[] {
   return [
     "--no-auto-update",
     "--permission-mode",
@@ -176,7 +176,7 @@ export function grokTextSpawnArgs(): string[] {
     "agent",
     "--no-leader",
     "--model",
-    TEXT_MODEL,
+    model,
     "--reasoning-effort",
     "low",
     "stdio",
