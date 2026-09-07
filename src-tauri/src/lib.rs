@@ -347,6 +347,7 @@ pub fn run() {
             window_transfer::take_window_transfer,
             project_logo::save_project_logo,
             project_logo::remove_project_logo,
+            project_logo::forget_logo_file,
             completion_sound::save_completion_sound,
             completion_sound::remove_completion_sound,
             app_sound::play_app_sound,
