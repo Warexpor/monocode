@@ -130,25 +130,6 @@ pub async fn full_setup_apply(
         .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn full_setup_verify(app: AppHandle) -> Result<FullSetupApplyResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut log = Vec::new();
-        let ocx_healthy = probe_ocx_health(&mut log);
-        let ocx_model_count = count_ocx_models(&mut log);
-        let exa_mcp_present = grok_config_has_exa();
-        let _ = app;
-        Ok(FullSetupApplyResult {
-            log,
-            ocx_model_count,
-            exa_mcp_present,
-            ocx_healthy,
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 fn status_sync(app: &AppHandle) -> Result<FullSetupStatus, String> {
     let supported = cfg!(windows);
     let node = probe_version("node", &["--version"]);
@@ -224,22 +205,17 @@ fn install_grok_sync() -> Result<String, String> {
 fn install_opencodex_sync() -> Result<String, String> {
     let npm = which_in_path(&gui_search_path(), "npm")
         .ok_or_else(|| "npm not found. Install Node.js LTS first.".to_string())?;
-    let output = run_capture_at(
-        &npm,
-        &["install", "-g", OPENCODEX_PKG],
-        None,
-        CMD_TIMEOUT,
-    )?;
+    let output = run_capture_at(&npm, &["install", "-g", OPENCODEX_PKG], None, CMD_TIMEOUT)?;
     require_success("OpenCodex install", &output)?;
     Ok(format_output("OpenCodex install", &output))
 }
 
 fn apply_sync(app: &AppHandle, args: FullSetupApplyArgs) -> Result<FullSetupApplyResult, String> {
-    let mut log = Vec::new();
     if !cfg!(windows) {
-        log.push("Full Setup apply is Windows-first; continuing anyway.".into());
+        return Err("Full Setup apply is Windows-only.".into());
     }
 
+    let mut log = Vec::new();
     let key = require_key(app)?;
     log.push("OpenCode API key loaded.".into());
 
@@ -305,22 +281,14 @@ fn write_opencodex_providers(
 
     providers.insert(
         "opencode-zen".into(),
-        provider_block(
-            "https://opencode.ai/zen/v1",
-            zen_ids,
-            "OpenCode Zen (free)",
-        ),
+        provider_block("https://opencode.ai/zen/v1", zen_ids, "OpenCode Zen (free)"),
     );
     if go_ids.is_empty() {
         providers.remove("opencode-go");
     } else {
         providers.insert(
             "opencode-go".into(),
-            provider_block(
-                "https://opencode.ai/zen/go/v1",
-                go_ids,
-                "OpenCode Go",
-            ),
+            provider_block("https://opencode.ai/zen/go/v1", go_ids, "OpenCode Go"),
         );
     }
 
@@ -499,7 +467,9 @@ fn count_ocx_models(log: &mut Vec<String>) -> u32 {
                     lower.contains("ocx-") || lower.contains("opencodex")
                 })
                 .count() as u32;
-            log.push(format!("Detected ~{count} OpenCodex-related grok model lines"));
+            log.push(format!(
+                "Detected ~{count} OpenCodex-related grok model lines"
+            ));
             count
         }
         Err(err) => {
@@ -574,7 +544,7 @@ fn parse_model_list(body: &str) -> Result<Vec<NamedModel>, String> {
             .to_string();
         out.push(NamedModel { id, name });
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     out.dedup_by(|a, b| a.id == b.id);
     Ok(out)
 }
@@ -650,7 +620,8 @@ fn write_secret_file(path: &Path, token: &str) -> Result<(), String> {
             .mode(0o600)
             .open(path)
             .map_err(|e| e.to_string())?;
-        file.write_all(token.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(token.as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
     #[cfg(windows)]
@@ -704,12 +675,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
-pub(crate) fn upsert_fenced_block(
-    existing: &str,
-    begin: &str,
-    end: &str,
-    block: &str,
-) -> String {
+pub(crate) fn upsert_fenced_block(existing: &str, begin: &str, end: &str, block: &str) -> String {
     let cleaned = remove_fenced_block(existing, begin, end);
     let trimmed = cleaned.trim_end();
     if trimmed.is_empty() {
@@ -797,9 +763,8 @@ fn run_capture_at(
 }
 
 fn wait_capture(mut cmd: Command, timeout: Duration) -> Result<Captured, String> {
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn: {e}"))?;
+    let child = cmd.spawn().map_err(|e| format!("Failed to spawn: {e}"))?;
+    let pid = child.id();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(child.wait_with_output());
@@ -811,7 +776,34 @@ fn wait_capture(mut cmd: Command, timeout: Duration) -> Result<Captured, String>
             status: output.status.code().unwrap_or(-1),
         }),
         Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err(format!("Command timed out after {}s", timeout.as_secs())),
+        Err(_) => {
+            kill_timed_out_process(pid);
+            let _ = rx.recv_timeout(Duration::from_secs(5));
+            Err(format!("Command timed out after {}s", timeout.as_secs()))
+        }
+    }
+}
+
+fn kill_timed_out_process(pid: u32) {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("taskkill");
+        crate::hide_window_console(&mut cmd);
+        let _ = cmd
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = pid;
     }
 }
 

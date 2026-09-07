@@ -1,21 +1,24 @@
 ﻿# Warexpor custom layer
 
-Branch: `custom/warexpor`. Clone setup and sync: `UPSTREAM.md`. Windows evidence: `WINDOWS-PARITY.md`.
+Product overlay on Windows-ready `main`. Clone setup and sync: `UPSTREAM.md`. Windows evidence: `WINDOWS-PARITY.md`.
 
-This is the product overlay on Windows-ready `main`. Scaffold only until a product brief lands. Additive modules go under `src/custom/` (currently `.gitkeep`).
+Additive modules live under `src/custom/`. Windows/platform fixes still land on `main`. Prefer `src/custom/` (or other agreed overlay paths) over editing core harness files when possible.
+
+## Current modules
+
+| Module | Role |
+| --- | --- |
+| `fullSetup.ts` / `FullSetupWizard.tsx` | Windows Full Setup wizard for Grok, OpenCodex, API key, model catalogs, and Exa websearch |
+| `fullSetup.test.ts` | Unit coverage for recovery hints and Zen free-id heuristics |
+| `index.ts` | Public exports for Settings and other chrome entry points |
+
+The optional product branch `custom/warexpor` can diverge for larger overlay work. After `scripts/sync-upstream.sh` or `scripts/sync-upstream.ps1` updates `main`, merge `main` into that branch and resolve product conflicts there.
 
 ## Rules
 
 1. Do not rewrite `main` history.
-2. Land Windows/platform fixes on `main`, not here, even if a mixed PR is later stacked onto this branch. Do not use `feat/windows` (stale; `main` is ahead).
-3. After `scripts/sync-upstream.sh` or `scripts/sync-upstream.ps1` updates `main`, merge `main` into this branch and resolve product conflicts here:
-
-   ```bash
-   git checkout custom/warexpor
-   git merge main
-   ```
-
-4. Prefer `src/custom/` (or other agreed overlay paths) over editing core harness files when possible.
+2. Land Windows/platform fixes on `main`, not on a stale `feat/windows` branch (`main` is ahead).
+3. Keep custom product behavior behind `src/custom/` exports when practical so upstream merges stay small.
 
 ## Windows agent session (machine-local)
 

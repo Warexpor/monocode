@@ -8,7 +8,7 @@ This document does not claim a live Claude/`ocx` session or a pixel-level DWM sc
 
 ## What CI proves (and where)
 
-Workflow: `.github/workflows/ci.yml`. Latest green push on `origin/main` `8e30be0`: [run 33883482964](https://github.com/Warexpor/monocode/actions/runs/33883482964).
+Workflow: `.github/workflows/ci.yml`. Latest green push on `origin/main` `472ed8f`: [run 34067333414](https://github.com/Warexpor/monocode/actions/runs/34067333414). Later `main` tips (including Full Setup at `5e58725`) may still be red until the web typecheck/`check` jobs catch up.
 
 | Job | Runner | What it actually ran |
 |-----|--------|----------------------|
@@ -39,7 +39,7 @@ Linux cloud VMs (this class of agent) are `check` on Ubuntu only unless you run 
 | Accelerators | native `menu.rs` (incl. Edit → Find) | HTML `MenuBar` (File/View splits, tabs, focus, Settings, Quit, Find) + `App.tsx` (`Ctrl+Q/O/Shift+N/B/P/K/,/Shift+F/.` and `Ctrl+F` find) | 1TO1 (code) |
 | Claude creds | Keychain on macOS; `0o600` file on Linux | File store + owner+SYSTEM DACL | 1TO1 (code) |
 | NSIS first-run | n/a | Silent install + launch on `windows-latest` | 1TO1 (CI `windows-nsis`) — not interactive desktop UX |
-| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; Rust applies on `Ready` / new windows (JS re-applies after splash) | 1TO1 (CI sidecar `fallback=acrylic` on `8e30be0`) — not a pixel screenshot |
+| DWM glass apply | CGS blur | Radius → Blur/Acrylic/Mica order, then solid; Rust applies on `Ready` / new windows (JS re-applies after splash) | 1TO1 (CI sidecar `fallback=acrylic` on `472ed8f`) — not a pixel screenshot |
 
 PR #1 applies glass from Rust so the sidecar does not wait on JS boot.
 

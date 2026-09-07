@@ -31,9 +31,10 @@ One provider is enough. MonoCode probes for each CLI at startup and disables the
 - `src/chrome/` - the window frame: title bar, sidebar, composer, tabs, model picker
 - `src/surfaces/` - the panes inside a tab: transcript, file editor, diff, terminal
 - `src/lib/harness/` - one adapter per provider, plus the registry they plug into
-- `src-tauri/src/` - the Rust side: PTYs, filesystem and git, session storage, native window
+- `src/custom/` - Warexpor product overlay (Windows Full Setup wizard for Grok + OpenCodex + Exa)
+- `src-tauri/src/` - the Rust side: PTYs, filesystem and git, session storage, native window, Full Setup commands
 
-`src/lib/harness/` is the most useful place to start if you want to fix something real. Each provider has an adapter (`claudeAdapter.ts`) that implements the shared `HarnessAdapter` lifecycle from `registry.ts`, and a protocol module (`claudeProtocol.ts`) that translates the CLI’s output into MonoCode’s own event types. The protocol modules are pure functions with unit tests beside them, so you can fix a Codex parsing bug with only Claude Code installed. That’s for the providers we already ship - please don’t add a new one yet.
+`src/lib/harness/` is the most useful place to start if you want to fix something real. Each provider has an adapter (`claudeAdapter.ts`) that implements the shared `HarnessAdapter` lifecycle from `registry.ts`, and a protocol module (`claudeProtocol.ts`) that translates the CLI’s output into MonoCode’s own event types. The protocol modules are pure functions with unit tests beside them, so you can fix a Codex parsing bug with only Claude Code installed. That’s for the providers we already ship - please don’t add a new one yet. Product-only Windows setup UX belongs in `src/custom/` (see `CUSTOM.md`).
 
 ## Before you push
 

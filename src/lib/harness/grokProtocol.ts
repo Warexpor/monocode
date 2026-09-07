@@ -1617,18 +1617,3 @@ function numberField(
   }
   return undefined;
 }
-
-function sumNumbers(
-  rec: Record<string, unknown>,
-  keys: string[],
-): number | undefined {
-  let total = 0;
-  let found = false;
-  for (const key of keys) {
-    const value = numberField(rec, key);
-    if (value == null) continue;
-    total += value;
-    found = true;
-  }
-  return found ? total : undefined;
-}

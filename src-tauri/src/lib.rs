@@ -273,7 +273,6 @@ pub fn run() {
             full_setup::full_setup_set_key,
             full_setup::full_setup_fetch_catalogs,
             full_setup::full_setup_apply,
-            full_setup::full_setup_verify,
             fs::git_branches,
             fs::git_checkout,
             fs::git_create_branch,

@@ -1116,6 +1116,7 @@ function ProvidersPage() {
   const [choice, setChoice] = useState(loadLastModelChoice);
   const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
   const [fullSetupOpen, setFullSetupOpen] = useState(false);
+  const [fullSetupDone, setFullSetupDone] = useState(loadFullSetupComplete);
   const showFullSetup = isFullSetupSupported();
 
   useEffect(() => {
@@ -1155,7 +1156,7 @@ function ProvidersPage() {
             <p className="text-[12px] text-content/45">
               Install Grok + OpenCodex, wire Zen free / Go models, and enable Exa
               web search
-              {loadFullSetupComplete() ? " · previously completed" : ""}.
+              {fullSetupDone ? " · previously completed" : ""}.
             </p>
           </div>
           <SecondaryButton onClick={() => setFullSetupOpen(true)}>
@@ -1176,15 +1177,15 @@ function ProvidersPage() {
           isDefault={choice?.harness === harness}
           onDefault={onDefault}
           onModelChange={onModelChange}
-          onFullSetup={
-            showFullSetup && harness === "grok"
-              ? () => setFullSetupOpen(true)
-              : undefined
-          }
         />
       ))}
       {fullSetupOpen ? (
-        <FullSetupWizard onClose={() => setFullSetupOpen(false)} />
+        <FullSetupWizard
+          onClose={() => {
+            setFullSetupOpen(false);
+            setFullSetupDone(loadFullSetupComplete());
+          }}
+        />
       ) : null}
     </>
   );
@@ -1196,14 +1197,12 @@ function ProviderRow({
   isDefault,
   onDefault,
   onModelChange,
-  onFullSetup,
 }: {
   harness: HarnessId;
   selectedModel: string;
   isDefault: boolean;
   onDefault: (harness: HarnessId, model: string) => void;
   onModelChange: (harness: HarnessId, model: string) => void;
-  onFullSetup?: () => void;
 }) {
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
@@ -1261,9 +1260,6 @@ function ProviderRow({
       >
         {isDefault ? "Default" : "Use by default"}
       </SecondaryButton>
-      {onFullSetup ? (
-        <SecondaryButton onClick={onFullSetup}>Full Setup</SecondaryButton>
-      ) : null}
       {available ? (
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-content/50">Show in picker</span>

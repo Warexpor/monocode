@@ -850,7 +850,7 @@ function TreeChildren({
       {show && ctx.creating?.isDir ? row : null}
       {loading && !error ? (
         <p className="pr-2 text-[12px] text-content/50" style={pad}>
-          …
+          Loading…
         </p>
       ) : null}
       {folders.map((child) => (

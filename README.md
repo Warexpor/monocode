@@ -42,7 +42,7 @@ This is very early and you should expect bugs.
 
 Small, focused pull requests are welcome. Anything large is worth an issue first - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Fork remotes, sync, and the Warexpor updater channel: [UPSTREAM.md](UPSTREAM.md). Windows vs Linux CI: [WINDOWS-PARITY.md](WINDOWS-PARITY.md). Product branch (`custom/warexpor`): [CUSTOM.md](CUSTOM.md).
+Fork remotes, sync, and the Warexpor updater channel: [UPSTREAM.md](UPSTREAM.md). Windows vs Linux CI: [WINDOWS-PARITY.md](WINDOWS-PARITY.md). Product overlay (`src/custom/`, including Windows Grok Full Setup): [CUSTOM.md](CUSTOM.md).
 
 ## Build from source
 
