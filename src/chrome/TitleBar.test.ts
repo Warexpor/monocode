@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { tabCopy, tabStripOverflow, type Tab } from "./TitleBar";
+import {
+  tabCopy,
+  tabStripOverflow,
+  titleTabContextCloseIds,
+  titleTabClosable,
+  type Tab,
+} from "./TitleBar";
 
 function tab(overrides: Partial<Tab> = {}): Tab {
   return {
@@ -93,5 +99,47 @@ describe("tabStripOverflow", () => {
 
   it("shows only the left chevron at the end", () => {
     expect(tabStripOverflow(400, 400, 800)).toEqual({ left: true, right: false });
+  });
+});
+
+describe("titleTabClosable", () => {
+  it("hides close on a sole blank tab", () => {
+    expect(titleTabClosable(tab({ blank: true }), 1)).toBe(false);
+  });
+
+  it("shows close on a sole tab once it has a conversation", () => {
+    expect(titleTabClosable(tab({ blank: false }), 1)).toBe(true);
+  });
+
+  it("allows a blank tab to be removed when another tab remains", () => {
+    expect(titleTabClosable(tab({ blank: true }), 2)).toBe(true);
+  });
+});
+
+describe("titleTabContextCloseIds", () => {
+  const tabs = [
+    tab({ id: "a" }),
+    tab({ id: "b" }),
+    tab({ id: "c" }),
+    tab({ id: "d" }),
+  ];
+
+  it("finds every tab except the context tab", () => {
+    expect(titleTabContextCloseIds(tabs, "b", "others")).toEqual([
+      "a",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("finds tabs on either side in visual order", () => {
+    expect(titleTabContextCloseIds(tabs, "c", "left")).toEqual(["a", "b"]);
+    expect(titleTabContextCloseIds(tabs, "b", "right")).toEqual(["c", "d"]);
+  });
+
+  it("returns no ids for an edge or missing tab", () => {
+    expect(titleTabContextCloseIds(tabs, "a", "left")).toEqual([]);
+    expect(titleTabContextCloseIds(tabs, "d", "right")).toEqual([]);
+    expect(titleTabContextCloseIds(tabs, "missing", "others")).toEqual([]);
   });
 });

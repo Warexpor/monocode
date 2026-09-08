@@ -9,10 +9,13 @@ import { suppressTextSelection } from "../lib/drag";
 
 type Options = {
   min: number;
+  direction?: "left" | "right";
   max: () => number;
   defaultWidth: number;
   initial: number;
   onCommit?: (width: number) => void;
+  /** Fires on every painted width, including drags (no React state). */
+  onPaint?: (width: number) => void;
 };
 
 function clampTo(value: number, min: number, max: number) {
@@ -21,11 +24,13 @@ function clampTo(value: number, min: number, max: number) {
 
 /** Drag a pane's width by writing the DOM directly so React re-renders can't fight the cursor. */
 export function useDragResize({
+  direction = "right",
   min,
   max,
   defaultWidth,
   initial,
   onCommit,
+  onPaint,
 }: Options) {
   const minRef = useRef(min);
   minRef.current = min;
@@ -33,6 +38,8 @@ export function useDragResize({
   maxRef.current = max;
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
+  const onPaintRef = useRef(onPaint);
+  onPaintRef.current = onPaint;
   const defaultRef = useRef(defaultWidth);
   defaultRef.current = defaultWidth;
 
@@ -50,11 +57,15 @@ export function useDragResize({
     widthRef.current = next;
     const pane = paneRef.current;
     if (pane) pane.style.width = `${next}px`;
+    onPaintRef.current?.(next);
   };
 
   const setPaneRef = useCallback((el: HTMLElement | null) => {
     paneRef.current = el;
-    if (el) el.style.width = `${widthRef.current}px`;
+    if (el) {
+      el.style.width = `${widthRef.current}px`;
+      onPaintRef.current?.(widthRef.current);
+    }
   }, []);
 
   const commit = (next: number) => {
@@ -81,7 +92,9 @@ export function useDragResize({
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
-      apply(clamp(startW + (ev.clientX - startX)));
+      apply(
+        clamp(startW + (ev.clientX - startX) * (direction === "left" ? -1 : 1)),
+      );
     };
 
     const stop = () => {

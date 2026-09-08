@@ -1,6 +1,12 @@
-/** Display path with home collapsed to `~`. */
+import { IS_WIN } from "./platform";
+
+function windowsPath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\") || path.startsWith("//");
+}
+
 export function slash(path: string): string {
-  return path.replace(/\\/g, "/");
+  return windowsPath(path) || (IS_WIN && !path.startsWith("/"))
+    ? path.replace(/\\/g, "/") : path;
 }
 
 function trimSlash(path: string): string {
@@ -37,6 +43,7 @@ export function prettyCwd(cwd: string): string {
 
 export function parentPath(path: string): string {
   const trimmed = trimSlash(path);
+  if (/^\/\/[^/]+\/[^/]+$/.test(trimmed)) return trimmed;
   if (/^[A-Za-z]:$/.test(trimmed)) return `${trimmed}/`;
   const i = trimmed.lastIndexOf("/");
   if (i <= 0) return "/";
@@ -51,7 +58,7 @@ export function rebasePath(path: string, from: string, to: string): string {
   const dest = trimSlash(to);
   const key = pathKey(normalized);
   const sourceKey = pathKey(source);
-  if (key === sourceKey) return dest;
+  if (key === sourceKey) return /^[A-Za-z]:$/.test(dest) ? `${dest}/` : dest;
   if (key.startsWith(`${sourceKey}/`)) {
     return `${dest}${normalized.slice(source.length)}`;
   }
@@ -69,7 +76,7 @@ export function isEqualOrInside(path: string, root: string): boolean {
 export function joinPath(parent: string, relative: string): string {
   const base = trimSlash(parent);
   const parts = relative
-    .split(/[/\\]/)
+    .split(windowsPath(parent) ? /[/\\]/ : /\//)
     .filter((part) => part && part !== ".");
   let out = base;
   for (const part of parts) {
@@ -147,4 +154,13 @@ export function projectName(cwd: string): string {
   if (/^[A-Za-z]:$/.test(trimmed)) return trimmed;
   const parts = trimmed.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? trimmed;
+}
+
+/**
+ * Identity for a project's saved appearance and data. Folder names repeat across
+ * checkouts (`cortex/agentbase` and `cortex-finance/agentbase`), so the whole
+ * path is the key — `projectName` is for display only.
+ */
+export function projectKey(cwd: string): string {
+  return pathKey(cwd);
 }

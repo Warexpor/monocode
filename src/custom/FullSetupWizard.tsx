@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Modal } from "../chrome/Modal";
 import { probeHarnessAvailability } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
@@ -205,11 +206,23 @@ export function FullSetupWizard({ onClose }: Props) {
     });
   };
 
+  const goBack = () => {
+    if (busy || stepIndex <= 0) return;
+    setStep(STEPS[stepIndex - 1].id);
+  };
+
+  const backButton =
+    supported && step !== "prereq" && step !== "done" ? (
+      <GhostButton disabled={busy} onClick={goBack}>
+        Back
+      </GhostButton>
+    ) : null;
+
   const unsupportedBody = useMemo(
     () => (
       <p className="text-[13px] leading-relaxed text-content/60">
-        Full Setup is Windows-only in this build. On other platforms, install
-        Grok and OpenCodex manually, then add Exa MCP to{" "}
+        Full Setup runs only on Windows. On other platforms, configure Grok and
+        OpenCodex yourself, then add Exa MCP to{" "}
         <code className="text-content/80">~/.grok/config.toml</code>.
       </p>
     ),
@@ -219,20 +232,27 @@ export function FullSetupWizard({ onClose }: Props) {
   return (
     <Modal
       onClose={onClose}
-      title="Grok Full Setup"
-      description="Install Grok + OpenCodex, wire Zen free / Go models, and enable Exa web search."
+      title={supported ? "Grok Full Setup" : "Windows only"}
+      description={
+        supported
+          ? "Install Grok + OpenCodex, wire Zen free / Go models, and enable Exa web search."
+          : "This wizard is available on Windows. Other platforms are not supported in this build."
+      }
       size="lg"
       className="h-[min(82vh,720px)]"
+      closeDisabled={busy}
+      descriptionMultiline
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 pb-5 pt-2">
         {supported ? (
-          <ol className="flex flex-wrap gap-1.5">
+          <ol className="flex flex-wrap gap-1.5" aria-label="Setup progress">
             {STEPS.map((item, index) => {
               const active = item.id === step;
               const done = index < stepIndex;
               return (
                 <li
                   key={item.id}
+                  aria-current={active ? "step" : undefined}
                   className={`rounded-full px-2 py-0.5 text-[11px] ${
                     active
                       ? "bg-content/15 text-content"
@@ -248,7 +268,10 @@ export function FullSetupWizard({ onClose }: Props) {
           </ol>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto pr-1"
+          aria-busy={busy}
+        >
           {!supported ? (
             unsupportedBody
           ) : step === "prereq" ? (
@@ -289,6 +312,7 @@ export function FullSetupWizard({ onClose }: Props) {
                 }
               />
               <Actions>
+                {backButton}
                 <PrimaryButton
                   disabled={busy}
                   onClick={() => onInstallGrok(false)}
@@ -325,6 +349,7 @@ export function FullSetupWizard({ onClose }: Props) {
                 }
               />
               <Actions>
+                {backButton}
                 <PrimaryButton
                   disabled={busy}
                   onClick={() => onInstallOcx(false)}
@@ -377,13 +402,16 @@ export function FullSetupWizard({ onClose }: Props) {
                 <a
                   className="underline decoration-content/25 hover:decoration-content/50"
                   href="https://opencode.ai/auth"
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void openUrl("https://opencode.ai/auth");
+                  }}
                 >
                   opencode.ai/auth
                 </a>
               </p>
               <Actions>
+                {backButton}
                 <PrimaryButton disabled={busy} onClick={onSaveKey}>
                   {busy ? "Validating…" : "Save & fetch models"}
                 </PrimaryButton>
@@ -465,6 +493,7 @@ export function FullSetupWizard({ onClose }: Props) {
                 </div>
               </div>
               <Actions>
+                {backButton}
                 <PrimaryButton disabled={busy} onClick={onModelsNext}>
                   Continue
                 </PrimaryButton>
@@ -486,6 +515,7 @@ export function FullSetupWizard({ onClose }: Props) {
                 Enable Exa MCP (`https://mcp.exa.ai/mcp`)
               </label>
               <Actions>
+                {backButton}
                 <PrimaryButton disabled={busy} onClick={onWebsearchNext}>
                   Continue
                 </PrimaryButton>
@@ -499,6 +529,7 @@ export function FullSetupWizard({ onClose }: Props) {
               body="Write OpenCodex config, start the proxy on loopback, inject Grok models, and refresh MonoCode’s catalog."
             >
               <Actions>
+                {backButton}
                 <PrimaryButton disabled={busy} onClick={onApply}>
                   {busy ? "Applying…" : "Run Full Setup"}
                 </PrimaryButton>
@@ -529,17 +560,21 @@ export function FullSetupWizard({ onClose }: Props) {
             </StepBlock>
           ) : null}
 
-          {error ? (
-            <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-200/90">
-              {error}
-            </p>
-          ) : null}
-
-          {log.length > 0 ? (
-            <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-content/10 bg-black/20 p-3 text-[11px] leading-relaxed text-content/55 whitespace-pre-wrap">
-              {log.join("\n\n")}
-            </pre>
-          ) : null}
+          <div aria-live="polite">
+            {error ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger/90"
+              >
+                {error}
+              </p>
+            ) : null}
+            {log.length > 0 ? (
+              <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-content/10 bg-content/5 p-3 text-[11px] leading-relaxed text-content/55 whitespace-pre-wrap">
+                {log.join("\n\n")}
+              </pre>
+            ) : null}
+          </div>
         </div>
       </div>
     </Modal>
@@ -569,13 +604,17 @@ function StepBlock({
 }
 
 function StatusLine({ ok, label }: { ok?: boolean; label: string }) {
+  const state =
+    ok === true ? "ready" : ok === false ? "not ready" : "checking";
+  const dot =
+    ok === true
+      ? "bg-success"
+      : ok === false
+        ? "bg-content/25"
+        : "bg-warning";
   return (
-    <p className="text-[12px] text-content/60">
-      <span
-        className={`mr-2 inline-block size-1.5 rounded-full ${
-          ok ? "bg-emerald-400" : "bg-content/25"
-        }`}
-      />
+    <p className="text-[12px] text-content/60" aria-label={`${state}: ${label}`}>
+      <span className={`mr-2 inline-block size-1.5 rounded-full ${dot}`} />
       {label}
     </p>
   );
@@ -599,7 +638,7 @@ function PrimaryButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="rounded-lg bg-content px-3 py-1.5 text-[12px] font-medium text-background-base disabled:opacity-40"
+      className="rounded-lg bg-content px-3 py-1.5 text-[12px] font-medium text-background-base hover:bg-content/85 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-content"
     >
       {children}
     </button>

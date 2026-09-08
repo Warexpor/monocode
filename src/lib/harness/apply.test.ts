@@ -7,6 +7,7 @@ import {
   promoteLastAssistantToPlan,
   stopStreaming,
 } from "./apply";
+import { eventsFromAcpUpdate } from "./grokProtocol";
 
 let now = 0;
 
@@ -53,6 +54,23 @@ describe("turn duration", () => {
     });
     expect(session.busy).toBe(false);
     expect(session.blocks[0]?.durationMs).toBe(7_000);
+  });
+
+  it("keeps a single row when session.error is emitted twice", () => {
+    now = 1_000;
+    let session = appendUser(newSession("cursor", "/tmp"), "hi");
+    now = 2_000;
+    session = applyHarnessEvent(session, {
+      type: "session.error",
+      message: "Internal error",
+    });
+    session = applyHarnessEvent(session, {
+      type: "session.error",
+      message: "Internal error",
+    });
+    expect(session.blocks.filter((block) => block.role === "system")).toEqual([
+      expect.objectContaining({ text: "Internal error" }),
+    ]);
   });
 });
 
@@ -440,6 +458,52 @@ describe("applyHarnessEvent context", () => {
     expect(session.context).toEqual({ used: 12_000, window: 400_000 });
   });
 
+  it("ignores multi-million spend that exceeds the window", () => {
+    let session = newSession("grok", "/repo");
+    session = applyHarnessEvent(session, {
+      type: "context",
+      used: 45_000,
+      window: 256_000,
+    });
+    session = applyHarnessEvent(session, {
+      type: "context",
+      used: 5_000_000,
+      window: 256_000,
+    });
+    expect(session.context).toEqual({ used: 45_000, window: 256_000 });
+  });
+
+  it("keeps occupancy when Grok turn_completed sends agent ledger spend", () => {
+    let session = newSession("grok", "/repo");
+    session = applyHarnessEvent(session, {
+      type: "context",
+      used: 45_000,
+      window: 256_000,
+    });
+    for (const event of eventsFromAcpUpdate({
+      sessionUpdate: "turn_completed",
+      usage: {
+        inputTokens: 4_200_000,
+        outputTokens: 800_000,
+        totalTokens: 5_000_000,
+        numTurns: 48,
+        modelUsage: { "muse-spark": { inputTokens: 4_200_000 } },
+      },
+    })) {
+      session = applyHarnessEvent(session, event);
+    }
+    expect(session.context).toEqual({ used: 45_000, window: 256_000 });
+
+    for (const event of eventsFromAcpUpdate({
+      sessionUpdate: "response_started",
+      input_tokens: 60_000,
+      cache_read_input_tokens: 10_000,
+    })) {
+      session = applyHarnessEvent(session, event);
+    }
+    expect(session.context).toEqual({ used: 70_000, window: 256_000 });
+  });
+
   it("leaves blocks alone", () => {
     const session = applyHarnessEvent(newSession("codex", "/repo"), {
       type: "context",
@@ -447,6 +511,34 @@ describe("applyHarnessEvent context", () => {
       window: 200_000,
     });
     expect(session.blocks).toEqual([]);
+  });
+});
+
+describe("Grok goal chrome through apply", () => {
+  it("keeps the goal task after complete so the Activity panel can hold it", () => {
+    let session = newSession("grok", "/repo");
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "goal:g1",
+      status: "running",
+      title: "Ship meter fix",
+      detail: "executing · 1/3 deliverables",
+    });
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "goal:g1",
+      status: "completed",
+      title: "Ship meter fix",
+      detail: "3/3 deliverables · 40K tokens",
+    });
+    expect(session.backgroundTasks).toEqual([
+      {
+        id: "goal:g1",
+        title: "Ship meter fix",
+        status: "completed",
+        detail: "3/3 deliverables · 40K tokens",
+      },
+    ]);
   });
 });
 
@@ -552,5 +644,67 @@ describe("clarifying questions", () => {
     });
     session = stopStreaming(session);
     expect(session.pendingQuestion).toBeUndefined();
+  });
+});
+
+describe("grok session side panels", () => {
+  it("stores follow-up suggestions and clears them on a new turn", () => {
+    let session = newSession("grok", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "followUps.updated",
+      suggestions: ["Ship it", "Add tests"],
+    });
+    expect(session.followUps).toEqual(["Ship it", "Add tests"]);
+    session = appendUser(session, "next");
+    expect(session.followUps).toBeUndefined();
+  });
+
+  it("upserts agents and background tasks", () => {
+    let session = newSession("grok", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      id: "a1",
+      status: "running",
+      title: "Explore",
+      kind: "explore",
+    });
+    session = applyHarnessEvent(session, {
+      type: "agent.updated",
+      id: "a1",
+      status: "completed",
+      title: "Explore",
+      durationMs: 1_200,
+    });
+    expect(session.agents).toEqual([
+      {
+        id: "a1",
+        title: "Explore",
+        status: "completed",
+        kind: "explore",
+        durationMs: 1_200,
+      },
+    ]);
+
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "bg1",
+      status: "running",
+      title: "npm test",
+      detail: "pid 42",
+    });
+    session = applyHarnessEvent(session, {
+      type: "background.updated",
+      id: "bg1",
+      status: "completed",
+      title: "npm test",
+    });
+    expect(session.backgroundTasks).toEqual([
+      {
+        id: "bg1",
+        title: "npm test",
+        status: "completed",
+        detail: "pid 42",
+      },
+    ]);
   });
 });

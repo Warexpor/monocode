@@ -7,6 +7,7 @@ import {
   queuedHead,
   queuedMessageForSubmit,
   reorderQueuedMessage,
+  shouldQueueFollowUp,
 } from "./messageQueue";
 import { newSession, type QueuedMessage, type Session } from "./session";
 
@@ -22,6 +23,20 @@ function chat(patch: Partial<Session> = {}): Session {
     ...patch,
   };
 }
+
+describe("shouldQueueFollowUp", () => {
+  it("queues the selected queue behavior", () => {
+    expect(shouldQueueFollowUp("queue", true)).toBe(true);
+  });
+
+  it("queues steer behavior when the harness cannot steer", () => {
+    expect(shouldQueueFollowUp("steer", false)).toBe(true);
+  });
+
+  it("allows steer behavior for steerable harnesses", () => {
+    expect(shouldQueueFollowUp("steer", true)).toBe(false);
+  });
+});
 
 describe("queuedHead", () => {
   it("returns the first queued follow-up", () => {

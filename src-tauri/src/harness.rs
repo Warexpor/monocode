@@ -9,7 +9,8 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -349,7 +350,7 @@ pub fn harness_spawn(
     if !workdir.is_dir() {
         return Err(format!(
             "Working directory does not exist: {}",
-            workdir.display()
+            crate::fs::path_to_js(&workdir)
         ));
     }
 
@@ -360,9 +361,8 @@ pub fn harness_spawn(
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to start {command}: {e}"))?;
+    let mut child =
+        spawn_managed(&mut cmd).map_err(|e| format!("Failed to start {command}: {e}"))?;
     let pid = child.id();
 
     #[cfg(windows)]
@@ -716,9 +716,7 @@ fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<Str
         }
     }
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to run {command}: {e}"))?;
+    let child = spawn_managed(&mut cmd).map_err(|e| format!("Failed to run {command}: {e}"))?;
     let pid = child.id();
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -782,6 +780,24 @@ fn isolate_child(cmd: &mut Command) {
     #[cfg(not(any(unix, windows)))]
     {
         let _ = cmd;
+    }
+}
+
+fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
+    match cmd.spawn() {
+        Ok(child) => Ok(child),
+        #[cfg(windows)]
+        Err(err) if err.raw_os_error() == Some(5) => {
+            // CREATE_BREAKAWAY_FROM_JOB returns ERROR_ACCESS_DENIED when this
+            // process sits in a job that forbids breakaway (Cursor agent jobs,
+            // some CI wrappers). Retry in-job so catalog probes still run.
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+            cmd.spawn()
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -1556,7 +1572,7 @@ fn help_mentions_rpc_mode(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1646,7 +1662,7 @@ fn fx_help_mentions_acp(path: &Path) -> bool {
     // fails outright without a PATH that has node on it.
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1706,7 +1722,7 @@ fn grok_help_mentions_agent(path: &Path) -> bool {
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
     isolate_child(&mut cmd);
-    let Ok(child) = cmd.spawn() else {
+    let Ok(child) = spawn_managed(&mut cmd) else {
         return false;
     };
     let pid = child.id();
@@ -1891,6 +1907,14 @@ fn is_executable_file(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         path.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    ["exe", "cmd", "bat", "com"]
+                        .iter()
+                        .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+                })
     }
 }
 
@@ -3117,5 +3141,24 @@ mod windows_resolve_tests {
         let from_gui = resolve_gui_binary("opencode");
         let from_which = which_via_login_shell("opencode");
         assert_eq!(from_gui, from_which);
+    }
+
+    #[test]
+    fn live_grok_models_exec_on_this_machine() {
+        let Some(path) = resolve_grok() else {
+            return;
+        };
+        eprintln!("resolved grok={}", path.display());
+        let command = path.to_string_lossy().into_owned();
+        assert!(
+            is_resolved_harness_binary(&command),
+            "resolved path rejected by harness_exec allowlist: {command}"
+        );
+        let out = exec_capture(&command, &["models".to_string()], None).expect("exec models");
+        eprintln!("stdout=<<{out}>>");
+        assert!(
+            out.contains("muse-spark"),
+            "expected muse-spark in models output, got: {out}"
+        );
     }
 }

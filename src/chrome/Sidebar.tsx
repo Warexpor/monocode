@@ -1,4 +1,5 @@
 import {
+  Archive,
   Check,
   ChevronDown,
   ChevronRight,
@@ -7,15 +8,17 @@ import {
   GitBranch,
   Inbox,
   ListFilter,
+  PanelRight,
   Pin,
   Plus,
   Search,
-  Settings,
   StickyNote,
 } from "./icons";
 import {
   memo,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -29,11 +32,16 @@ import {
   type SidebarTabId,
 } from "../lib/appearance";
 import { basename, type GitHistoryCommit } from "../lib/fs";
-import { IS_MAC, MOD } from "../lib/platform";
+import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import { resolveModel } from "../lib/models";
-import { projectName } from "../lib/paths";
+import { prettyParent, projectKey, projectName } from "../lib/paths";
 import { sessionDisplayTitle } from "../lib/session";
 import { nextUnseenFinishedSessions } from "../lib/sessionDone";
+import {
+  orderedSessionActionIds,
+  pruneSessionSelection,
+  toggleSessionSelection,
+} from "../lib/sessionSelection";
 import { paneDropFromPoint, setExternalPaneDrop } from "../lib/paneDrop";
 import type { PaneEdge } from "../lib/layout";
 import { suppressTextSelection } from "../lib/drag";
@@ -58,6 +66,7 @@ import {
   renameFolder,
   reorderSessionFolders,
   saveSessionFolders,
+  sessionListNavigationIds,
   setFolderCollapsed,
   setFolderColor,
   setFolderCustomColor,
@@ -102,21 +111,21 @@ import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { normalizeHex } from "../lib/colorUtils";
 import {
   looksLikeProject,
+  projectRailItems,
   sameProjectPath,
   type RecentProject,
 } from "../lib/recents";
-import { CwdPicker } from "./CwdPicker";
 import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTree } from "./FileTree";
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectRail } from "./ProjectRail";
-import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { DevModeSlot, IconButton, TabVisitNav } from "./TitleBar";
 import { ProjectSearch } from "./ProjectSearch";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 import { ProjectMascot } from "./ProjectMascot";
+import { Popover } from "./Popover";
 import { SessionFiltersMenu } from "./SessionFiltersMenu";
 import { SessionsEmpty } from "./SessionsEmpty";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
@@ -163,6 +172,7 @@ type Props = {
   /** First listing for this project has not arrived yet. */
   pending: boolean;
   onSelectSession: (sessionId: string) => void;
+  onSessionNavigationOrder?: (ids: readonly string[]) => void;
   onPrefetchSession?: (sessionId: string) => void;
   onPlaceSessionOnPane?: (
     sessionId: string,
@@ -171,8 +181,14 @@ type Props = {
   ) => void;
   onRenameSession?: (sessionId: string, title: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
+  onArchiveSessions?: (
+    sessionIds: readonly string[],
+    archived: boolean,
+  ) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
+  onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onDeleteSessions?: (sessionIds: readonly string[]) => void;
   onDuplicateSession?: (sessionId: string) => void;
   onCopySessionTranscript?: (sessionId: string) => void;
   onOpenFile: (path: string) => void;
@@ -211,9 +227,12 @@ type Props = {
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
+  transcriptActive?: boolean;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
   projectRailOpen?: boolean;
+  onToggleWorkspaceSidebar?: () => void;
+  workspaceSidebarOpen?: boolean;
   unseenFinishedIds?: Set<string>;
   settingsOpen?: boolean;
   settingsSection?: SettingsSectionId;
@@ -237,12 +256,16 @@ function SidebarComponent({
   status,
   pending,
   onSelectSession,
+  onSessionNavigationOrder,
   onPrefetchSession,
   onPlaceSessionOnPane,
   onRenameSession,
   onArchiveSession,
+  onArchiveSessions,
   onPinSession,
+  onPinSessions,
   onDeleteSession,
+  onDeleteSessions,
   onDuplicateSession,
   onCopySessionTranscript,
   onOpenFile,
@@ -273,7 +296,6 @@ function SidebarComponent({
   onOpenProject,
   onRemoveProject,
   onNew,
-  onNewTerminal,
   onSearch,
   onOpenInbox,
   onOpenNotes,
@@ -281,9 +303,12 @@ function SidebarComponent({
   searchActive = false,
   inboxActive = false,
   notesActive = false,
+  transcriptActive = false,
   notesEnabled = true,
   onToggleProjectRail,
   projectRailOpen = true,
+  onToggleWorkspaceSidebar,
+  workspaceSidebarOpen = true,
   unseenFinishedIds: unseenFinishedIdsProp,
   settingsOpen = false,
   settingsSection = "general",
@@ -295,16 +320,31 @@ function SidebarComponent({
   onDismissUpdate,
 }: Props) {
   const gitRoot = gitCwd || cwd;
-  const inboxUnseen = useInboxUnseen(recents, cwd);
+  const inboxUnseen = useInboxUnseen(recents, cwd, onOpenInbox != null);
+  const workspaceFoldRef = useRef<HTMLDivElement>(null);
+  const paintWorkspaceFold = useCallback((width: number) => {
+    workspaceFoldRef.current?.style.setProperty(
+      "--mono-side-w",
+      `${width}px`,
+    );
+  }, []);
   const resize = useDragResize({
     min: MIN_WIDTH,
     max: () => Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)),
     defaultWidth: DEFAULT_WIDTH,
     initial: rememberedWidth,
+    onPaint: paintWorkspaceFold,
     onCommit: (next) => {
       rememberedWidth = next;
     },
   });
+  useLayoutEffect(() => {
+    paintWorkspaceFold(resize.width);
+  }, [paintWorkspaceFold, resize.width]);
+  const railFoldRef = useRef<HTMLDivElement>(null);
+  const paintRailFold = useCallback((width: number) => {
+    railFoldRef.current?.style.setProperty("--mono-side-w", `${width}px`);
+  }, []);
   const [tabOrder, setTabOrder] = useState<SidebarTab[]>(loadSidebarTabOrder);
   const [now, setNow] = useState(() => Date.now());
   const sessionsLock = useLockOverscroll<HTMLDivElement>();
@@ -314,6 +354,10 @@ function SidebarComponent({
     y: number;
     sessionId: string;
   } | null>(null);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const contextSelectionRef = useRef(false);
   const [folderMenu, setFolderMenu] = useState<{
     x: number;
     y: number;
@@ -388,6 +432,8 @@ function SidebarComponent({
       searchQuery,
     ),
   ].sort(compareSessionSummaries);
+  const filtersActive = hasActiveSessionFilters(sessionFilters);
+  const searchNarrowed = Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
   // Folders sit above the ungrouped list. Only a page of ungrouped cards
   // mounts; the sentinel below asks for the next page.
@@ -401,16 +447,37 @@ function SidebarComponent({
     activeUngroupedIndex,
   );
   const shownUngrouped = ungroupedVisible.slice(0, shownUngroupedCount);
+  const fullSessionListEntries = buildSessionList(
+    visibleSessions,
+    sessionFolders,
+    ungroupedVisible,
+  );
   const sessionListEntries = buildSessionList(
     visibleSessions,
     sessionFolders,
     shownUngrouped,
   );
+  const sessionNavigationIds = sessionListNavigationIds(
+    fullSessionListEntries,
+    searchNarrowed,
+  );
+  const sessionNavigationKey = sessionNavigationIds.join("\0");
+  useEffect(() => {
+    onSessionNavigationOrder?.(sessionNavigationIds);
+  }, [onSessionNavigationOrder, sessionNavigationKey]);
+  useEffect(() => {
+    if (tab !== "sessions") {
+      setSelectedSessionIds(new Set());
+      return;
+    }
+    const available = new Set(sessionNavigationIds);
+    setSelectedSessionIds((current) =>
+      pruneSessionSelection(current, available),
+    );
+  }, [cwd, tab, sessionNavigationKey]);
   const hasMoreSessions = shownUngroupedCount < ungroupedVisible.length;
   const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
   const sessionHarnesses = harnessesInSessions(sessions);
-  const filtersActive = hasActiveSessionFilters(sessionFilters);
-  const searchNarrowed = Boolean(searchQuery.trim());
   const narrowedByUser = searchNarrowed || filtersActive;
   const sortable = useSortable(tabOrder, (ids) => {
     const next = ids as SidebarTab[];
@@ -448,8 +515,34 @@ function SidebarComponent({
     !searchActive &&
     !inboxActive &&
     !notesActive &&
+    !transcriptActive &&
     !settingsOpen &&
     inProject;
+  // Overlay surfaces force the left columns open/closed. Animate that beside
+  // the pane window enter and it reads as two waves — snap chrome then, keep
+  // the fold only for explicit Projects / Workspace toggles.
+  const surfaceOverlay =
+    searchActive ||
+    inboxActive ||
+    notesActive ||
+    transcriptActive ||
+    settingsOpen;
+  const [foldInstant, setFoldInstant] = useState(false);
+  const prevSurfaceOverlay = useRef(surfaceOverlay);
+  useLayoutEffect(() => {
+    if (prevSurfaceOverlay.current === surfaceOverlay) return;
+    prevSurfaceOverlay.current = surfaceOverlay;
+    setFoldInstant(true);
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setFoldInstant(false));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [surfaceOverlay]);
+  const sideFoldInstant = surfaceOverlay || foldInstant;
   const gitStatuses = useGitFileStatuses(gitRoot, open && tab === "files");
   const changeStats = useProjectDiffStats(gitRoot, open);
 
@@ -521,7 +614,7 @@ function SidebarComponent({
   useEffect(() => {
     if (!sessionMenu && !folderMenu && !filterMenu) return;
     const onScroll = () => {
-      setSessionMenu(null);
+      closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
     };
@@ -529,6 +622,33 @@ function SidebarComponent({
     scrollParent.addEventListener("scroll", onScroll, true);
     return () => scrollParent.removeEventListener("scroll", onScroll, true);
   }, [sessionMenu, folderMenu, filterMenu]);
+
+  useEffect(() => {
+    if (selectedSessionIds.size === 0) return;
+    const clear = () => {
+      contextSelectionRef.current = false;
+      setSelectedSessionIds(new Set());
+      setSessionMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      clear();
+    };
+    // A pointer landing off the cards drops the selection; a menu acting on
+    // it stays open, and the cards handle their own clicks.
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const el = target instanceof Element ? target : null;
+      if (el?.closest("[data-session-card],[data-popover-side]")) return;
+      clear();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [selectedSessionIds.size]);
 
   const commitSessionFolders = (next: SessionFolder[]) => {
     setSessionFolders(next);
@@ -551,12 +671,33 @@ function SidebarComponent({
     });
   };
 
-  const menuSession = sessionMenu
-    ? sessions.find((session) => session.id === sessionMenu.sessionId)
-    : undefined;
-  const menuSessionFolder = sessionMenu
-    ? folderContaining(sessionFolders, sessionMenu.sessionId)
-    : undefined;
+  const menuSessionIds = sessionMenu
+    ? orderedSessionActionIds(
+        sessionMenu.sessionId,
+        selectedSessionIds,
+        sessionNavigationIds,
+      )
+    : [];
+  const menuSessions = menuSessionIds.flatMap((sessionId) => {
+    const session = listedSessions.find((entry) => entry.id === sessionId);
+    return session ? [session] : [];
+  });
+  const multipleMenuSessions = menuSessionIds.length > 1;
+  const allMenuSessionsPinned =
+    menuSessions.length > 0 && menuSessions.every((session) => session.pinned);
+  const allMenuSessionsArchived =
+    menuSessions.length > 0 &&
+    menuSessions.every((session) => session.archived);
+  const menuSessionFolder =
+    menuSessionIds.length === 1
+      ? folderContaining(sessionFolders, menuSessionIds[0])
+      : undefined;
+  const anyMenuSessionFoldered = menuSessionIds.some((sessionId) =>
+    sessionFolders.some((folder) => folder.sessionIds.includes(sessionId)),
+  );
+  const canRemoveMenuSessionsFromFolders = multipleMenuSessions
+    ? anyMenuSessionFoldered
+    : !!menuSessionFolder;
   const menuFolder = folderMenu
     ? sessionFolders.find((folder) => folder.id === folderMenu.folderId)
     : undefined;
@@ -566,16 +707,16 @@ function SidebarComponent({
     { kind: "item", id: "ungroup", label: "Ungroup" },
   ];
   const sessionMenuItems: ExplorerMenuItem[] = [
-    ...(onPinSession
+    ...(onPinSession || onPinSessions
       ? [
           {
             kind: "item" as const,
             id: "pin",
-            label: menuSession?.pinned ? "Unpin" : "Pin",
+            label: allMenuSessionsPinned ? "Unpin" : "Pin",
           },
         ]
       : []),
-    ...(onRenameSession
+    ...(!multipleMenuSessions && onRenameSession
       ? [
           {
             kind: "item" as const,
@@ -610,30 +751,39 @@ function SidebarComponent({
       kind: "item" as const,
       id: `folder-add:${folder.id}`,
       label: `Add to ${folder.name}`,
-      checked: menuSessionFolder?.id === folder.id,
+      checked:
+        menuSessionIds.length > 0 &&
+        menuSessionIds.every((sessionId) =>
+          folder.sessionIds.includes(sessionId),
+        ),
     })),
-    ...(menuSessionFolder
+    ...(canRemoveMenuSessionsFromFolders
       ? [
           {
             kind: "item" as const,
             id: "folder-remove",
-            label: "Remove from folder",
+            label: multipleMenuSessions
+              ? "Remove from folders"
+              : "Remove from folder",
           },
         ]
       : []),
-    ...(onArchiveSession || onDeleteSession
+    ...(onArchiveSession ||
+    onArchiveSessions ||
+    onDeleteSession ||
+    onDeleteSessions
       ? [
           { kind: "sep" as const },
-          ...(onArchiveSession
+          ...(onArchiveSession || onArchiveSessions
             ? [
                 {
                   kind: "item" as const,
                   id: "archive",
-                  label: menuSession?.archived ? "Unarchive" : "Archive",
+                  label: allMenuSessionsArchived ? "Unarchive" : "Archive",
                 },
               ]
             : []),
-          ...(onDeleteSession
+          ...(onDeleteSession || onDeleteSessions
             ? [
                 {
                   kind: "item" as const,
@@ -654,9 +804,20 @@ function SidebarComponent({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    contextSelectionRef.current = !selectedSessionIds.has(sessionId);
+    if (contextSelectionRef.current) {
+      setSelectedSessionIds(new Set([sessionId]));
+    }
     setFilterMenu(null);
     setFolderMenu(null);
     setSessionMenu({ x: e.clientX, y: e.clientY, sessionId });
+  };
+
+  const closeSessionMenu = () => {
+    setSessionMenu(null);
+    if (!contextSelectionRef.current) return;
+    contextSelectionRef.current = false;
+    setSelectedSessionIds(new Set());
   };
 
   const onFolderContextMenu = (
@@ -673,11 +834,16 @@ function SidebarComponent({
   const onSessionMenuPick = (id: string) => {
     if (!sessionMenu) return;
     const sessionId = sessionMenu.sessionId;
-    const archived = !!menuSession?.archived;
-    const pinned = !!menuSession?.pinned;
-    setSessionMenu(null);
+    const sessionIds = menuSessionIds;
+    const archived = allMenuSessionsArchived;
+    const pinned = allMenuSessionsPinned;
+    closeSessionMenu();
     if (id === "pin") {
-      onPinSession?.(sessionId, !pinned);
+      if (sessionIds.length > 1 && onPinSessions) {
+        onPinSessions(sessionIds, !pinned);
+      } else {
+        for (const id of sessionIds) onPinSession?.(id, !pinned);
+      }
       return;
     }
     if (id === "rename") {
@@ -695,7 +861,7 @@ function SidebarComponent({
     if (id === "folder-new") {
       const { folders, id: createdId } = createFolderWithSessions(
         sessionFolders,
-        [sessionId],
+        sessionIds,
       );
       if (!createdId) return;
       commitSessionFolders(folders);
@@ -704,24 +870,37 @@ function SidebarComponent({
     }
     if (id.startsWith("folder-add:")) {
       const folderId = id.slice("folder-add:".length);
+      const folders = sessionIds.reduce(
+        (current, id) => addSessionToFolder(current, folderId, id),
+        sessionFolders,
+      );
+      commitSessionFolders(setFolderCollapsed(folders, folderId, false));
+      return;
+    }
+    if (id === "folder-remove") {
       commitSessionFolders(
-        setFolderCollapsed(
-          addSessionToFolder(sessionFolders, folderId, sessionId),
-          folderId,
-          false,
+        sessionIds.reduce(
+          (current, id) => removeSessionFromFolder(current, id),
+          sessionFolders,
         ),
       );
       return;
     }
-    if (id === "folder-remove") {
-      commitSessionFolders(removeSessionFromFolder(sessionFolders, sessionId));
-      return;
-    }
     if (id === "archive") {
-      onArchiveSession?.(sessionId, !archived);
+      if (sessionIds.length > 1 && onArchiveSessions) {
+        onArchiveSessions(sessionIds, !archived);
+      } else {
+        for (const id of sessionIds) onArchiveSession?.(id, !archived);
+      }
       return;
     }
-    if (id === "delete") onDeleteSession?.(sessionId);
+    if (id === "delete") {
+      if (sessionIds.length > 1 && onDeleteSessions) {
+        onDeleteSessions(sessionIds);
+      } else {
+        for (const id of sessionIds) onDeleteSession?.(id);
+      }
+    }
   };
 
   const onFolderMenuPick = (id: string) => {
@@ -768,6 +947,22 @@ function SidebarComponent({
   const isSessionDrop = (kind: "folder" | "session", id: string) =>
     sessionDrop?.kind === kind && sessionDrop.id === id;
 
+  const onSessionCardSelect = (
+    sessionId: string,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    if (event.shiftKey) {
+      contextSelectionRef.current = false;
+      setSessionMenu(null);
+      setSelectedSessionIds((current) =>
+        toggleSessionSelection(current, sessionId),
+      );
+      return;
+    }
+    setSelectedSessionIds(new Set());
+    onSelectSession(sessionId);
+  };
+
   const renderSessionCard = (session: SessionSummary, compact = false) =>
     renamingSessionId === session.id && onRenameSession ? (
       <SessionRenameRow
@@ -785,18 +980,24 @@ function SidebarComponent({
       <SessionCard
         session={session}
         isActive={session.id === activeSessionId}
+        isSelected={selectedSessionIds.has(session.id)}
         busy={busySessionIds.has(session.id)}
         done={unseenFinishedIds.has(session.id)}
         needsApproval={approvalSessionIds.has(session.id)}
         dropTarget={isSessionDrop("session", session.id)}
         compact={compact}
         now={now}
-        onSelect={onSelectSession}
+        onSelect={onSessionCardSelect}
         onPrefetch={onPrefetchSession}
         onPlaceOnPane={onPlaceSessionOnPane}
         onListDrop={onSessionListDrop}
         onListDropTargetChange={setSessionDrop}
         onContextMenu={(e) => onSessionContextMenu(session.id, e)}
+        onArchive={
+          onArchiveSession
+            ? () => onArchiveSession(session.id, !session.archived)
+            : undefined
+        }
         onRename={
           onRenameSession ? () => setRenamingSessionId(session.id) : undefined
         }
@@ -928,6 +1129,24 @@ function SidebarComponent({
     );
   });
 
+  const onTablistKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const tabs = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    const index = tabs.indexOf(document.activeElement as HTMLElement);
+    if (index < 0) return;
+    let next = -1;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft")
+      next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    if (next >= 0) {
+      event.preventDefault();
+      tabs[next].focus();
+    }
+  };
+
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
@@ -942,11 +1161,16 @@ function SidebarComponent({
             <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
               Workspace
             </span>
-            <WorkspaceTitleActions onSearch={onGoToFile} onNew={onNew} />
+            <WorkspaceTitleActions
+              onSearch={onGoToFile}
+              onNew={onNew}
+              onHide={onToggleWorkspaceSidebar}
+            />
           </div>
           <div
             role="tablist"
             aria-label="Workspace"
+            onKeyDown={onTablistKeyDown}
             className="flex h-9 shrink-0 items-center gap-px border-b border-content/10 px-2"
           >
             {workspaceTabItems}
@@ -975,7 +1199,8 @@ function SidebarComponent({
               recents={recents}
               busy={projectPathBusy(busyProjectPaths, cwd)}
               onSelectProject={onSelectProject}
-              onNewTerminal={onNewTerminal}
+              onOpenProject={onOpenProject}
+              onNew={onNew}
               onSearch={onSearch}
               onOpenInbox={onOpenInbox}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
@@ -988,6 +1213,7 @@ function SidebarComponent({
           <div
             role="tablist"
             aria-label="Workspace"
+            onKeyDown={onTablistKeyDown}
             className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-content/10 px-2"
           >
             {workspaceTabItems}
@@ -1212,8 +1438,12 @@ function SidebarComponent({
                                 }
                               />
                             )}
-                            {expanded ? (
-                              <>
+                            <div
+                              className="zen-phase-body"
+                              data-open={expanded}
+                              inert={!expanded}
+                            >
+                              <div>
                                 <ul className="flex flex-col gap-px p-1">
                                   {entry.sessions.map((session) => (
                                     <li key={session.id}>
@@ -1244,8 +1474,8 @@ function SidebarComponent({
                                     </button>
                                   </div>
                                 ) : null}
-                              </>
-                            ) : null}
+                              </div>
+                            </div>
                           </div>
                         </li>
                       );
@@ -1282,22 +1512,12 @@ function SidebarComponent({
           </div>
         ) : null}
         {showSidebarFooter ? (
-          <>
-            <SidebarUpdateFooter
-              update={updateNotice}
-              onOpenWhatsNew={onOpenWhatsNew}
-              onDismissUpdate={onDismissUpdate}
-            />
-            <div className="flex shrink-0 flex-col gap-px p-2 pt-0">
-              <RailAction
-                label="Settings"
-                icon={Settings}
-                onClick={onOpenSettings}
-                shortcut={`${MOD},`}
-                ariaLabel={`Settings (${MOD},)`}
-              />
-            </div>
-          </>
+          <SidebarUpdateFooter
+            update={updateNotice}
+            onOpenWhatsNew={onOpenWhatsNew}
+            onDismissUpdate={onDismissUpdate}
+            onOpenSettings={onOpenSettings}
+          />
         ) : null}
       </>
       {sessionMenu ? (
@@ -1305,9 +1525,13 @@ function SidebarComponent({
           x={sessionMenu.x}
           y={sessionMenu.y}
           items={sessionMenuItems}
-          ariaLabel="Session actions"
+          ariaLabel={
+            multipleMenuSessions
+              ? `${menuSessionIds.length} selected session actions`
+              : "Session actions"
+          }
           onPick={onSessionMenuPick}
-          onClose={() => setSessionMenu(null)}
+          onClose={closeSessionMenu}
         />
       ) : null}
       {folderMenu ? (
@@ -1358,44 +1582,72 @@ function SidebarComponent({
   return (
     <div
       className={`flex h-full shrink-0 ${
-        railVisible || sidebarVisible ? "" : "hidden"
+        railVisible || sidebarVisible || inProject || settingsOpen
+          ? ""
+          : "hidden"
       }`}
     >
-      {railVisible && onSelectProject && onOpenProject ? (
-        <ProjectRail
-          cwd={cwd}
-          recents={recents}
-          inboxUnseen={inboxUnseen}
-          busyPaths={busyProjectPaths}
-          liveAgents={liveAgents}
-          activeSessionId={activeSessionId}
-          onSelectAgent={onSelectAgent}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onGoBack={onGoBack}
-          onGoForward={onGoForward}
-          onSearch={onSearch}
-          searchActive={searchActive}
-          onOpenInbox={onOpenInbox}
-          inboxActive={inboxActive}
-          notesEnabled={notesEnabled}
-          onOpenNotes={onOpenNotes}
-          notesActive={notesActive}
-          onTogglePanel={onToggleProjectRail}
-          onSelectProject={onSelectProject}
-          onOpenProject={onOpenProject}
-          onRemoveProject={onRemoveProject}
-          settingsOpen={settingsOpen}
-          settingsSection={settingsSection}
-          onOpenSettings={onOpenSettings}
-          onSelectSettingsSection={onSelectSettingsSection}
-          onCloseSettings={onCloseSettings}
-          updateNotice={updateNotice}
-          onOpenWhatsNew={onOpenWhatsNew}
-          onDismissUpdate={onDismissUpdate}
-        />
+      {showProjectRail && onSelectProject && onOpenProject ? (
+        <div
+          ref={railFoldRef}
+          className="mono-side-fold"
+          data-open={railVisible}
+          data-instant={sideFoldInstant}
+          inert={!railVisible}
+        >
+          <div>
+            <ProjectRail
+              cwd={cwd}
+              recents={recents}
+              inboxUnseen={inboxUnseen}
+              busyPaths={busyProjectPaths}
+              liveAgents={liveAgents}
+              activeSessionId={activeSessionId}
+              onSelectAgent={onSelectAgent}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onGoBack={onGoBack}
+              onGoForward={onGoForward}
+              onSearch={onSearch}
+              searchActive={searchActive}
+              onOpenInbox={onOpenInbox}
+              inboxActive={inboxActive}
+              notesEnabled={notesEnabled}
+              onOpenNotes={onOpenNotes}
+              notesActive={notesActive}
+              onTogglePanel={onToggleProjectRail}
+              onToggleWorkspace={
+                inProject ? onToggleWorkspaceSidebar : undefined
+              }
+              workspaceActive={workspaceSidebarOpen}
+              onSelectProject={onSelectProject}
+              onOpenProject={onOpenProject}
+              onRemoveProject={onRemoveProject}
+              settingsOpen={settingsOpen}
+              settingsSection={settingsSection}
+              onOpenSettings={onOpenSettings}
+              onSelectSettingsSection={onSelectSettingsSection}
+              onCloseSettings={onCloseSettings}
+              updateNotice={updateNotice}
+              onOpenWhatsNew={onOpenWhatsNew}
+              onDismissUpdate={onDismissUpdate}
+              onPaintWidth={paintRailFold}
+              onWidthChange={paintRailFold}
+            />
+          </div>
+        </div>
       ) : null}
-      {sidebarVisible ? sidebarContent : null}
+      {inProject ? (
+        <div
+          ref={workspaceFoldRef}
+          className="mono-side-fold"
+          data-open={sidebarVisible}
+          data-instant={sideFoldInstant}
+          inert={!sidebarVisible}
+        >
+          <div>{sidebarContent}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1407,7 +1659,8 @@ function SidebarProjectPicker({
   recents,
   busy,
   onSelectProject,
-  onNewTerminal,
+  onOpenProject,
+  onNew,
   onSearch,
   onOpenInbox,
   onOpenNotes,
@@ -1420,7 +1673,8 @@ function SidebarProjectPicker({
   recents: RecentProject[];
   busy: boolean;
   onSelectProject: (path: string) => void;
-  onNewTerminal?: () => void;
+  onOpenProject?: () => void;
+  onNew?: () => void;
   onSearch?: () => void;
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
@@ -1429,58 +1683,248 @@ function SidebarProjectPicker({
   notesActive?: boolean;
   inboxUnseen?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [groupLabels] = useState(loadTabGroupLabels);
   const [groupColors] = useState(loadTabGroupColors);
   const [groupCustomColors] = useState(loadTabGroupCustomColors);
   const [groupMascots] = useState(loadTabGroupMascots);
   const groupLogos = useTabGroupLogos();
-  const projectKey = projectName(cwd);
-  const label = resolveTabGroupLabel(
-    projectKey,
-    groupLabels,
-    basename(cwd) || projectKey,
-  );
-  const logoPath = resolveTabGroupLogo(projectKey, groupLogos);
-  const color = resolveTabGroupColor(
-    projectKey,
-    groupColors,
-    groupCustomColors,
-    projectKey,
-  );
+  const seed = projectName(cwd);
+  const key = projectKey(cwd);
+  const label = resolveTabGroupLabel(key, groupLabels, basename(cwd) || seed);
+  const logoPath = resolveTabGroupLogo(key, groupLogos);
+  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
+  const projects = projectRailItems(recents, cwd);
+  const orderedProjects = [
+    ...projects.filter((item) => sameProjectPath(item.path, cwd)),
+    ...projects.filter((item) => !sameProjectPath(item.path, cwd)),
+  ];
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredProjects = normalizedQuery
+    ? orderedProjects.filter((item) => {
+        const itemKey = projectKey(item.path);
+        const itemLabel = resolveTabGroupLabel(
+          itemKey,
+          groupLabels,
+          basename(item.path) || projectName(item.path),
+        );
+        return `${itemLabel}\n${item.path}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery);
+      })
+    : orderedProjects;
+
+  const closePicker = () => {
+    setOpen(false);
+    setQuery("");
+    setActive(0);
+  };
+
+  const openPicker = () => {
+    setOpen(true);
+    setQuery("");
+    setActive(0);
+  };
+
+  const pickProject = (path: string) => {
+    closePicker();
+    if (!sameProjectPath(path, cwd)) onSelectProject(path);
+  };
+
+  const onPickerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (filteredProjects.length === 0) return;
+      setActive((index) => Math.min(filteredProjects.length - 1, index + 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((index) => Math.max(0, index - 1));
+      return;
+    }
+    if (event.key === "Enter") {
+      const project = filteredProjects[active];
+      if (!project) return;
+      event.preventDefault();
+      pickProject(project.path);
+    }
+  };
 
   return (
     <div
       className="flex h-9 items-center gap-0.5 border-b border-content/10 px-2"
       data-tauri-drag-region="deep"
     >
-      <CwdPicker
-        cwd={cwd}
-        recents={recents}
-        placement="below"
-        chevron
-        onCwdChange={onSelectProject}
-        onNewTerminal={onNewTerminal}
-        className="min-w-0 items-center"
-        buttonClassName="flex h-6.5 w-full items-center gap-1.5 rounded-md px-2 text-[12px] leading-none text-content/50 hover:text-content"
+      <div
+        ref={pickerRef}
+        className="relative flex h-full min-w-0 flex-1 items-center"
       >
-        {logoPath ? (
-          <ProjectLogoIcon
-            path={logoPath}
-            className="size-3.5 shrink-0 rounded-sm"
-            imageClassName="size-3.5"
+        <button
+          type="button"
+          title={cwd}
+          aria-label={`Switch project, current project ${label}`}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          data-tauri-drag-region="false"
+          onClick={() => (open ? closePicker() : openPicker())}
+          onKeyDown={(event) => {
+            if (open) return;
+            if (event.key !== "ArrowDown") return;
+            event.preventDefault();
+            openPicker();
+          }}
+          className={`flex h-6.5 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] leading-none hover:text-content ${
+            open
+              ? "bg-content/10 text-content"
+              : "text-content/50 hover:bg-content/5"
+          }`}
+        >
+          {logoPath ? (
+            <ProjectLogoIcon
+              path={logoPath}
+              className="size-3.5 shrink-0 rounded-sm"
+              imageClassName="size-3.5"
+            />
+          ) : (
+            <ProjectMascot
+              project={seed}
+              color={color}
+              name={resolveTabGroupMascot(key, groupMascots)}
+              className="size-3 shrink-0"
+              active={busy}
+            />
+          )}
+          <span className="min-w-0 truncate font-medium text-content/90">
+            {label}
+          </span>
+          <ChevronDown
+            className={`size-3 shrink-0 text-content/45 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+            strokeWidth={1.75}
           />
-        ) : (
-          <ProjectMascot
-            project={projectKey}
-            color={color}
-            name={resolveTabGroupMascot(projectKey, groupMascots)}
-            className="size-3 shrink-0"
-            active={busy}
-          />
-        )}
-        <span className="min-w-0 truncate">{label}</span>
-      </CwdPicker>
+        </button>
+        {open ? (
+          <Popover
+            anchor={pickerRef}
+            side="bottom"
+            align="start"
+            gap={4}
+            width={286}
+            maxHeight={380}
+            role="dialog"
+            aria-label="Project picker"
+            onDismiss={() => closePicker()}
+            onKeyDown={onPickerKeyDown}
+            className="flex flex-col overflow-hidden"
+          >
+            <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-content/10 px-3 text-content/45 focus-within:text-content/70">
+              <Search className="size-4 shrink-0" strokeWidth={1.75} />
+              <span className="sr-only">Search projects</span>
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActive(0);
+                }}
+                placeholder="Search projects..."
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/35"
+              />
+            </label>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5">
+              {filteredProjects.length > 0 ? (
+                filteredProjects.map((item, index) => {
+                  const current = sameProjectPath(item.path, cwd);
+                  const itemKey = projectKey(item.path);
+                  const itemSeed = projectName(item.path);
+                  const itemLabel = resolveTabGroupLabel(
+                    itemKey,
+                    groupLabels,
+                    basename(item.path) || itemSeed,
+                  );
+                  const itemLogo = resolveTabGroupLogo(itemKey, groupLogos);
+                  const itemColor = resolveTabGroupColor(
+                    itemKey,
+                    groupColors,
+                    groupCustomColors,
+                    itemSeed,
+                  );
+                  return (
+                    <button
+                      key={item.path}
+                      type="button"
+                      title={item.path}
+                      onMouseEnter={() => setActive(index)}
+                      onClick={() => pickProject(item.path)}
+                      className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left ${
+                        active === index
+                          ? "bg-content/10 text-content"
+                          : "text-content/75 hover:bg-content/5 hover:text-content"
+                      }`}
+                    >
+                      <span className="grid size-4 shrink-0 place-items-center">
+                        {current ? (
+                          <Check className="size-3.5" strokeWidth={2} />
+                        ) : itemLogo ? (
+                          <ProjectLogoIcon
+                            path={itemLogo}
+                            className="size-4 rounded-sm"
+                            imageClassName="size-4"
+                          />
+                        ) : (
+                          <ProjectMascot
+                            project={itemSeed}
+                            color={itemColor}
+                            name={resolveTabGroupMascot(itemKey, groupMascots)}
+                            className="size-3.5"
+                          />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                        {itemLabel}
+                      </span>
+                      <span className="max-w-44 shrink truncate font-mono text-[11px] text-content/40">
+                        {prettyParent(item.path)}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-2.5 py-5 text-center text-[12px] text-content/45">
+                  No projects found
+                </p>
+              )}
+            </div>
+            {onOpenProject ? (
+              <div className="shrink-0 border-t border-content/10 p-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    closePicker();
+                    onOpenProject();
+                  }}
+                  className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content"
+                >
+                  <Plus className="size-4 shrink-0" strokeWidth={1.75} />
+                  <span>New project</span>
+                </button>
+              </div>
+            ) : null}
+          </Popover>
+        ) : null}
+      </div>
       <div className="flex items-center ml-auto">
+        {onNew ? (
+          <IconButton label={`New tab (${MOD}T)`} onClick={onNew}>
+            <Plus className="size-3.5" strokeWidth={1.75} />
+          </IconButton>
+        ) : null}
         {onSearch ? (
           <IconButton
             label={`Search (${MOD}K)`}
@@ -1520,11 +1964,13 @@ function SidebarProjectPicker({
 function WorkspaceTitleActions({
   onSearch,
   onNew,
+  onHide,
 }: {
   onSearch?: () => void;
   onNew?: () => void;
+  onHide?: () => void;
 }) {
-  if (!onSearch && !onNew) return null;
+  if (!onSearch && !onNew && !onHide) return null;
   return (
     <div
       className="flex shrink-0 items-center gap-0.5"
@@ -1538,6 +1984,14 @@ function WorkspaceTitleActions({
       {onNew ? (
         <IconButton label={`New session (${MOD}T)`} onClick={onNew}>
           <Plus className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+      {onHide ? (
+        <IconButton
+          label={`Hide Workspace (${MOD}${SHIFT}B)`}
+          onClick={onHide}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
         </IconButton>
       ) : null}
     </div>
@@ -1568,7 +2022,7 @@ function SessionsHeaderButton({
       aria-haspopup={hasPopup ? "menu" : undefined}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
-      className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
+      className={`relative grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
         open || active ? "bg-content/10 text-content" : ""
       }`}
     >
@@ -1710,11 +2164,11 @@ function FolderRow({
       </span>
       <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
         {!expanded && needsApproval ? (
-          <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
+          <CircleAlert className="size-3 text-warning" strokeWidth={1.75} />
         ) : !expanded && busy ? (
           <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
         ) : !expanded && done ? (
-          <Check className="size-3 text-emerald-400" strokeWidth={2.25} />
+          <Check className="size-3 text-success" strokeWidth={2.25} />
         ) : null}
         <span>{count}</span>
       </span>
@@ -1802,6 +2256,7 @@ function FolderRenameRow({
 function SessionCard({
   session,
   isActive,
+  isSelected,
   busy,
   done,
   needsApproval,
@@ -1814,23 +2269,29 @@ function SessionCard({
   onListDrop,
   onListDropTargetChange,
   onContextMenu,
+  onArchive,
   onRename,
   onDelete,
 }: {
   session: SessionSummary;
   isActive: boolean;
+  isSelected: boolean;
   busy: boolean;
   done: boolean;
   needsApproval: boolean;
   dropTarget?: boolean;
   compact?: boolean;
   now: number;
-  onSelect: (sessionId: string) => void;
+  onSelect: (
+    sessionId: string,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => void;
   onPrefetch?: (sessionId: string) => void;
   onPlaceOnPane?: (sessionId: string, targetId: string, edge: PaneEdge) => void;
   onListDrop?: (draggedId: string, target: SessionListDropTarget) => void;
   onListDropTargetChange?: (target: SessionListDropTarget | null) => void;
   onContextMenu?: (e: ReactMouseEvent<HTMLButtonElement>) => void;
+  onArchive?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
 }) {
@@ -1843,11 +2304,11 @@ function SessionCard({
     ? null
     : resolveModel(session.harness, session.model).name;
   const statusClass = needsApproval
-    ? "text-amber-400"
+    ? "text-warning"
     : busy
       ? "text-accent"
       : done
-        ? "text-emerald-400"
+        ? "text-success"
         : "text-content/45";
   const status = (
     <span
@@ -1985,80 +2446,116 @@ function SessionCard({
     window.addEventListener("keydown", onKey);
   };
 
+  const archiveLabel = session.archived ? "Unarchive" : "Archive";
+
   return (
-    <button
-      type="button"
-      title={title}
-      aria-current={isActive ? "true" : undefined}
-      data-session-card={session.id}
-      data-tauri-drag-region="false"
-      onPointerDown={onPointerDown}
-      onPointerEnter={() => onPrefetch?.(session.id)}
-      onClick={() => {
-        if (performance.now() < skipClickUntil.current) return;
-        onSelect(session.id);
-      }}
-      onContextMenu={onContextMenu}
-      onKeyDown={onKeyDown}
-      className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
-        compact ? "py-1.5" : "py-2"
-      } ${dragging ? "opacity-40" : ""} ${
-        dropTarget
-          ? "text-content border-transparent"
-          : needsApproval
-            ? "bg-content/20 text-content border-content/30 border-dashed"
-            : isActive
-              ? "bg-content/10 text-content border-transparent"
-              : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
-      }`}
-    >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
-      {compact ? null : (
-        <span className="relative flex items-center gap-2">
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+    <div className="group relative">
+      <button
+        type="button"
+        title={title}
+        aria-current={isActive ? "true" : undefined}
+        aria-pressed={isSelected}
+        data-session-card={session.id}
+        data-session-selected={isSelected ? "true" : undefined}
+        data-tauri-drag-region="false"
+        onPointerDown={onPointerDown}
+        onPointerEnter={() => onPrefetch?.(session.id)}
+        onClick={(event) => {
+          if (performance.now() < skipClickUntil.current) return;
+          onSelect(session.id, event);
+        }}
+        onContextMenu={onContextMenu}
+        onKeyDown={onKeyDown}
+        className={`relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
+          compact ? "py-1.5" : "py-2"
+        } ${dragging ? "opacity-40" : ""} ${
+          dropTarget
+            ? "text-content border-transparent"
+            : isSelected
+              ? "bg-accent/15 text-content border-transparent"
+              : needsApproval
+                ? "bg-content/20 text-content border-content/30 border-dashed"
+                : isActive
+                  ? "bg-content/10 text-content border-transparent"
+                  : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+        }`}
+      >
+        {dropTarget ? (
+          <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
+        ) : null}
+        {compact ? null : (
+          <span className="relative flex items-center gap-2">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <HarnessIcon
+                harness={session.harness}
+                className="size-3.5 shrink-0"
+              />
+              <span className="min-w-0 truncate text-[11px] text-content/50">
+                {model}
+              </span>
+            </span>
+            {status}
+          </span>
+        )}
+        <span
+          className={`relative flex min-w-0 items-center gap-1.5 ${
+            compact ? "" : "mt-1"
+          }`}
+        >
+          {session.pinned ? (
+            <Pin
+              className="size-3 shrink-0 text-content/45"
+              strokeWidth={1.75}
+            />
+          ) : null}
+          <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
+            {title}
+          </span>
+          {compact ? status : null}
+        </span>
+        <span className="relative mt-1 flex items-center gap-2">
+          {gitLabel ? (
+            <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
+              <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+              <span className="min-w-0 truncate">{gitLabel}</span>
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          <span
+            className={`flex shrink-0 items-center gap-1.5 ${
+              onArchive
+                ? "transition-[padding] group-focus-within:pl-5 group-hover:pl-5"
+                : ""
+            }`}
+          >
             <HarnessIcon
               harness={session.harness}
               className="size-3.5 shrink-0"
             />
-            <span className="min-w-0 truncate text-[11px] text-content/50">
-              {model}
-            </span>
           </span>
-          {status}
         </span>
-      )}
-      <span
-        className={`relative flex min-w-0 items-center gap-1.5 ${
-          compact ? "" : "mt-1"
-        }`}
-      >
-        {session.pinned ? (
-          <Pin className="size-3 shrink-0 text-content/45" strokeWidth={1.75} />
-        ) : null}
-        <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-          {title}
-        </span>
-        {compact ? status : null}
-      </span>
-      <span className="relative mt-1 flex items-center gap-2">
-        {gitLabel ? (
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">
-            <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
-            <span className="min-w-0 truncate">{gitLabel}</span>
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )}
-        <span className="flex shrink-0 items-center gap-1.5">
-          <HarnessIcon
-            harness={session.harness}
-            className="size-3.5 shrink-0"
-          />
-        </span>
-      </span>
-    </button>
+      </button>
+      {onArchive ? (
+        <button
+          type="button"
+          data-no-drag
+          data-tauri-drag-region="false"
+          title={archiveLabel}
+          aria-label={`${archiveLabel} ${title}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onArchive();
+          }}
+          className={`pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+            compact ? "bottom-[5px]" : "bottom-[7px]"
+          }`}
+        >
+          <Archive className="size-3.5" strokeWidth={1.75} />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -2122,7 +2619,7 @@ function SessionRenameRow({
     <div
       className={`flex w-full flex-col rounded-md px-2.5 py-2 ${
         needsApproval
-          ? "bg-amber-400/10 text-content"
+          ? "bg-warning/10 text-content"
           : isActive
             ? "bg-content/10 text-content"
             : "text-content/80"
@@ -2163,10 +2660,10 @@ function DiffStat({
       className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums"
     >
       {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-success">+{additions}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
+        <span className="text-danger">-{deletions}</span>
       ) : null}
     </span>
   );

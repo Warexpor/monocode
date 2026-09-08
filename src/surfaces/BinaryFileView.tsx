@@ -93,7 +93,7 @@ export function BinaryFileView({ path, cwd }: Props) {
         cwd={cwd}
         title={`Couldn’t open ${basename(path)}`}
         detail={state.message}
-        icon={<AlertCircle className="mx-auto mb-3 size-5 text-red-400" />}
+        icon={<AlertCircle className="mx-auto mb-3 size-5 text-danger" />}
         onRetry={reload}
       />
     );
@@ -147,6 +147,9 @@ function ImageView({
           src={url}
           alt=""
           draggable={false}
+          role="button"
+          tabIndex={0}
+          aria-label={zoom === "fit" ? "Zoom to actual size" : "Fit to window"}
           onLoad={(event) =>
             setNatural({
               w: event.currentTarget.naturalWidth,
@@ -154,10 +157,15 @@ function ImageView({
             })
           }
           onClick={() => setZoom((value) => (value === "fit" ? 1 : "fit"))}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            setZoom((value) => (value === "fit" ? 1 : "fit"));
+          }}
           className={
             zoom === "fit"
-              ? "max-h-full max-w-full object-contain"
-              : "max-w-none object-contain"
+              ? "max-h-full max-w-full cursor-zoom-in object-contain"
+              : "max-w-none cursor-zoom-out object-contain"
           }
           style={
             zoom === "fit" || !natural
@@ -217,7 +225,7 @@ function ZoomButton({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="grid size-5 place-items-center rounded hover:bg-content/10 hover:text-content"
+      className="grid size-6 place-items-center rounded hover:bg-content/10 hover:text-content"
     >
       {children}
     </button>

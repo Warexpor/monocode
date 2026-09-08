@@ -33,7 +33,7 @@ export function SettingsNav({ section, onSelect, onClose }: Props) {
 
   return (
     <>
-      <div
+      <nav
         ref={lockOverscroll}
         aria-label="Settings"
         className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overscroll-none px-2 pb-2"
@@ -47,7 +47,7 @@ export function SettingsNav({ section, onSelect, onClose }: Props) {
             onClick={() => onSelect(item.id)}
           />
         ))}
-      </div>
+      </nav>
       <div className="flex shrink-0 flex-col gap-px p-2">
         <NavRow label="Back" icon={ArrowLeft} onClick={onClose} />
       </div>
@@ -71,7 +71,7 @@ function NavRow({
       type="button"
       onClick={onClick}
       aria-current={active ? "true" : undefined}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${
+      className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left ${
         active
           ? "bg-content/10 text-content"
           : "text-content/50 hover:bg-content/5 hover:text-content"

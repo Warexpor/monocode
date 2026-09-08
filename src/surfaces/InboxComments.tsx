@@ -191,6 +191,7 @@ export function InboxCommentForm({
           rows={2}
           value={draft}
           disabled={posting}
+          aria-label={replyTo ? "Write a reply" : "Leave a comment"}
           placeholder={
             replyTo ? `Write a reply (${MOD}↩)` : `Leave a comment (${MOD}↩)`
           }
@@ -209,7 +210,7 @@ export function InboxCommentForm({
         </div>
       </div>
       {error ? (
-        <p className="text-[12px] text-red-400/90">{error}</p>
+        <p className="text-[12px] text-danger/90">{error}</p>
       ) : null}
     </form>
   );
@@ -291,11 +292,11 @@ function InboxComment({
               <span
                 className={
                   comment.state === "APPROVED"
-                    ? "text-emerald-400/90"
+                    ? "text-success/90"
                     : comment.state === "CHANGES_REQUESTED"
-                      ? "text-rose-400/90"
+                      ? "text-danger/90"
                       : comment.resolved && part === "Resolved"
-                        ? "text-emerald-400/80"
+                        ? "text-success/80"
                         : "min-w-0 truncate"
                 }
               >

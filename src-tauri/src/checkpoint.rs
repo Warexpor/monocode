@@ -951,7 +951,7 @@ fn state_text(state: FileState) -> String {
 
 fn write_worktree(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if path.is_dir() {
-        return Err(format!("{} is a directory", path.display()));
+        return Err(format!("{} is a directory", crate::fs::path_to_js(path)));
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1011,7 +1011,7 @@ fn project_root(cwd: &str) -> Result<PathBuf, String> {
     }
     let root = expand_home(trimmed);
     if !root.is_dir() {
-        return Err(format!("{}: Not a directory", root.display()));
+        return Err(crate::fs::path_msg(&root, "Not a directory"));
     }
     Ok(root)
 }
@@ -1023,7 +1023,10 @@ fn same_cwd(saved: &str, cwd: &str) -> bool {
     let Ok(right) = project_root(cwd) else {
         return false;
     };
-    left == right
+    if left == right {
+        return true;
+    }
+    crate::fs::paths_equal_for_project(&left, &right)
 }
 
 fn relative_to_root(root: &Path, path: &str) -> Result<String, String> {
@@ -1152,6 +1155,15 @@ mod tests {
                 .insert(relative_to_root(&root, path).unwrap());
         }
         write_manifest(&dir, &manifest).unwrap();
+    }
+
+    #[test]
+    fn same_cwd_treats_native_and_js_path_spellings_as_equal() {
+        let dir = tmp("same-cwd");
+        let native = dir.0.to_string_lossy().into_owned();
+        let js = crate::fs::path_to_js(&dir.0);
+        assert!(same_cwd(&native, &js));
+        assert!(same_cwd(&js, &native));
     }
 
     #[test]
@@ -1396,10 +1408,12 @@ mod tests {
         assert_eq!(status.files[0].deletions, 0);
         assert!(status.files[0].exact);
         assert!(status.files[0].undoable);
+        assert_eq!(status.files[0].path, path_to_js(&repo.0.join("app.ts")));
 
         let diff = store.file_diff("s1", &cwd, "app.ts").unwrap();
         assert_eq!(diff.original, "user-one\nuser-two\n");
         assert_eq!(diff.current, "user-one\nuser-two\nagent\n");
+        assert_eq!(diff.path, path_to_js(&repo.0.join("app.ts")));
 
         // Review remains the captured session result, not a later shared
         // working-tree state.

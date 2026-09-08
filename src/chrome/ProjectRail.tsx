@@ -5,6 +5,7 @@ import {
   ChevronUp,
   CircleAlert,
   FolderOpen,
+  ImagePlus,
   Inbox,
   MoreHorizontal,
   Pin,
@@ -12,7 +13,6 @@ import {
   File,
   Plus,
   Search,
-  Settings,
   Trash2,
 } from "./icons";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -29,8 +29,8 @@ import {
   saveProjectRailWidth,
 } from "../lib/appearance";
 import { basename, revealPath, type GitDiffStats } from "../lib/fs";
-import { IS_MAC, IS_WIN, MOD } from "../lib/platform";
-import { projectName } from "../lib/paths";
+import { IS_MAC, IS_WIN, MOD, SHIFT } from "../lib/platform";
+import { projectKey, projectName } from "../lib/paths";
 import {
   collectRailProjects,
   loadPinnedProjects,
@@ -61,6 +61,7 @@ import {
 import { formatLiveElapsed, type LiveAgent } from "../lib/liveAgents";
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
+import { ProjectBackgroundDialog } from "./ProjectBackgroundDialog";
 import { ProjectMascot } from "./ProjectMascot";
 import { RailAction, RailSearch } from "./RailAction";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -84,6 +85,11 @@ function projectMenuExtraItems(
   canRemove: boolean,
 ): TabGroupMenuExtraItem[] {
   const items: TabGroupMenuExtraItem[] = [
+    {
+      id: "background",
+      label: "Background image",
+      icon: ImagePlus,
+    },
     pinned
       ? { id: "unpin", label: "Unpin project", icon: PinOff }
       : { id: "pin", label: "Pin project", icon: Pin },
@@ -115,6 +121,8 @@ type Props = {
   onOpenNotes?: () => void;
   notesActive?: boolean;
   onTogglePanel?: () => void;
+  onToggleWorkspace?: () => void;
+  workspaceActive?: boolean;
   onSelectProject: (path: string) => void;
   onOpenProject: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
@@ -129,6 +137,10 @@ type Props = {
   updateNotice?: InstalledUpdate | null;
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
+  /** Live fold clip while dragging (DOM only). */
+  onPaintWidth?: (width: number) => void;
+  /** Committed rail width for the outer fold. */
+  onWidthChange?: (width: number) => void;
 };
 
 export function ProjectRail({
@@ -148,6 +160,8 @@ export function ProjectRail({
   onOpenNotes,
   notesActive = false,
   onTogglePanel,
+  onToggleWorkspace,
+  workspaceActive = true,
   onSelectProject,
   onOpenProject,
   onRemoveProject,
@@ -162,6 +176,8 @@ export function ProjectRail({
   updateNotice = null,
   onOpenWhatsNew,
   onDismissUpdate,
+  onPaintWidth,
+  onWidthChange,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -169,8 +185,15 @@ export function ProjectRail({
       Math.min(PROJECT_RAIL_WIDTH_MAX, Math.floor(window.innerWidth * 0.35)),
     defaultWidth: PROJECT_RAIL_WIDTH_DEFAULT,
     initial: loadProjectRailWidth(),
-    onCommit: saveProjectRailWidth,
+    onPaint: onPaintWidth,
+    onCommit: (next) => {
+      saveProjectRailWidth(next);
+      onWidthChange?.(next);
+    },
   });
+  useEffect(() => {
+    onWidthChange?.(resize.width);
+  }, [onWidthChange, resize.width]);
   const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
   const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
   const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);
@@ -187,6 +210,10 @@ export function ProjectRail({
   } | null>(null);
   const [removing, setRemoving] = useState<{
     path: string;
+    name: string;
+  } | null>(null);
+  const [backgroundProject, setBackgroundProject] = useState<{
+    project: string;
     name: string;
   } | null>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -237,7 +264,7 @@ export function ProjectRail({
       x,
       y,
       path,
-      projectKey: projectName(path),
+      projectKey: projectKey(path),
     });
   };
 
@@ -323,7 +350,12 @@ export function ProjectRail({
     if (!projectMenu) return;
     const { path, projectKey } = projectMenu;
     if (action === "pin" || action === "unpin") onTogglePin(path);
-    else if (action === "reveal") void revealPath(path);
+    else if (action === "background") {
+      setBackgroundProject({
+        project: projectKey,
+        name: resolveTabGroupLabel(projectKey, groupLabels, basename(path)),
+      });
+    } else if (action === "reveal") void revealPath(path);
     else if (action === "archive") {
       onRemoveProject?.(path, { purgeData: false });
     } else if (action === "delete") {
@@ -354,7 +386,7 @@ export function ProjectRail({
     <nav
       ref={resize.setPaneRef}
       aria-label="Projects"
-      className="sidebar-glass relative flex shrink-0 flex-col border-r border-content/10"
+      className="sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
     >
       <div
         className="flex h-10 shrink-0 select-none items-center pr-1.5"
@@ -369,6 +401,13 @@ export function ProjectRail({
           onGoForward={onGoForward}
           onTogglePanel={settingsOpen ? undefined : onTogglePanel}
           panelActive
+          onToggleWorkspace={settingsOpen ? undefined : onToggleWorkspace}
+          workspaceActive={workspaceActive}
+          workspaceLabel={
+            workspaceActive
+              ? `Hide Workspace (${MOD}${SHIFT}B)`
+              : `Show Workspace (${MOD}${SHIFT}B)`
+          }
         />
       </div>
 
@@ -390,14 +429,16 @@ export function ProjectRail({
               ariaLabel={`Search (${MOD}K)`}
             />
             <div className="mt-0.5" />
-            <RailAction
-              label="Inbox"
-              icon={Inbox}
-              onClick={onOpenInbox}
-              active={inboxActive}
-              dot={inboxUnseen}
-              ariaLabel={inboxUnseen ? "Inbox, new items" : "Inbox"}
-            />
+            {onOpenInbox ? (
+              <RailAction
+                label="Inbox"
+                icon={Inbox}
+                onClick={onOpenInbox}
+                active={inboxActive}
+                dot={inboxUnseen}
+                ariaLabel={inboxUnseen ? "Inbox, new items" : "Inbox"}
+              />
+            ) : null}
             {notesEnabled ? (
               <RailAction
                 label="Notes"
@@ -471,16 +512,8 @@ export function ProjectRail({
             update={updateNotice}
             onOpenWhatsNew={onOpenWhatsNew}
             onDismissUpdate={onDismissUpdate}
+            onOpenSettings={onOpenSettings}
           />
-          <div className="flex shrink-0 flex-col gap-px p-2 pt-0">
-            <RailAction
-              label="Settings"
-              icon={Settings}
-              onClick={onOpenSettings}
-              shortcut={`${MOD},`}
-              ariaLabel={`Settings (${MOD},)`}
-            />
-          </div>
         </>
       )}
       {projectMenu ? (
@@ -506,7 +539,7 @@ export function ProjectRail({
             projectMenu.projectKey,
             groupColors,
             groupCustomColors,
-            projectMenu.projectKey,
+            projectName(projectMenu.path),
           )}
           logoPath={resolveTabGroupLogo(projectMenu.projectKey, groupLogos)}
           logoProject={projectMenu.projectKey}
@@ -514,7 +547,7 @@ export function ProjectRail({
             projectMenu.projectKey,
             groupMascots,
           )}
-          mascotProject={projectMenu.projectKey}
+          mascotProject={projectName(projectMenu.path)}
           onRename={onProjectRename}
           onColorChange={onProjectColorChange}
           onCustomColorChange={onProjectCustomColorChange}
@@ -538,6 +571,13 @@ export function ProjectRail({
           path={removing.path}
           onConfirm={onConfirmDelete}
           onCancel={() => setRemoving(null)}
+        />
+      ) : null}
+      {backgroundProject ? (
+        <ProjectBackgroundDialog
+          project={backgroundProject.project}
+          name={backgroundProject.name}
+          onClose={() => setBackgroundProject(null)}
         />
       ) : null}
       <div
@@ -601,14 +641,14 @@ function LiveAgentsPreview({
   return (
     <div className="shrink-0 px-2">
       <div
-        role="status"
+        role="group"
         aria-label="Working agents"
         className="overflow-hidden rounded-lg bg-content/5"
       >
         <div className="flex items-center gap-2 px-3.5 py-1.5">
           <span
             aria-hidden
-            className="size-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)] animate-pulse"
+            className="size-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)] motion-safe:animate-pulse"
           />
           <span className="min-w-0 flex-1 truncate text-xs text-content/50">
             Working
@@ -676,14 +716,10 @@ function LiveAgentCard({
   groupCustomColors: Record<string, string>;
   groupMascots: Record<string, string>;
 }) {
-  const projectKey = projectName(agent.cwd);
-  const project = resolveTabGroupLabel(projectKey, groupLabels, projectKey);
-  const color = resolveTabGroupColor(
-    projectKey,
-    groupColors,
-    groupCustomColors,
-    projectKey,
-  );
+  const seed = projectName(agent.cwd);
+  const key = projectKey(agent.cwd);
+  const project = resolveTabGroupLabel(key, groupLabels, seed);
+  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const elapsed = agent.done
     ? agent.durationMs != null
       ? formatLiveElapsed(0, agent.durationMs)
@@ -716,9 +752,9 @@ function LiveAgentCard({
     >
       <span className="flex min-w-0 items-center gap-2">
         <ProjectMascot
-          project={projectKey}
+          project={seed}
           color={color}
-          name={resolveTabGroupMascot(projectKey, groupMascots)}
+          name={resolveTabGroupMascot(key, groupMascots)}
           className="size-2 shrink-0"
           active={live}
         />
@@ -735,9 +771,9 @@ function LiveAgentCard({
       <span
         className={`mt-1 flex min-w-0 items-center gap-1.5 pl-4 text-[11px] leading-tight ${
           agent.needsApproval
-            ? "text-amber-400"
+            ? "text-warning"
             : agent.done
-              ? "text-emerald-400"
+              ? "text-success"
               : "text-content/50"
         }`}
       >
@@ -886,15 +922,11 @@ function ProjectCard({
   groupMascots: Record<string, string>;
 }) {
   const fallbackName = basename(item.path);
-  const projectKey = projectName(item.path);
-  const name = resolveTabGroupLabel(projectKey, groupLabels, fallbackName);
-  const logoPath = resolveTabGroupLogo(projectKey, groupLogos);
-  const color = resolveTabGroupColor(
-    projectKey,
-    groupColors,
-    groupCustomColors,
-    projectKey,
-  );
+  const key = projectKey(item.path);
+  const seed = projectName(item.path);
+  const name = resolveTabGroupLabel(key, groupLabels, fallbackName);
+  const logoPath = resolveTabGroupLogo(key, groupLogos);
+  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const dragging = sortable.draggingId === item.path;
   const showStart =
     sortable.draggingId &&
@@ -950,7 +982,7 @@ function ProjectCard({
         title={cardTitle}
         aria-label={cardAriaLabel}
         aria-current={selected ? "true" : undefined}
-        className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left group-hover:pr-6"
+        className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] group-hover:pr-6 group-focus-within:pr-6"
       >
         <div className="grid size-4 shrink-0 place-items-center transition-opacity group-hover:opacity-0">
           {logoPath && !busy ? (
@@ -961,9 +993,9 @@ function ProjectCard({
             />
           ) : (
             <ProjectMascot
-              project={projectKey}
+              project={seed}
               color={color}
-              name={resolveTabGroupMascot(projectKey, groupMascots)}
+              name={resolveTabGroupMascot(key, groupMascots)}
               className="size-3"
               active={busy}
             />
@@ -993,7 +1025,7 @@ function ProjectCard({
           event.stopPropagation();
           onOpenMenu(item.path, event.clientX, event.clientY);
         }}
-        className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid"
+        className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 opacity-0 pointer-events-none transition-opacity hover:bg-content/8 hover:text-content group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
       >
         <MoreHorizontal className="size-4" strokeWidth={1.75} />
       </button>
@@ -1007,7 +1039,7 @@ function ProjectCard({
           event.stopPropagation();
           onTogglePin(item.path);
         }}
-        className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
+        className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
       >
         {pinned ? (
           <PinOff className="size-3.5" strokeWidth={1.75} />
@@ -1048,10 +1080,10 @@ function ProjectDiffStat({
       className="flex shrink-0 items-center gap-1 font-mono text-[11px] font-semibold tabular-nums"
     >
       {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-success">+{additions}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
+        <span className="text-danger">-{deletions}</span>
       ) : null}
     </span>
   );

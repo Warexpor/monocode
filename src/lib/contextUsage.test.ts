@@ -102,6 +102,16 @@ describe("mergeContextUsage", () => {
       window: 200_000,
     });
   });
+
+  it("ignores a multi-million reading that exceeds the window", () => {
+    const seeded = mergeContextUsage(undefined, {
+      used: 55_000,
+      window: 200_000,
+    });
+    expect(
+      mergeContextUsage(seeded, { used: 4_500_000, window: 200_000 }),
+    ).toEqual({ used: 55_000, window: 200_000 });
+  });
 });
 
 describe("dropContextWindow", () => {

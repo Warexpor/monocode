@@ -1,4 +1,5 @@
 import { LoaderCircle, Plus, Search, File, Trash2 } from "../chrome/icons";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   Fragment,
   useCallback,
@@ -6,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
@@ -28,6 +30,13 @@ import {
   requestAddNoteToChat,
   type Note,
 } from "../lib/notes";
+import {
+  insertNoteImagesMarkdown,
+  saveNoteImagesFromFiles,
+  saveNoteImagesFromPaths,
+  type NoteImageAsset,
+} from "../lib/noteImages";
+import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
 import {
@@ -212,11 +221,11 @@ export function NotesView({
           aria-label="New note"
           disabled={creating}
           onClick={() => void onCreate()}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-content/45"
         >
           {creating ? (
             <LoaderCircle
-              className="size-3.5 animate-spin"
+              className="size-3.5 motion-safe:animate-spin"
               strokeWidth={1.75}
             />
           ) : (
@@ -235,11 +244,10 @@ export function NotesView({
             <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
           </div>
         ) : visible.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-content/50">
-            {query.trim()
-              ? "No matching notes"
-              : "No notes yet. Save a turn from the transcript, or create one here."}
-          </p>
+          <NotesListEmpty
+            query={query}
+            onClearSearch={() => setQuery("")}
+          />
         ) : (
           <ul className="flex flex-col gap-0.5 p-1.5">
             {visible.map((note) => (
@@ -312,6 +320,35 @@ export function NotesView({
   );
 }
 
+/** Quiet empty copy. Filter misses get a reset; true empty does not. */
+export function NotesListEmpty({
+  query,
+  onClearSearch,
+}: {
+  query: string;
+  onClearSearch: () => void;
+}) {
+  if (query.trim()) {
+    return (
+      <div className="px-3 py-2">
+        <p className="text-[12px] text-content/50">No matching notes</p>
+        <button
+          type="button"
+          onClick={onClearSearch}
+          className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+        >
+          Clear search
+        </button>
+      </div>
+    );
+  }
+  return (
+    <p className="px-3 py-2 text-[12px] text-content/50">
+      No notes yet. Save a turn from the transcript, or create one here.
+    </p>
+  );
+}
+
 type ProjectMarks = {
   logos: Record<string, string>;
   mascots: Record<string, string>;
@@ -320,20 +357,17 @@ type ProjectMarks = {
 };
 
 function NoteProjectMark({
-  project,
+  cwd,
   logos,
   mascots,
   colors,
   customColors,
-}: { project: string } & ProjectMarks) {
-  const logoPath = resolveTabGroupLogo(project, logos);
-  const mascotName = resolveTabGroupMascot(project, mascots);
-  const mascotColor = resolveTabGroupColor(
-    project,
-    colors,
-    customColors,
-    project,
-  );
+}: { cwd: string } & ProjectMarks) {
+  const project = projectName(cwd);
+  const key = projectKey(cwd);
+  const logoPath = resolveTabGroupLogo(key, logos);
+  const mascotName = resolveTabGroupMascot(key, mascots);
+  const mascotColor = resolveTabGroupColor(key, colors, customColors, project);
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       {logoPath ? (
@@ -405,17 +439,17 @@ function NoteCard({
       title={hint}
       aria-current={active ? "true" : undefined}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-md border px-2.5 py-2 text-left ${
+      className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left ${
         active
-          ? "border-transparent bg-content/10 text-content"
-          : "border-transparent text-content/80 hover:bg-content/5 hover:text-content"
+          ? "bg-content/10 text-content"
+          : "text-content/80 hover:bg-content/5 hover:text-content"
       }`}
     >
       <span className="flex items-center gap-2">
-        {project ? (
+        {project && note.sourceCwd ? (
           <span className="min-w-0 flex-1 text-[11px] text-content/50">
             <NoteProjectMark
-              project={project}
+              cwd={note.sourceCwd}
               logos={logos}
               mascots={mascots}
               colors={colors}
@@ -502,9 +536,14 @@ function NoteEditor({
   const [title, setTitle] = useState(note.title);
   const [body, setBody] = useState(note.body);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [imageDrag, setImageDrag] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const titleRef = useRef(title);
   const bodyRef = useRef(body);
   const noteRef = useRef(note);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const sourceFieldRef = useRef<HTMLTextAreaElement>(null);
+  const lastDropAt = useRef(0);
   const skipSave = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const saveQueue = useRef(Promise.resolve());
@@ -555,6 +594,111 @@ function NoteEditor({
     }, 400);
   }, [persist]);
 
+  const insertionRange = useCallback(() => {
+    const field = sourceFieldRef.current;
+    if (!field) {
+      const end = bodyRef.current.length;
+      return { start: end, end };
+    }
+    return {
+      start: field.selectionStart,
+      end: field.selectionEnd,
+    };
+  }, []);
+
+  const addDroppedImages = useCallback(
+    async (
+      load: () => Promise<NoteImageAsset[]>,
+      range: { start: number; end: number },
+    ) => {
+      setImageBusy(true);
+      setImageDrag(false);
+      try {
+        const images = await load();
+        const inserted = insertNoteImagesMarkdown(
+          bodyRef.current,
+          range.start,
+          range.end,
+          images,
+        );
+        bodyRef.current = inserted.value;
+        setBody(inserted.value);
+        setSaveError(null);
+        scheduleSave();
+        window.requestAnimationFrame(() => {
+          const field = sourceFieldRef.current;
+          if (!field) return;
+          field.focus();
+          field.setSelectionRange(inserted.cursor, inserted.cursor);
+        });
+      } catch (err: unknown) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setImageBusy(false);
+      }
+    },
+    [scheduleSave],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    const toClientPoint = (x: number, y: number) => {
+      const scale = window.devicePixelRatio || 1;
+      if (scale !== 1 && (x > window.innerWidth || y > window.innerHeight)) {
+        return { x: x / scale, y: y / scale };
+      }
+      return { x, y };
+    };
+    const overDropZone = (x: number, y: number) => {
+      const zone = dropZoneRef.current;
+      if (!zone) return false;
+      const point = toClientPoint(x, y);
+      const rect = zone.getBoundingClientRect();
+      return (
+        point.x >= rect.left &&
+        point.x <= rect.right &&
+        point.y >= rect.top &&
+        point.y <= rect.bottom
+      );
+    };
+
+    void getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "leave") {
+          setImageDrag(false);
+          return;
+        }
+        const { x, y } = event.payload.position;
+        const over = overDropZone(x, y);
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setImageDrag(over);
+          return;
+        }
+        if (event.payload.type !== "drop") return;
+        setImageDrag(false);
+        if (!over || Date.now() - lastDropAt.current < 250) return;
+        lastDropAt.current = Date.now();
+        const range = insertionRange();
+        const paths = event.payload.paths;
+        void addDroppedImages(
+          () => saveNoteImagesFromPaths(note.id, paths),
+          range,
+        );
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [addDroppedImages, insertionRange, note.id]);
+
   useEffect(() => {
     return () => {
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
@@ -588,9 +732,9 @@ function NoteEditor({
             {note.slug ? (
               <span className="min-w-0 truncate">{note.slug}</span>
             ) : null}
-            {project ? (
+            {project && note.sourceCwd ? (
               <NoteProjectMark
-                project={project}
+                cwd={note.sourceCwd}
                 logos={logos}
                 mascots={mascots}
                 colors={colors}
@@ -634,14 +778,14 @@ function NoteEditor({
                   window.clearTimeout(saveTimer.current);
                 void onDelete(note.id);
               }}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400"
+              className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-danger"
             >
               <Trash2 className="size-3.5" strokeWidth={1.75} />
               Delete
             </button>
           </div>
           {saveError ? (
-            <p className="text-[12px] text-red-400/90">{saveError}</p>
+            <p className="text-[12px] text-danger/90">{saveError}</p>
           ) : null}
         </header>
         <div
@@ -660,20 +804,59 @@ function NoteEditor({
             onSelect={() => setMode("source")}
           />
         </div>
-        {mode === "source" ? (
-          <NoteSource
-            autoFocus={blank}
-            value={body}
-            onChange={(next) => {
-              setBody(next);
-              scheduleSave();
-            }}
-          />
-        ) : body.trim() ? (
-          <AgentMarkdown text={body} cwd={note.sourceCwd} />
-        ) : (
-          <p className="text-[13px] text-content/45">No description</p>
-        )}
+        <div
+          ref={dropZoneRef}
+          aria-busy={imageBusy}
+          className={`relative min-h-[448px] rounded-lg border transition-colors ${
+            imageDrag ? "border-accent/60 bg-accent/5" : "border-transparent"
+          }`}
+          onDragOver={(event: ReactDragEvent<HTMLDivElement>) => {
+            if (!hasDroppedFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setImageDrag(true);
+          }}
+          onDragLeave={(event: ReactDragEvent<HTMLDivElement>) => {
+            const next = event.relatedTarget as Node | null;
+            if (next && event.currentTarget.contains(next)) return;
+            setImageDrag(false);
+          }}
+          onDrop={(event: ReactDragEvent<HTMLDivElement>) => {
+            if (!hasDroppedFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            setImageDrag(false);
+            if (Date.now() - lastDropAt.current < 250) return;
+            lastDropAt.current = Date.now();
+            const files = [...event.dataTransfer.files];
+            if (files.length === 0) return;
+            const range = insertionRange();
+            void addDroppedImages(
+              () => saveNoteImagesFromFiles(note.id, files),
+              range,
+            );
+          }}
+        >
+          {imageDrag || imageBusy ? (
+            <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-background-base/80 text-[12px] text-content/70 backdrop-blur-sm">
+              {imageBusy ? "Adding images…" : "Drop images here"}
+            </div>
+          ) : null}
+          {mode === "source" ? (
+            <NoteSource
+              textareaRef={sourceFieldRef}
+              autoFocus={blank}
+              value={body}
+              onChange={(next) => {
+                setBody(next);
+                scheduleSave();
+              }}
+            />
+          ) : body.trim() ? (
+            <AgentMarkdown text={body} cwd={note.sourceCwd} />
+          ) : (
+            <p className="text-[13px] text-content/45">No description</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -682,10 +865,12 @@ function NoteEditor({
 function NoteSource({
   value,
   onChange,
+  textareaRef,
   autoFocus = false,
 }: {
   value: string;
   onChange: (value: string) => void;
+  textareaRef: { current: HTMLTextAreaElement | null };
   autoFocus?: boolean;
 }) {
   const lines = value.split("\n");
@@ -718,8 +903,10 @@ function NoteSource({
         style={{ left: gutterWidth }}
       />
       <textarea
+        ref={textareaRef}
         value={value}
         autoFocus={autoFocus}
+        aria-label="Note markdown source"
         onChange={(event) => onChange(event.target.value)}
         spellCheck={false}
         placeholder="Write markdown…"
@@ -727,5 +914,12 @@ function NoteSource({
         style={{ paddingLeft: textOffset }}
       />
     </div>
+  );
+}
+
+function hasDroppedFiles(data: DataTransfer | null): data is DataTransfer {
+  if (!data) return false;
+  return [...data.types].some(
+    (type) => type === "Files" || type === "application/x-moz-file",
   );
 }

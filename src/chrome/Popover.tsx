@@ -57,7 +57,7 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
 const FRAME =
   "isolate overflow-hidden rounded-xl border border-content/10 shadow-xl";
 const BACKDROP =
-  "pointer-events-none absolute inset-0 z-0 bg-content/10 backdrop-blur-xl [backface-visibility:hidden] [transform:translateZ(0)]";
+  "popover-backdrop pointer-events-none absolute inset-0 z-0 backdrop-blur-xl [backface-visibility:hidden] [transform:translateZ(0)]";
 
 /** Which corner the open animation grows from, so it reads as anchored. */
 function origin(side: PopoverSide, align: PopoverAlign): string {
@@ -190,6 +190,24 @@ export function Popover({
   useEffect(() => {
     if (autoFocus) surface.current?.focus();
   }, [autoFocus]);
+
+  // Give focus back to whatever had it before the popover opened, unless the
+  // user has already moved it somewhere else.
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const surfaceEl = surface.current;
+    return () => {
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        previous?.isConnected &&
+        (!active ||
+          active === document.body ||
+          (surfaceEl?.contains(active) ?? false))
+      ) {
+        previous.focus();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!onDismiss) return;

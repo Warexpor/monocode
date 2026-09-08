@@ -27,7 +27,7 @@ pub struct DirEntry {
 #[tauri::command(async)]
 pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     let dir = expand_home(&path);
-    let reader = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let reader = std::fs::read_dir(&dir).map_err(|e| path_io(&dir, &e))?;
     let ignore = Ignore::load(&dir);
 
     let mut out = Vec::new();
@@ -84,7 +84,7 @@ pub async fn list_project_files(cwd: String) -> Result<Vec<ProjectFile>, String>
 pub(crate) fn list_project_files_sync(cwd: &str) -> Result<Vec<ProjectFile>, String> {
     let root = expand_home(cwd);
     if !root.is_dir() {
-        return Err(format!("{}: Not a directory", root.display()));
+        return Err(path_msg(&root, "Not a directory"));
     }
     if !is_indexable_root(&root) {
         return Ok(Vec::new());
@@ -111,7 +111,7 @@ fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
         if rel.is_empty() {
             continue;
         }
-        let relative = String::from_utf8_lossy(rel).replace('\\', "/");
+        let relative = path_to_js(Path::new(String::from_utf8_lossy(rel).as_ref()));
         if relative.ends_with('/') || path_has_skipped_dir(&relative) {
             continue;
         }
@@ -947,7 +947,7 @@ fn normalize_diff_path(path: &str) -> String {
     } else {
         path
     };
-    path.replace('\\', "/")
+    path_to_js(Path::new(path))
 }
 
 const MAX_UNTRACKED_BYTES: u64 = 1024 * 1024;
@@ -963,7 +963,7 @@ fn add_untracked_map(root: &Path, files: &mut HashMap<String, FileAcc>) {
         if rel.is_empty() {
             continue;
         }
-        let relative = rel.replace('\\', "/");
+        let relative = path_to_js(Path::new(rel));
         let entry = files.entry(relative.clone()).or_default();
         entry.untracked = true;
         if entry.additions == 0 {
@@ -1554,13 +1554,15 @@ fn git_range_context_for(root: &Path) -> Result<GitRangeContext, String> {
 
 fn git_pr_status_for(root: &Path) -> Option<GitPr> {
     let branch = git_branch(root)?;
+    let repo = git_github_repo_for(root).ok()?;
+    let head = github_pr_head_filter(&repo, &branch)?;
     let json = gh_stdout(
         root,
         &[
             "pr",
             "list",
             "--head",
-            &branch,
+            &head,
             "--json",
             "number,title,url,state",
             "--limit",
@@ -1570,6 +1572,11 @@ fn git_pr_status_for(root: &Path) -> Option<GitPr> {
         ],
     )?;
     parse_gh_pr_list(&json)
+}
+
+fn github_pr_head_filter(repo: &str, branch: &str) -> Option<String> {
+    let (owner, _) = split_github_repo(repo).ok()?;
+    Some(format!("{owner}:{branch}"))
 }
 
 fn git_github_repo_for(root: &Path) -> Result<String, String> {
@@ -2971,7 +2978,7 @@ fn walk_project_files(root: &Path) -> Vec<ProjectFile> {
             let Ok(relative) = path.strip_prefix(root) else {
                 continue;
             };
-            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = path_to_js(relative);
             files.push(ProjectFile {
                 name: name.to_string(),
                 path: path_to_js(&path),
@@ -3125,16 +3132,16 @@ pub fn create_path(parent: String, name: String, is_dir: bool) -> Result<String,
     }
 
     if is_dir {
-        std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dest).map_err(|e| path_io(&dest, &e))?;
     } else {
         if let Some(dir) = dest.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(dir).map_err(|e| path_io(dir, &e))?;
         }
         std::fs::File::create_new(&dest).map_err(|e| {
             if e.kind() == ErrorKind::AlreadyExists {
                 already_exists(&label)
             } else {
-                e.to_string()
+                path_io(&dest, &e)
             }
         })?;
     }
@@ -3159,6 +3166,56 @@ pub(crate) fn expand_home(path: &str) -> PathBuf {
 
 pub(crate) fn path_to_js(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+/// POSIX-shaped `io::Error` text so Windows UI errors match Unix (`os error 2`
+/// is still 2; the English wrapper is not "The system cannot find the file…").
+pub(crate) fn io_posix_message(err: &std::io::Error) -> String {
+    match err.kind() {
+        ErrorKind::NotFound => "No such file or directory".into(),
+        ErrorKind::PermissionDenied => "Permission denied".into(),
+        ErrorKind::AlreadyExists => "File exists".into(),
+        _ => err.to_string(),
+    }
+}
+
+pub(crate) fn path_io(path: &Path, err: &std::io::Error) -> String {
+    format!("{}: {}", path_to_js(path), io_posix_message(err))
+}
+
+pub(crate) fn path_msg(path: &Path, msg: &str) -> String {
+    format!("{}: {msg}", path_to_js(path))
+}
+
+/// Slash-normalize a project cwd so `cwd = ?` matches `C:\foo` and `C:/foo`.
+/// Trailing slashes drop the same way as JS `normalizeProjectPath`.
+pub(crate) fn slash_cwd(cwd: &str) -> String {
+    let trimmed = cwd.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut out = trimmed.replace('\\', "/");
+    while out.len() > 1 && out.ends_with('/') {
+        out.pop();
+    }
+    out
+}
+
+pub(crate) fn paths_equal_for_project(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    let left = path_to_js(a);
+    let right = path_to_js(b);
+    if left == right {
+        return true;
+    }
+    is_windows_drive_path(&left) && left.eq_ignore_ascii_case(&right)
+}
+
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 struct Ignore {
@@ -3227,7 +3284,7 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
     let name = repo_name(url)?;
     let dest = expand_home(parent).join(&name);
     if dest.exists() {
-        return Err(format!("{} already exists", dest.display()));
+        return Err(format!("{} already exists", path_to_js(&dest)));
     }
     let dest_str = dest.to_str().ok_or("Invalid destination path")?;
     let output = git_cmd()
@@ -3283,7 +3340,7 @@ pub fn read_file_preview(
     use std::io::{BufRead, BufReader};
 
     let path = expand_home(&path);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = std::fs::metadata(&path).map_err(|e| path_io(&path, &e))?;
     if !meta.is_file() {
         return Err("Not a file".into());
     }
@@ -3393,7 +3450,7 @@ pub async fn read_file_base64(path: String) -> Result<String, String> {
 
 fn read_file_base64_sync(path: &str) -> Result<String, String> {
     let path = expand_home(path);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = std::fs::metadata(&path).map_err(|e| path_io(&path, &e))?;
     if !meta.is_file() {
         return Err("Not a file".into());
     }
@@ -3403,7 +3460,7 @@ fn read_file_base64_sync(path: &str) -> Result<String, String> {
             MAX_ATTACHMENT_EMBED_BYTES / 1024 / 1024
         ));
     }
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|e| path_io(&path, &e))?;
     Ok(base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         bytes,
@@ -3425,7 +3482,7 @@ pub async fn read_binary_file(path: String) -> Result<tauri::ipc::Response, Stri
 
 fn read_binary_file_sync(path: &str) -> Result<Vec<u8>, String> {
     let path = expand_home(path);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = std::fs::metadata(&path).map_err(|e| path_io(&path, &e))?;
     if !meta.is_file() {
         return Err("Not a file".into());
     }
@@ -3435,7 +3492,7 @@ fn read_binary_file_sync(path: &str) -> Result<Vec<u8>, String> {
             MAX_PREVIEW_BYTES / 1024 / 1024
         ));
     }
-    std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::read(&path).map_err(|e| path_io(&path, &e))
 }
 
 /// Persist a pasted blob so non-image attachments have a real path.
@@ -3467,7 +3524,7 @@ fn write_attachment_sync(name: &str, data: &str) -> Result<String, String> {
         stamp,
         safe_attachment_name(name)
     ));
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::write(&path, bytes).map_err(|e| path_io(&path, &e))?;
     Ok(path_to_js(&path))
 }
 
@@ -3504,7 +3561,7 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
 
 fn read_text_file_sync(path: &str) -> Result<String, String> {
     let path = expand_home(path);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let meta = std::fs::metadata(&path).map_err(|e| path_io(&path, &e))?;
     if !meta.is_file() {
         return Err("Not a file".into());
     }
@@ -3515,7 +3572,7 @@ fn read_text_file_sync(path: &str) -> Result<String, String> {
         ));
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|e| path_io(&path, &e))?;
     if bytes.contains(&0) {
         return Err("Binary files cannot be edited.".into());
     }
@@ -3540,7 +3597,7 @@ fn write_text_file_sync(path: &str, content: &str) -> Result<(), String> {
 
     let requested = expand_home(path);
     let destination = if requested.exists() {
-        std::fs::canonicalize(&requested).map_err(|e| format!("{}: {e}", requested.display()))?
+        std::fs::canonicalize(&requested).map_err(|e| path_io(&requested, &e))?
     } else {
         requested
     };
@@ -3576,7 +3633,7 @@ fn write_text_file_sync(path: &str, content: &str) -> Result<(), String> {
                 break;
             }
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(format!("{}: {error}", candidate.display())),
+            Err(error) => return Err(path_io(&candidate, &error)),
         }
     }
 
@@ -3660,10 +3717,10 @@ fn unique_name_in(dir: &Path, name: &str) -> String {
 }
 
 fn copy_recursive(from: &Path, to: &Path) -> Result<(), String> {
-    let meta = std::fs::metadata(from).map_err(|e| format!("{}: {e}", from.display()))?;
+    let meta = std::fs::metadata(from).map_err(|e| path_io(from, &e))?;
     if meta.is_dir() {
-        std::fs::create_dir(to).map_err(|e| format!("{}: {e}", to.display()))?;
-        for ent in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        std::fs::create_dir(to).map_err(|e| path_io(to, &e))?;
+        for ent in std::fs::read_dir(from).map_err(|e| path_io(from, &e))? {
             let ent = ent.map_err(|e| e.to_string())?;
             copy_recursive(&ent.path(), &to.join(ent.file_name()))?;
         }
@@ -3671,14 +3728,14 @@ fn copy_recursive(from: &Path, to: &Path) -> Result<(), String> {
     } else {
         std::fs::copy(from, to)
             .map(|_| ())
-            .map_err(|e| format!("{}: {e}", to.display()))
+            .map_err(|e| path_io(to, &e))
     }
 }
 
 fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
     let from = expand_home(path);
     if !from.exists() {
-        return Err(format!("{}: No such file or directory", from.display()));
+        return Err(path_msg(&from, "No such file or directory"));
     }
     let parent = from
         .parent()
@@ -3727,12 +3784,12 @@ pub async fn rename_path(path: String, name: String) -> Result<String, String> {
 fn delete_path_sync(path: &str) -> Result<(), String> {
     let path = expand_home(path);
     if !path.exists() {
-        return Err(format!("{}: No such file or directory", path.display()));
+        return Err(path_msg(&path, "No such file or directory"));
     }
     if path.is_dir() {
-        std::fs::remove_dir_all(&path).map_err(|e| format!("{}: {e}", path.display()))
+        std::fs::remove_dir_all(&path).map_err(|e| path_io(&path, &e))
     } else {
-        std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+        std::fs::remove_file(&path).map_err(|e| path_io(&path, &e))
     }
 }
 
@@ -3746,11 +3803,11 @@ pub async fn delete_path(path: String) -> Result<(), String> {
 fn copy_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
     let from = expand_home(from);
     if !from.exists() {
-        return Err(format!("{}: No such file or directory", from.display()));
+        return Err(path_msg(&from, "No such file or directory"));
     }
     let dest_parent = expand_home(dest_parent);
     if !dest_parent.is_dir() {
-        return Err(format!("{} is not a folder", dest_parent.display()));
+        return Err(format!("{} is not a folder", path_to_js(&dest_parent)));
     }
     if from.is_dir() && dest_parent.starts_with(&from) {
         return Err("Cannot paste a folder into itself.".into());
@@ -3774,11 +3831,11 @@ pub async fn copy_path(from: String, dest_parent: String) -> Result<String, Stri
 fn move_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
     let from = expand_home(from);
     if !from.exists() {
-        return Err(format!("{}: No such file or directory", from.display()));
+        return Err(path_msg(&from, "No such file or directory"));
     }
     let dest_parent = expand_home(dest_parent);
     if !dest_parent.is_dir() {
-        return Err(format!("{} is not a folder", dest_parent.display()));
+        return Err(format!("{} is not a folder", path_to_js(&dest_parent)));
     }
     if from.is_dir() && dest_parent.starts_with(&from) {
         return Err("Cannot paste a folder into itself.".into());
@@ -3806,7 +3863,7 @@ pub async fn move_path(from: String, dest_parent: String) -> Result<String, Stri
 pub fn reveal_path(path: String) -> Result<(), String> {
     let path = expand_home(&path);
     if !path.exists() {
-        return Err(format!("{}: No such file or directory", path.display()));
+        return Err(path_msg(&path, "No such file or directory"));
     }
     #[cfg(target_os = "macos")]
     {
@@ -3922,6 +3979,25 @@ mod tests {
         assert_eq!(notes.size, 6);
         let folder = infos.iter().find(|info| info.is_dir).unwrap();
         assert_eq!(folder.path, path_to_js(&dir.0));
+    }
+
+    #[test]
+    fn path_errors_use_js_slashes_and_posix_not_found() {
+        let missing = Path::new(r"C:\gone\file.txt");
+        let err = std::io::Error::new(ErrorKind::NotFound, "win32");
+        assert_eq!(
+            path_io(missing, &err),
+            "C:/gone/file.txt: No such file or directory"
+        );
+        assert_eq!(slash_cwd(r"C:\Users\me\app\"), "C:/Users/me/app");
+        assert!(paths_equal_for_project(
+            Path::new(r"C:\Users\ME\app"),
+            Path::new("c:/Users/me/app"),
+        ));
+        assert!(!paths_equal_for_project(
+            Path::new("/tmp/Foo"),
+            Path::new("/tmp/foo"),
+        ));
     }
 
     #[test]
@@ -4415,11 +4491,13 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative, "a.txt");
         assert_eq!(files[0].status, "modified");
+        assert_eq!(files[0].path, path_to_js(&dir.0.join("a.txt")));
 
         let diff = git_commit_file_diff_for(&dir.0, sha, "a.txt").unwrap();
         assert_eq!(diff.original, "alpha\n");
         assert_eq!(diff.current, "beta\n");
         assert_eq!(diff.status, "modified");
+        assert_eq!(diff.path, path_to_js(&dir.0.join("a.txt")));
     }
 
     #[test]
@@ -4828,6 +4906,14 @@ mod tests {
         assert_eq!(pr.number, 3);
         assert_eq!(pr.state, "open");
         assert_eq!(pr.title, "Now");
+    }
+
+    #[test]
+    fn pr_head_filter_qualifies_branch_with_repo_owner() {
+        assert_eq!(
+            github_pr_head_filter("hardbeat920/monocode", "main").as_deref(),
+            Some("hardbeat920:main")
+        );
     }
 
     #[test]

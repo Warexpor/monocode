@@ -133,7 +133,9 @@ export function SessionReview({
                   strokeWidth={1.75}
                 />
               )}
-              <span className="truncate text-[12px]">{files.length} Files</span>
+              <span className="truncate text-[12px]">
+                {files.length} {files.length === 1 ? "file" : "files"}
+              </span>
             </button>
           ) : (
             <FileLabel
@@ -155,7 +157,7 @@ export function SessionReview({
               }
               disabled={disabled || !canUndoAll}
               onClick={() => run("undo")}
-              className="h-6 rounded-md px-1.5  text-[11px] text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
+              className="h-6 rounded-md px-1.5 text-[11px] text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
             >
               Undo All
             </button>
@@ -164,7 +166,7 @@ export function SessionReview({
               title="Keep all session changes"
               disabled={disabled}
               onClick={() => run("keep")}
-              className="h-6 rounded-md px-1.5  text-[11px] text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
+              className="h-6 rounded-md px-1.5 text-[11px] text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
             >
               Keep All
             </button>
@@ -179,7 +181,7 @@ export function SessionReview({
           </div>
         </div>
         {many && expanded ? (
-          <ul className="scrollbar-none mt-1 max-h-40 overflow-y-auto">
+          <ul className="mt-1 max-h-40 overflow-y-auto">
             {files.map((file) => (
               <li key={file.relative}>
                 <FileRow
@@ -260,7 +262,7 @@ function FileRow({
 function DiffCounts({ file }: { file: CheckpointFile }) {
   if (!file.exact) {
     return (
-      <span className="shrink-0 text-[11px] font-medium text-amber-300/80">
+      <span className="shrink-0 text-[11px] font-medium text-warning/80">
         Shared file
       </span>
     );
@@ -269,11 +271,11 @@ function DiffCounts({ file }: { file: CheckpointFile }) {
   return (
     <span className="shrink-0 font-mono text-[11px] font-semibold">
       {file.additions > 0 ? (
-        <span className="text-emerald-400">+{file.additions}</span>
+        <span className="text-success">+{file.additions}</span>
       ) : null}
       {file.additions > 0 && file.deletions > 0 ? " " : null}
       {file.deletions > 0 ? (
-        <span className="text-red-400">-{file.deletions}</span>
+        <span className="text-danger">-{file.deletions}</span>
       ) : null}
     </span>
   );

@@ -83,7 +83,7 @@ export function DiffCommentComposer({
           className="max-h-40 min-h-18 w-full resize-y rounded-lg border border-content/10 bg-background-base/70 px-2.5 py-2 text-[13px] leading-5 text-content outline-none placeholder:text-content/35 focus:border-content/20"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="text-[10px] text-content/35">{MOD}↩ to add</span>
+          <span className="text-[10px] text-content/50">{MOD}↩ to add</span>
           <button
             type="submit"
             disabled={!comment.trim()}

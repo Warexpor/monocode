@@ -32,7 +32,7 @@ type ToggleProps = {
 export function MarkdownModeToggle({ mode, onChange }: ToggleProps) {
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="Markdown view"
       className="flex rounded-md border border-content/10 bg-content/10 p-0.5 backdrop-blur-md"
     >
@@ -62,8 +62,7 @@ function ModeTab({
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={selected}
+      aria-pressed={selected}
       className={`rounded px-2 py-0.5 font-mono text-[11px] ${
         selected
           ? "bg-content/12 text-content"

@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
@@ -87,6 +88,7 @@ type Shared = {
   onInboxCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
   onHandoffCardDismiss?: (sessionId: string) => void;
+  onBtwAsideDismiss?: (sessionId: string) => void;
   onApproval: (
     sessionId: string,
     requestId: number,
@@ -122,6 +124,9 @@ type Shared = {
     turn: Block[],
     model: string,
   ) => void;
+  onEditResend?: (sessionId: string, userBlockId: string) => void;
+  onRevertAfter?: (sessionId: string, userBlockId: string) => void;
+  onOpenTranscriptOverlay?: (sessionId: string) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
@@ -177,6 +182,7 @@ function PaneTreeComponent({
   onInboxCardDismiss,
   onNoteCardDismiss,
   onHandoffCardDismiss,
+  onBtwAsideDismiss,
   onApproval,
   onQuestionReply,
   onOpenFile,
@@ -187,6 +193,9 @@ function PaneTreeComponent({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onEditResend,
+  onRevertAfter,
+  onOpenTranscriptOverlay,
   onMovePane,
   onNewTerminal,
   onTerminalMetaChange,
@@ -312,6 +321,12 @@ function PaneTreeComponent({
         const session = sessions.find((entry) => entry.id === leaf.id);
         const dragging = drop?.fromId === leaf.id;
         const onPaneDragStart = inSplit ? paneDragStartFor(leaf.id) : undefined;
+        const backgroundStyle = {
+          "--chat-background-left": `${(-leaf.rect.x / leaf.rect.w) * 100}%`,
+          "--chat-background-top": `${(-leaf.rect.y / leaf.rect.h) * 100}%`,
+          "--chat-background-width": `${100 / leaf.rect.w}%`,
+          "--chat-background-height": `${100 / leaf.rect.h}%`,
+        } as CSSProperties;
         return (
           <div
             key={leaf.id}
@@ -322,6 +337,7 @@ function PaneTreeComponent({
               top: `${leaf.rect.y * 100}%`,
               width: `${leaf.rect.w * 100}%`,
               height: `${leaf.rect.h * 100}%`,
+              ...backgroundStyle,
             }}
           >
             {drop && drop.overId === leaf.id && drop.fromId !== leaf.id ? (
@@ -386,6 +402,7 @@ function PaneTreeComponent({
                 onInboxCardDismiss={onInboxCardDismiss}
                 onNoteCardDismiss={onNoteCardDismiss}
                 onHandoffCardDismiss={onHandoffCardDismiss}
+                onBtwAsideDismiss={onBtwAsideDismiss}
                 onApproval={onApproval}
                 onQuestionReply={onQuestionReply}
                 onOpenFile={onOpenFile}
@@ -394,6 +411,9 @@ function PaneTreeComponent({
                 onBuildPlan={onBuildPlan}
                 onSecondOpinion={onSecondOpinion}
                 onHandoff={onHandoff}
+                onEditResend={onEditResend}
+                onRevertAfter={onRevertAfter}
+                onOpenTranscriptOverlay={onOpenTranscriptOverlay}
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
                 focusBlockId={
@@ -486,8 +506,8 @@ function Sash({
       aria-valuenow={Math.round(boundary * 100)}
       className={
         row
-          ? "absolute z-10 w-px bg-content/10"
-          : "absolute z-10 h-px bg-content/10"
+          ? "absolute z-10 w-px bg-content/10 transition-colors has-[:hover]:bg-content/30"
+          : "absolute z-10 h-px bg-content/10 transition-colors has-[:hover]:bg-content/30"
       }
       style={
         row

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { joinStreamText, snapshotRemainder, streamTextDelta } from "./streamText";
+import {
+  formatReasoningProse,
+  joinReasoningText,
+  joinStreamText,
+  snapshotRemainder,
+  streamTextDelta,
+} from "./streamText";
 
 describe("joinStreamText", () => {
   it("appends tokens, including doubled letters and punctuation", () => {
@@ -67,5 +73,37 @@ describe("streamTextDelta", () => {
     expect(streamTextDelta("  ")).toBe("  ");
     expect(streamTextDelta("")).toBe("");
     expect(streamTextDelta(undefined)).toBe("");
+  });
+});
+
+describe("joinReasoningText", () => {
+  it("breaks glued sentence thoughts into paragraphs", () => {
+    expect(
+      joinReasoningText(
+        "using the canonical index file.",
+        "Extending the plan to list the workspace.",
+      ),
+    ).toBe(
+      "using the canonical index file.\n\nExtending the plan to list the workspace.",
+    );
+  });
+
+  it("still appends ordinary tokens without inventing breaks", () => {
+    expect(joinReasoningText("think", "ing")).toBe("thinking");
+    expect(joinReasoningText("Wait.", " Next")).toBe("Wait. Next");
+  });
+
+  it("keeps snapshot replacement behavior", () => {
+    expect(joinReasoningText("hel", "hello")).toBe("hello");
+  });
+});
+
+describe("formatReasoningProse", () => {
+  it("repairs already-glued reasoning for display", () => {
+    expect(
+      formatReasoningProse(
+        "using the canonical index file.Extending the plan.",
+      ),
+    ).toBe("using the canonical index file.\n\nExtending the plan.");
   });
 });

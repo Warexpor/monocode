@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { looksLikeProject } from "../lib/recents";
+import type { HarnessId } from "../lib/session";
 import {
   isValidSkillName,
   slugSkillName,
@@ -20,6 +21,7 @@ type Props = {
   active: number;
   creating: boolean;
   cwd: string;
+  harness?: HarnessId;
   error?: string | null;
   busy?: boolean;
   onActive: (index: number) => void;
@@ -35,6 +37,7 @@ export function SkillPicker({
   active,
   creating,
   cwd,
+  harness,
   error,
   busy,
   onActive,
@@ -52,6 +55,7 @@ export function SkillPicker({
         <CreateSkillForm
           query={query}
           cwd={cwd}
+          harness={harness}
           error={error}
           busy={busy}
           onCancel={onCancelCreate}
@@ -174,6 +178,11 @@ function SkillList({
                 {skill.description}
               </span>
             ) : null}
+            {skill.kind === "native" && (skill.inputHint || skill.subcommands?.length) ? (
+              <span className="line-clamp-2 text-[11px] text-content/40">
+                {skill.inputHint || skill.subcommands?.map((sub) => sub.usage || sub.name).join(" · ")}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -184,6 +193,7 @@ function SkillList({
 function CreateSkillForm({
   query,
   cwd,
+  harness,
   error,
   busy,
   onCancel,
@@ -191,6 +201,7 @@ function CreateSkillForm({
 }: {
   query: string;
   cwd: string;
+  harness?: HarnessId;
   error?: string | null;
   busy?: boolean;
   onCancel: () => void;
@@ -222,6 +233,11 @@ function CreateSkillForm({
       <p className="mb-2 text-[11px] text-content/50">
         Writes a starter SKILL.md you can edit.
       </p>
+      {harness === "grok" ? (
+        <p className="mb-2 text-[11px] text-content/40">
+          Grok also loads .grok/skills and ~/.grok/skills.
+        </p>
+      ) : null}
       <input
         ref={input}
         value={name}
@@ -235,7 +251,7 @@ function CreateSkillForm({
           e.preventDefault();
           onCancel();
         }}
-        className="mb-2 w-full rounded-md bg-content/10 px-2 py-1.5 font-mono text-[13px] text-content outline-none placeholder:text-content/40"
+        className="mb-2 w-full rounded-md border border-transparent bg-content/10 px-2 py-1.5 font-mono text-[13px] text-content outline-none placeholder:text-content/40 focus:border-content/30"
       />
       <div className="mb-2 flex gap-1">
         <ScopeButton
@@ -300,7 +316,9 @@ function ScopeButton({
       disabled={disabled}
       onClick={onClick}
       className={`flex min-w-0 flex-1 flex-col rounded-md px-2 py-1.5 text-left ${
-        selected ? "bg-content/20 text-content" : "bg-content/10 text-content/70"
+        selected
+          ? "bg-content/20 text-content"
+          : "bg-content/10 text-content/70 hover:bg-content/15 hover:text-content"
       } disabled:opacity-40`}
     >
       <span className="text-[12px]">{label}</span>
@@ -312,7 +330,9 @@ function ScopeButton({
 }
 
 function scopeLabel(skill: Skill): string {
-  if (skill.kind === "native") return skill.source;
+  if (skill.kind === "native") {
+    return skill.origin ? `${skill.source} · ${skill.origin}` : skill.source;
+  }
   if (skill.kind === "builtin") return "monocode";
   if (skill.scope === "user") return "personal";
   if (skill.source !== "agents" && skill.source !== "monocode") return skill.source;

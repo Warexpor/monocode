@@ -20,6 +20,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,7 +28,6 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
-  type UIEvent,
 } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
@@ -43,6 +43,7 @@ import {
   loadProjectFiles,
   peekProjectFiles,
   recentOpenedFiles,
+  subscribeProjectFiles,
 } from "../lib/fileIndex";
 import {
   buildMentionIndex,
@@ -78,6 +79,8 @@ import type {
   MessageQueueStatus,
   QueuedMessage,
   RuntimeMode,
+  SessionAgent,
+  SessionBackgroundTask,
   TurnIntent,
 } from "../lib/session";
 import {
@@ -85,13 +88,18 @@ import {
   harnessAttachmentHint,
   harnessSupportsAttachments,
 } from "../lib/session";
+import { AgentActivityPanel } from "./AgentActivityPanel";
+import { FollowUpChips } from "./FollowUpChips";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
 } from "../lib/userQuestion";
+import { isImeComposition } from "../lib/keyboard";
 import {
   createBlankSkill,
   rankSkills,
+  hasNativeCommands,
+  isNativeCommandPrompt,
   replaceSlashToken,
   skillTextParts,
   slashTokenAt,
@@ -113,7 +121,7 @@ import { ModelPicker } from "./ModelPicker";
 import { ModelSettings } from "./ModelSettings";
 import { QuestionForm } from "./QuestionForm";
 import { SkillPicker } from "./SkillPicker";
-import { projectName } from "../lib/paths";
+import { projectKey } from "../lib/paths";
 import { consumeQuoteRequest, type QuoteRequest } from "../lib/quoteDraft";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import {
@@ -147,19 +155,26 @@ type Props = {
   runtimeMode: RuntimeMode;
   cwd?: string;
   executionCwd: string;
+  sessionId?: string;
   branch?: string;
   recents?: RecentProject[];
   hideProjectPicker?: boolean;
+  hideBranchPicker?: boolean;
+  hideTopBar?: boolean;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
   initialDraft?: string;
   /** Session id for draft persistence / prompt history scope. */
   sessionId?: string;
+  initialAttachments?: Attachment[];
   inboxCard?: InboxComposerCard;
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   question?: UserQuestionPrompt;
+  followUps?: string[];
+  agents?: SessionAgent[];
+  backgroundTasks?: SessionBackgroundTask[];
   busy?: boolean;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
@@ -193,6 +208,7 @@ type Props = {
   ) => void;
   onResumeQueue?: () => void;
   onOpenFile?: (path: string) => void;
+  onDraftChange?: (text: string) => void;
   children?: ReactNode;
 };
 
@@ -323,6 +339,7 @@ function MessageQueue({
                     rows={1}
                     onChange={(event) => setEditDraft(event.target.value)}
                     onKeyDown={(event) => {
+                      if (isImeComposition(event.nativeEvent)) return;
                       if (event.key === "Escape") {
                         event.preventDefault();
                         cancelEdit();
@@ -433,18 +450,25 @@ export function Composer({
   runtimeMode,
   cwd = "~",
   executionCwd,
+  sessionId,
   branch,
   recents = [],
   hideProjectPicker = false,
+  hideBranchPicker = false,
+  hideTopBar = false,
   context,
   compactSupported = false,
   quoteRequest,
   initialDraft,
   sessionId,
+  initialAttachments,
   inboxCard,
   noteCard,
   handoffCard,
   question,
+  followUps = [],
+  agents,
+  backgroundTasks,
   busy = false,
   queuedMessages = [],
   queueStatus,
@@ -470,6 +494,7 @@ export function Composer({
   onReorderQueuedMessage,
   onResumeQueue,
   onOpenFile,
+  onDraftChange,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -489,11 +514,14 @@ export function Composer({
     () =>
       (initialDraft ?? (sessionId ? loadComposerDraft(sessionId) : "")).trim()
         .length > 0 ||
+      (initialAttachments?.length ?? 0) > 0 ||
       !!inboxCard ||
       !!noteCard ||
       !!handoffCard,
   );
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    () => initialAttachments ?? [],
+  );
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
@@ -521,7 +549,7 @@ export function Composer({
     () => busy && loadComposerRunner(),
   );
   const groupLogos = useTabGroupLogos();
-  const projectLogoPath = resolveTabGroupLogo(projectName(cwd), groupLogos);
+  const projectLogoPath = resolveTabGroupLogo(projectKey(cwd), groupLogos);
 
   slashRef.current = slash;
   mentionRef.current = mention;
@@ -530,10 +558,17 @@ export function Composer({
 
   const mentionOpen =
     mention !== null && (looksLikeProject(cwd) || notesEnabled);
+  const navigationEmpty =
+    draft.length === 0 &&
+    attachments.length === 0 &&
+    !inboxCard &&
+    !noteCard &&
+    !handoffCard;
   const pickerOpen = creatingSkill || slash !== null;
   const skillCatalog = useComposerSkills({
     harness,
     executionCwd,
+    sessionId,
     pickerOpen,
   });
   const skills = skillCatalog.skills;
@@ -543,13 +578,16 @@ export function Composer({
       COMPACT_COMMAND,
       ...skills.filter(
         (skill) =>
-          skill.name !== PLAN_COMMAND.name &&
-          skill.name !== COMPACT_COMMAND.name,
+          skill.kind === "native" ||
+          (skill.name !== PLAN_COMMAND.name &&
+            skill.name !== COMPACT_COMMAND.name),
       ),
     ],
     [skills],
   );
-  const skillLimit = harness === "pi" ? Number.POSITIVE_INFINITY : undefined;
+  const skillLimit = hasNativeCommands(harness)
+    ? Number.POSITIVE_INFINITY
+    : undefined;
   const rankedSkills = rankSkills(slashItems, slash?.query ?? "", skillLimit);
   const attachmentsSupported = harnessSupportsAttachments(harness);
   const attachmentHint = harnessAttachmentHint(harness);
@@ -667,13 +705,21 @@ export function Composer({
 
   useEffect(() => {
     let cancelled = false;
+    const apply = (next: ProjectFile[]) => {
+      if (!cancelled) setFiles(next);
+    };
+    const cached = peekProjectFiles(cwd);
+    if (cached) apply(cached);
     void loadProjectFiles(cwd, mentionOpen)
-      .then((next) => {
-        if (!cancelled) setFiles(next);
-      })
+      .then(apply)
       .catch(() => undefined);
+    const unsub = subscribeProjectFiles(() => {
+      const next = peekProjectFiles(cwd);
+      if (next) apply(next);
+    });
     return () => {
       cancelled = true;
+      unsub();
     };
   }, [cwd, mentionOpen]);
 
@@ -716,21 +762,48 @@ export function Composer({
   useEffect(() => {
     const el = ref.current;
     if (!el || !initialDraft) return;
-    el.value = initialDraft;
+    if (el.value !== initialDraft) el.value = initialDraft;
     resizeTextarea(el);
   }, [initialDraft]);
 
-  const syncHighlightScroll = (e: UIEvent<HTMLTextAreaElement>) => {
+  useEffect(() => {
+    if (!initialAttachments?.length) return;
+    setAttachments(initialAttachments);
+    setHasValue(
+      (ref.current?.value ?? initialDraft ?? "").trim().length > 0 ||
+        initialAttachments.length > 0,
+    );
+  }, [initialAttachments, initialDraft]);
+
+  useEffect(() => {
+    onDraftChange?.(draft);
+  }, [draft, onDraftChange]);
+
+  const syncHighlightScroll = useCallback((el: HTMLTextAreaElement) => {
     const highlight = highlightRef.current;
     if (!highlight) return;
-    highlight.scrollTop = e.currentTarget.scrollTop;
-    highlight.scrollLeft = e.currentTarget.scrollLeft;
-  };
+    highlight.scrollTop = el.scrollTop;
+    highlight.scrollLeft = el.scrollLeft;
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // The textarea can scroll itself to keep the caret visible before React
+    // commits the updated highlight text. Sync again after that commit, when
+    // the overlay has enough scrollable content to accept the same offset.
+    syncHighlightScroll(el);
+    const frame = requestAnimationFrame(() => {
+      if (ref.current === el) syncHighlightScroll(el);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draft, syncHighlightScroll]);
 
   const syncTokensFromTextarea = (el: HTMLTextAreaElement) => {
     if (creatingSkill) return;
     const cursor = el.selectionStart ?? 0;
-    const token = slashTokenAt(el.value, cursor);
+    const token = slashTokenAt(el.value, cursor, hasNativeCommands(harness));
     setSlash(token);
     setMention(token ? null : mentionTokenAt(el.value, cursor));
   };
@@ -769,7 +842,8 @@ export function Composer({
         setCreatingSkill(false);
         return;
       }
-      const planCommand = skill.name === PLAN_COMMAND.name;
+      const planCommand =
+        skill.kind === "builtin" && skill.name === PLAN_COMMAND.name;
       const next = planCommand
         ? `${el.value.slice(0, token.start)}${el.value
             .slice(token.end)
@@ -934,6 +1008,7 @@ export function Composer({
       ref.current.value = "";
       ref.current.style.height = "auto";
       setDraft("");
+      onDraftChange?.("");
       setPlusOpen(false);
       setSlash(null);
       setMention(null);
@@ -944,7 +1019,9 @@ export function Composer({
     }
 
     const command = consumePlanCommand(value);
-    const text = composeInboxMessage(inboxCard, command.text);
+    const text = isNativeCommandPrompt(command.text, harness)
+      ? command.text
+      : composeInboxMessage(inboxCard, command.text);
     const files = attachments;
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
     onSubmit(text, files, {
@@ -958,6 +1035,7 @@ export function Composer({
     ref.current.value = "";
     ref.current.style.height = "auto";
     setDraft("");
+    onDraftChange?.("");
     setAttachments([]);
     setPlanSelected(false);
     setPlusOpen(false);
@@ -969,6 +1047,7 @@ export function Composer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeComposition(e.nativeEvent)) return;
     if (creatingSkill) return;
 
     if (
@@ -1123,6 +1202,11 @@ export function Composer({
       {question && onQuestionReply ? (
         <QuestionForm prompt={question} onReply={onQuestionReply} />
       ) : null}
+      <AgentActivityPanel agents={agents} backgroundTasks={backgroundTasks} />
+      <FollowUpChips
+        suggestions={busy || question ? [] : followUps}
+        onSelect={(suggestion) => onSubmit(suggestion, [])}
+      />
       {children}
       <MessageQueue
         messages={queuedMessages}
@@ -1144,6 +1228,7 @@ export function Composer({
               active={skillActive}
               creating={creatingSkill}
               cwd={cwd}
+              harness={harness}
               error={createError}
               busy={createBusy}
               onActive={setSkillActive}
@@ -1210,7 +1295,7 @@ export function Composer({
         <div
           ref={boxRef}
           data-composer-box
-          className={`relative z-10 rounded-lg border bg-content/3 ${
+          className={`relative z-10 rounded-lg border bg-content/3 backdrop-blur-sm ${
             fileDrag
               ? "border-accent/60"
               : "border-content/10 has-focus:border-content/20"
@@ -1221,33 +1306,37 @@ export function Composer({
               Drop files to attach
             </div>
           ) : null}
-          <div className="flex min-w-0 items-center gap-2.5 px-3 pt-2.5">
-            {hideProjectPicker ? null : (
-              <CwdPicker
-                cwd={cwd}
-                recents={recents}
-                projectLogoPath={projectLogoPath}
-                enabled={enabled}
-                onCwdChange={onCwdChange}
-                onNewTerminal={onNewTerminal}
-                onClose={() => ref.current?.focus()}
-              />
-            )}
-            <BranchPicker
-              cwd={cwd}
-              branch={branch}
-              enabled={enabled && !busy}
-              onChange={onBranchChange}
-              onClose={() => ref.current?.focus()}
-            />
-            <div className="ml-auto flex shrink-0 items-center">
-              <ContextMeter
-                usage={context}
-                onCompact={compactSupported ? onCompactContext : undefined}
-                compactDisabled={busy}
-              />
+          {hideTopBar ? null : (
+            <div className="flex min-w-0 items-center gap-2.5 px-3 pt-2.5">
+              {hideProjectPicker ? null : (
+                <CwdPicker
+                  cwd={cwd}
+                  recents={recents}
+                  projectLogoPath={projectLogoPath}
+                  enabled={enabled}
+                  onCwdChange={onCwdChange}
+                  onNewTerminal={onNewTerminal}
+                  onClose={() => ref.current?.focus()}
+                />
+              )}
+              {hideBranchPicker ? null : (
+                <BranchPicker
+                  cwd={cwd}
+                  branch={branch}
+                  enabled={enabled && !busy}
+                  onChange={onBranchChange}
+                  onClose={() => ref.current?.focus()}
+                />
+              )}
+              <div className="ml-auto flex shrink-0 items-center">
+                <ContextMeter
+                  usage={context}
+                  onCompact={compactSupported ? onCompactContext : undefined}
+                  compactDisabled={busy}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {attachments.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2">
@@ -1293,6 +1382,7 @@ export function Composer({
             </div>
             <textarea
               ref={ref}
+              data-composer-empty={navigationEmpty ? "true" : undefined}
               rows={1}
               spellCheck={false}
               defaultValue={initialDraft}
@@ -1304,7 +1394,7 @@ export function Composer({
                     : handoffCard
                       ? "Add context, or send to continue…"
                       : shell
-                        ? "How can I help you today?"
+                        ? "Ask, build, / for commands, @ for references... "
                         : "Ask, build, / for commands, @ for references... "
               }
               className={`composer-field scrollbar-none relative w-full resize-none overflow-x-hidden whitespace-pre-wrap break-words bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
@@ -1314,7 +1404,7 @@ export function Composer({
               onFocus={onFocus}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
-              onScroll={syncHighlightScroll}
+              onScroll={(e) => syncHighlightScroll(e.currentTarget)}
               onClick={(e) => syncTokensFromTextarea(e.currentTarget)}
               onKeyUp={(e) => syncTokensFromTextarea(e.currentTarget)}
               onSelect={(e) => syncTokensFromTextarea(e.currentTarget)}
@@ -1381,7 +1471,7 @@ export function Composer({
                     }}
                     className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                   >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                    <AiIdea className="mt-0.5 size-4 shrink-0 text-warning/80" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px]">Plan mode</span>
                       <span className="block text-[11px] leading-4 text-content/45">
@@ -1404,7 +1494,7 @@ export function Composer({
                   setPlanSelected(false);
                   ref.current?.focus();
                 }}
-                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-yellow-300/12 px-1.5 text-[11px] text-yellow-200/90 hover:bg-yellow-300/18"
+                className="flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-warning/12 px-1.5 text-[11px] text-warning hover:bg-warning/18"
               >
                 <AiIdea className="size-3.5" />
                 Plan
@@ -1578,7 +1668,7 @@ function ComposerAction({
             title="Send"
             aria-label="Send"
             onClick={onSend}
-            className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
             <ArrowUp className="size-3.5" strokeWidth={2.25} />
           </button>
@@ -1588,7 +1678,7 @@ function ComposerAction({
           title="Stop"
           aria-label="Stop"
           onClick={onStop}
-          className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
+          className="grid size-6.5 place-items-center rounded-md bg-content text-background-base hover:bg-content/80"
         >
           <Square className="size-2.5 fill-current" strokeWidth={0} />
         </button>
@@ -1603,7 +1693,7 @@ function ComposerAction({
       aria-label="Send"
       disabled={!hasValue}
       onClick={onSend}
-      className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
+className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90 disabled:cursor-default disabled:bg-white/30 disabled:text-black/40 disabled:hover:bg-white/30"
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>

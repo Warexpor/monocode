@@ -144,6 +144,27 @@ describe("harness registry", () => {
     expect(pi).toHaveBeenCalledOnce();
   });
 
+  it("force:true re-runs the probe even when a live catalog already exists", async () => {
+    const refresh = vi.fn(async () => {
+      setHarnessModels("pi", [
+        {
+          id: "pi:opus",
+          harness: "pi",
+          name: "Opus",
+          nativeId: "anthropic/opus",
+        },
+      ]);
+    });
+    registerHarness(stub("pi", { refreshCatalog: refresh }));
+
+    await refreshHarnessCatalogs(["pi"]);
+    await refreshHarnessCatalogs(["pi"]); // skipped: hasLiveCatalog
+    expect(refresh).toHaveBeenCalledOnce();
+
+    await refreshHarnessCatalogs(["pi"], { force: true });
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
   it("skips catalog refresh when no harness is in use", async () => {
     const pi = vi.fn(async () => undefined);
     registerHarness(stub("pi", { refreshCatalog: pi }));

@@ -217,6 +217,25 @@ export function savePinnedProjects(pinned: string[]) {
   savePathList(RAIL_PINNED_KEY, pinned.map(normalize));
 }
 
+/** Every project path we still remember — rail, pins, saved order, archive. */
+export function knownProjectPaths(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const paths = [
+    ...loadRecents().map((item) => item.path),
+    ...loadProjectRailOrder(),
+    ...loadPinnedProjects(),
+    ...loadArchivedProjects().map((item) => item.path),
+  ];
+  for (const path of paths) {
+    const key = pathKey(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalize(path));
+  }
+  return out;
+}
+
 /** All projects for the rail, keyed by normalized path. */
 export function collectRailProjects(
   recents: RecentProject[],
@@ -299,7 +318,7 @@ export function projectRailItems(
 /** True if this looks like a user project, not an app bundle or system root. */
 export function looksLikeProject(path: string): boolean {
   if (!path || path === "/" || path === "~") return false;
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const normalized = slash(path).replace(/\/+$/, "") || "/";
   if (/^[A-Za-z]:$/.test(normalized) || normalized === "/") return false;
   // Home itself arrives expanded (`/Users/me`), so the `~` check above misses
   // it. Indexing it walks `~/Library`, which trips the OS consent prompt.

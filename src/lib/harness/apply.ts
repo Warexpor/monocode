@@ -14,7 +14,7 @@ import {
   mergeToolPreview,
   stubFilePreview,
 } from "./preview";
-import { joinStreamText } from "./streamText";
+import { joinReasoningText, joinStreamText } from "./streamText";
 import { taskListText } from "../taskList";
 import { isReviewablePlan } from "../plan";
 import type { HarnessEvent } from "./types";
@@ -90,18 +90,100 @@ export function applyHarnessEvent(
     case "plan":
       return upsertPlan(session, event);
     case "session.error":
-      return appendBlock(stopStreaming(session), {
-        id: crypto.randomUUID(),
-        role: "system",
-        text: event.message,
-      });
+      // Harnesses often emit then throw; App also records the catch. Collapse
+      // consecutive duplicates so the transcript shows one failure line.
+      return appendStatus(stopStreaming(session), event.message);
     case "session.providerBound":
       return { ...session, providerSessionId: event.providerSessionId };
+    case "session.configChanged":
+      return {
+        ...session,
+        ...(event.model ? { model: event.model } : {}),
+        ...(event.modelSettings
+          ? { modelSettings: { ...session.modelSettings, ...event.modelSettings } }
+          : {}),
+      };
     case "status":
       return appendStatus(session, event.text);
-    default:
+    case "prompt.index":
+      return stampPromptIndex(session, event.index);
+    case "followUps.updated":
+      return {
+        ...session,
+        followUps: event.suggestions.length ? event.suggestions : undefined,
+      };
+    case "agent.updated":
+      return upsertSessionAgent(session, event);
+    case "background.updated":
+      return upsertBackgroundTask(session, event);
+    case "session.started":
+    case "session.ended":
       return session;
+    default: {
+      const _exhaustive: never = event;
+      void _exhaustive;
+      return session;
+    }
   }
+}
+
+function upsertSessionAgent(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "agent.updated" }>,
+): Session {
+  const agents = [...(session.agents ?? [])];
+  const index = agents.findIndex((agent) => agent.id === event.id);
+  const next = {
+    id: event.id,
+    title: event.title,
+    status: event.status,
+    ...(event.kind ? { kind: event.kind } : {}),
+    ...(event.detail ? { detail: event.detail } : {}),
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
+  };
+  if (index >= 0) {
+    agents[index] = {
+      ...agents[index],
+      ...next,
+      title: event.title || agents[index].title,
+      kind: event.kind ?? agents[index].kind,
+      detail: event.detail ?? agents[index].detail,
+      model: event.model ?? agents[index].model,
+      durationMs: event.durationMs ?? agents[index].durationMs,
+    };
+  } else {
+    agents.push(next);
+  }
+  return { ...session, agents: agents.slice(-12) };
+}
+
+function upsertBackgroundTask(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "background.updated" }>,
+): Session {
+  const tasks = [...(session.backgroundTasks ?? [])];
+  const index = tasks.findIndex((task) => task.id === event.id);
+  const next = {
+    id: event.id,
+    title: event.title,
+    status: event.status,
+    ...(event.detail ? { detail: event.detail } : {}),
+  };
+  if (index >= 0) {
+    tasks[index] = {
+      ...tasks[index],
+      ...next,
+      title: event.title || tasks[index].title,
+      detail: event.detail ?? tasks[index].detail,
+    };
+  } else {
+    tasks.push(next);
+  }
+  return {
+    ...session,
+    backgroundTasks: tasks.length ? tasks.slice(-12) : undefined,
+  };
 }
 
 function upsertPlan(
@@ -290,7 +372,7 @@ export function appendUser(
   extra?: UserTurnExtra,
 ): Session {
   return appendBlock(
-    { ...session, busy: true },
+    { ...session, busy: true, followUps: undefined },
     {
       id: crypto.randomUUID(),
       role: "user",
@@ -450,6 +532,23 @@ function appendStatus(session: Session, text: string): Session {
   });
 }
 
+function stampPromptIndex(session: Session, index: number): Session {
+  if (!Number.isFinite(index)) return session;
+  for (let i = session.blocks.length - 1; i >= 0; i -= 1) {
+    const block = session.blocks[i];
+    if (block.role !== "user") continue;
+    if (block.startedAt == null) {
+      const users = session.blocks.filter((entry) => entry.role === "user");
+      if (!(users.length === 1 && users[0].id === block.id)) continue;
+    }
+    if (block.promptIndex === index) return session;
+    const blocks = session.blocks.slice();
+    blocks[i] = { ...block, promptIndex: index };
+    return { ...session, blocks };
+  }
+  return session;
+}
+
 function appendBlock(session: Session, block: Block): Session {
   return { ...session, blocks: [...sealLastStream(session.blocks), block] };
 }
@@ -464,7 +563,10 @@ function patchStreaming(
   if (!text && role === "reasoning") return session;
   const last = session.blocks[session.blocks.length - 1];
   if (last?.role === role) {
-    const nextText = joinStreamText(last.text, text);
+    const nextText =
+      role === "reasoning"
+        ? joinReasoningText(last.text, text)
+        : joinStreamText(last.text, text);
     if (nextText === last.text && last.streaming === streaming) return session;
     const blocks = session.blocks.slice();
     blocks[blocks.length - 1] = {

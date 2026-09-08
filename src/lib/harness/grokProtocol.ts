@@ -16,6 +16,17 @@ import {
 export const AUTH_HELP =
   "Grok Build is not signed in. Run `grok login` in a terminal, or set XAI_API_KEY.";
 
+export function isMethodNotFound(error: unknown): boolean {
+  if (!error) return false;
+  const code =
+    typeof error === "object" && error && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  if (code === -32601) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /method not found|-32601/i.test(message);
+}
+
 export const TEXT_MODEL = "grok-4.6";
 
 const VARIANT_KIND: Record<string, string> = {
@@ -24,8 +35,10 @@ const VARIANT_KIND: Record<string, string> = {
   write: "edit",
   edit: "edit",
   searchreplace: "edit",
+  search_replace: "edit",
   bash: "execute",
   execute: "execute",
+  run_terminal_cmd: "execute",
   run_terminal_command: "execute",
   grep: "search",
   search: "search",
@@ -38,6 +51,58 @@ const VARIANT_KIND: Record<string, string> = {
   agent: "agent",
   task: "agent",
   subagent: "agent",
+  spawn_subagent: "agent",
+  send_subagent_message: "agent",
+  get_task_output: "execute",
+  get_command_or_subagent_output: "execute",
+  wait_tasks: "execute",
+  kill_task: "execute",
+  kill_command_or_subagent: "execute",
+  monitor: "execute",
+  scheduler_create: "execute",
+  scheduler_list: "read",
+  scheduler_delete: "execute",
+  image_gen: "other",
+  imagegen: "other",
+  image_edit: "other",
+  imageedit: "other",
+  image_to_video: "other",
+  imagetovideo: "other",
+  reference_to_video: "other",
+  referencetovideo: "other",
+  workflow: "agent",
+  update_goal: "agent",
+  skill: "read",
+  search_tool: "search",
+  use_tool: "execute",
+  memory_search: "search",
+  memory_get: "read",
+  lsp: "search",
+  todo_write: "edit",
+  todowrite: "edit",
+  ask_user_question: "other",
+  enter_plan_mode: "other",
+  exit_plan_mode: "other",
+};
+
+/** Readable activity titles for media / generation tools. */
+const VARIANT_TITLE: Record<string, string> = {
+  image_gen: "Generating image",
+  imagegen: "Generating image",
+  image_edit: "Editing image",
+  imageedit: "Editing image",
+  image_to_video: "Generating video",
+  imagetovideo: "Generating video",
+  reference_to_video: "Generating video",
+  referencetovideo: "Generating video",
+};
+
+export type GrokRewindPoint = {
+  promptIndex: number;
+  promptPreview?: string;
+  createdAt?: string;
+  numFileSnapshots?: number;
+  hasFileChanges?: boolean;
 };
 
 const EFFORT_LABELS: Record<string, string> = {
@@ -103,7 +168,7 @@ export function grokSpawnArgs(input: {
   return args;
 }
 
-export function grokTextSpawnArgs(): string[] {
+export function grokTextSpawnArgs(model = TEXT_MODEL): string[] {
   return [
     "--no-auto-update",
     "--permission-mode",
@@ -111,7 +176,7 @@ export function grokTextSpawnArgs(): string[] {
     "agent",
     "--no-leader",
     "--model",
-    TEXT_MODEL,
+    model,
     "--reasoning-effort",
     "low",
     "stdio",
@@ -306,12 +371,25 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
     update.sessionUpdate ?? update.session_update ?? update.type ?? "",
   );
 
+  const promptIndexEvent = promptIndexFromUpdate(update, rec);
+  const withPromptIndex = (events: HarnessEvent[]): HarnessEvent[] =>
+    promptIndexEvent ? [promptIndexEvent, ...events] : events;
+
+  if (
+    kind === "user_message_chunk" ||
+    kind === "user_message" ||
+    kind === "user_message_end" ||
+    kind.startsWith("user_message")
+  ) {
+    return promptIndexEvent ? [promptIndexEvent] : [];
+  }
+
   if (kind === "agent_message_chunk" || kind === "agent_message") {
     const text = textFromContent(
       update.content ?? update.text,
       kind === "agent_message" ? "\n" : "",
     );
-    return text ? [{ type: "message.delta", text }] : [];
+    return withPromptIndex(text ? [{ type: "message.delta", text }] : []);
   }
 
   if (kind === "agent_thought_chunk" || kind === "agent_thought") {
@@ -319,7 +397,7 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       update.content ?? update.text,
       kind === "agent_thought" ? "\n" : "",
     );
-    return text ? [{ type: "reasoning.delta", text }] : [];
+    return withPromptIndex(text ? [{ type: "reasoning.delta", text }] : []);
   }
 
   if (kind === "tool_call_delta_chunk") {
@@ -397,31 +475,29 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       grok.title ||
       toolLabel(update) ||
       toolLabel(tool);
-    const detail = cap(toolDetail(update, tool) ?? "") || undefined;
-    // Fresh tool_call rows start the tool in the transcript; updates patch it.
+    const updated: HarnessEvent = {
+      type: "tool.updated",
+      callId,
+      title,
+      kind: toolKind,
+      status,
+      detail: cap(toolDetail(update, tool) ?? "") || undefined,
+      preview,
+    };
     if (kind === "tool_call") {
       return [
         {
           type: "tool.started",
           callId,
-          title: title || "Tool",
+          title: title || humanizeToolName(callId),
           kind: toolKind,
           status: status ?? "pending",
           preview,
         },
+        updated,
       ];
     }
-    return [
-      {
-        type: "tool.updated",
-        callId,
-        title,
-        kind: toolKind,
-        status,
-        detail,
-        preview,
-      },
-    ];
+    return [updated];
   }
 
   if (kind === "plan" || kind === "current_plan") {
@@ -430,24 +506,470 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
   }
 
   if (kind === "session_summary_generated") {
-    const events: HarnessEvent[] = [];
+    const text = sessionSummaryText(update, rec);
+    // Grok often emits this every turn with an empty payload; only surface a
+    // status when there is real summary content to show.
+    return text ? [{ type: "status", text }] : [];
+  }
+
+  if (kind === "available_commands_update") {
+    // Handled by the Grok command provider, not the transcript.
+    return [];
+  }
+
+  if (kind === "session_recap") {
     const summary =
       stringField(update, "summary") ??
-      stringField(update, "text") ??
       textFromContent(update.content ?? update.summary, "\n");
-    if (summary.trim()) {
-      events.push({
+    return summary?.trim()
+      ? [{ type: "status", text: `Recap: ${summary.trim()}` }]
+      : [];
+  }
+
+  if (kind === "auto_compact_started") {
+    const percentage = numberField(update, "percentage");
+    const reason = stringField(update, "reason");
+    const pct = percentage != null ? ` (${percentage}%)` : "";
+    const tokensUsed =
+      numberField(update, "tokens_used") ?? numberField(update, "tokensUsed");
+    const contextWindow =
+      numberField(update, "context_window") ??
+      numberField(update, "contextWindow");
+    const events: HarnessEvent[] = [
+      {
         type: "status",
-        text: summary.trim().slice(0, 400),
+        text: reason?.trim()
+          ? `Compacting context${pct}: ${reason.trim()}`
+          : `Compacting context${pct}`,
+      },
+    ];
+    // Real window occupancy — not ledger spend.
+    if (tokensUsed != null || contextWindow != null) {
+      events.push({
+        type: "context",
+        used: tokensUsed ?? undefined,
+        window: contextWindow ?? undefined,
       });
     }
-    const usage = usageFromUpdate(update);
-    if (usage) events.push(usage);
     return events;
   }
 
+  if (kind === "auto_compact_completed") {
+    const after =
+      numberField(update, "tokens_after") ?? numberField(update, "tokensAfter");
+    const preview = stringField(update, "summary_preview");
+    const events: HarnessEvent[] = [
+      {
+        type: "status",
+        text: preview?.trim()
+          ? `Compacted context${after != null ? ` · ${after} tokens` : ""}: ${preview.trim()}`
+          : `Compacted context${after != null ? ` · ${after} tokens` : ""}`,
+      },
+    ];
+    if (after != null) events.push({ type: "context", used: after });
+    return events;
+  }
+
+  if (kind === "auto_compact_failed") {
+    const error = stringField(update, "error") ?? "compaction failed";
+    return [{ type: "status", text: `Compact failed: ${error}` }];
+  }
+
+  // Per-response prompt occupancy (Messages message_start / message_stop).
+  // This is the context-window level — unlike TurnCompleted.usage, which is
+  // cumulative ledger spend including folded subagents.
+  if (kind === "response_started" || kind === "response_completed") {
+    const occupancy = occupancyFromResponseUpdate(update);
+    return occupancy ? withPromptIndex([occupancy]) : withPromptIndex([]);
+  }
+
+  // TurnCompleted.usage is PromptUsage from the session ledger (main loop +
+  // agents). Never map it onto the context meter.
+  if (kind === "turn_completed") {
+    return withPromptIndex([]);
+  }
+
+  if (
+    kind === "memory_flush_started" ||
+    kind === "memory_flush_completed" ||
+    kind === "memory_dream_completed" ||
+    kind === "memory_session_saved"
+  ) {
+    const result =
+      stringField(update, "result") ?? stringField(update, "path") ?? kind;
+    return [{ type: "status", text: humanizeStatusKind(kind, result) }];
+  }
+
+  if (kind === "hook_annotation") {
+    const message = stringField(update, "message");
+    return message?.trim() ? [{ type: "status", text: message.trim() }] : [];
+  }
+
+  const agentEvent = agentEventFromUpdate(kind, update);
+  if (agentEvent) return [agentEvent];
+
+  const backgroundEvent = backgroundEventFromUpdate(kind, update);
+  if (backgroundEvent) return [backgroundEvent];
+
+  if (kind === "goal_updated") {
+    return goalEventsFromUpdate(update);
+  }
+
+  if (kind === "workflow_updated") {
+    const name =
+      stringField(update, "name") ??
+      stringField(update, "objective") ??
+      "Workflow";
+    const statusRaw = (stringField(update, "status") ?? "").toLowerCase();
+    const phase =
+      stringField(update, "current_phase") ??
+      stringField(update, "currentPhase") ??
+      stringField(update, "last_event") ??
+      stringField(update, "status");
+    const runId =
+      stringField(update, "run_id") ??
+      stringField(update, "runId") ??
+      name;
+    const status: "running" | "completed" | "failed" | "cancelled" =
+      /complete|done|success/.test(statusRaw)
+        ? "completed"
+        : /fail|error|stop/.test(statusRaw)
+          ? "failed"
+          : /pause|cancel/.test(statusRaw)
+            ? "cancelled"
+            : "running";
+    return [
+      {
+        type: "background.updated",
+        id: `workflow:${runId}`,
+        status,
+        title: name,
+        detail: phase ?? undefined,
+      },
+    ];
+  }
+
+  if (kind === "diff_review") {
+    return [
+      {
+        type: "status",
+        text: "Diff review ready — open Session changes to inspect edits.",
+      },
+    ];
+  }
+
   const usage = usageFromUpdate(update);
-  return usage ? [usage] : [];
+  return usage ? withPromptIndex([usage]) : withPromptIndex([]);
+}
+
+function humanizeStatusKind(kind: string, detail: string): string {
+  switch (kind) {
+    case "memory_flush_started":
+      return "Flushing memory…";
+    case "memory_flush_completed":
+      return `Memory flushed: ${detail}`;
+    case "memory_dream_completed":
+      return `Memory consolidated: ${detail}`;
+    case "memory_session_saved":
+      return `Session memory saved: ${detail}`;
+    default:
+      return detail;
+  }
+}
+
+function agentEventFromUpdate(
+  kind: string,
+  update: Record<string, unknown>,
+): Extract<HarnessEvent, { type: "agent.updated" }> | null {
+  if (
+    kind !== "subagent_spawned" &&
+    kind !== "subagent_progress" &&
+    kind !== "subagent_finished"
+  ) {
+    return null;
+  }
+  const id =
+    stringField(update, "subagent_id") ??
+    stringField(update, "subagentId") ??
+    stringField(update, "child_session_id") ??
+    stringField(update, "childSessionId");
+  if (!id) return null;
+  const title =
+    stringField(update, "description") ??
+    stringField(update, "title") ??
+    stringField(update, "subagent_type") ??
+    stringField(update, "subagentType") ??
+    "Subagent";
+  const kindLabel =
+    stringField(update, "subagent_type") ??
+    stringField(update, "subagentType") ??
+    stringField(update, "role") ??
+    undefined;
+  if (kind === "subagent_spawned") {
+    return {
+      type: "agent.updated",
+      id,
+      status: "running",
+      title,
+      kind: kindLabel,
+      model: stringField(update, "model") ?? undefined,
+    };
+  }
+  if (kind === "subagent_progress") {
+    const turns =
+      numberField(update, "turn_count") ??
+      numberField(update, "completed_turns") ??
+      numberField(update, "completedTurns");
+    const tools =
+      numberField(update, "tool_call_count") ??
+      numberField(update, "toolCallCount");
+    const ctxPct =
+      numberField(update, "context_usage_pct") ??
+      numberField(update, "contextUsagePct");
+    const durationMs =
+      numberField(update, "duration_ms") ?? numberField(update, "durationMs");
+    const detail = [
+      turns != null ? `${turns} turn${turns === 1 ? "" : "s"}` : null,
+      tools != null ? `${tools} tool${tools === 1 ? "" : "s"}` : null,
+      ctxPct != null ? `${ctxPct}% ctx` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      type: "agent.updated",
+      id,
+      status: "running",
+      title,
+      kind: kindLabel,
+      detail: detail || undefined,
+      durationMs: durationMs ?? undefined,
+    };
+  }
+  const error = stringField(update, "error");
+  const statusRaw = stringField(update, "status")?.toLowerCase();
+  const status: "completed" | "failed" | "cancelled" =
+    statusRaw === "cancelled" || statusRaw === "canceled"
+      ? "cancelled"
+      : error || statusRaw === "failed" || statusRaw === "error"
+        ? "failed"
+        : "completed";
+  const output =
+    stringField(update, "final_output") ??
+    stringField(update, "finalOutput") ??
+    stringField(update, "output");
+  return {
+    type: "agent.updated",
+    id,
+    status,
+    title,
+    kind: kindLabel,
+    detail: error ?? (output ? cap(output, 240) : undefined),
+    durationMs:
+      numberField(update, "duration_ms") ??
+      numberField(update, "durationMs") ??
+      undefined,
+  };
+}
+
+function goalEventsFromUpdate(
+  update: Record<string, unknown>,
+): HarnessEvent[] {
+  const goalId = stringField(update, "goal_id") ?? "current";
+  const objective =
+    stringField(update, "objective") ?? stringField(update, "title") ?? "Goal";
+  const status = (stringField(update, "status") ?? "active").toLowerCase();
+  const phase = stringField(update, "phase");
+  const pauseMessage = stringField(update, "pause_message");
+  const deliverable =
+    stringField(update, "current_deliverable_title") ??
+    stringField(update, "currentDeliverableTitle");
+  const completed =
+    numberField(update, "completed_deliverables") ??
+    numberField(update, "completedDeliverables");
+  const total =
+    numberField(update, "total_deliverables") ??
+    numberField(update, "totalDeliverables");
+  const tokensUsed =
+    numberField(update, "tokens_used") ?? numberField(update, "tokensUsed");
+  const tokenBudget =
+    numberField(update, "token_budget") ?? numberField(update, "tokenBudget");
+  const liveContextPct =
+    numberField(update, "live_context_pct") ??
+    numberField(update, "liveContextPct");
+  const lastDetail = stringField(update, "last_event_detail");
+  const verifying = update.verifying_completion === true || update.verifyingCompletion === true;
+  const planning = update.planning === true || phase === "planning";
+
+  const paused =
+    status.includes("paused") ||
+    status === "blocked" ||
+    status === "budget_limited";
+  const taskStatus: "running" | "completed" | "failed" | "cancelled" =
+    status === "complete"
+      ? "completed"
+      : status === "cleared"
+        ? "cancelled"
+        : "running";
+
+  const detailParts: string[] = [];
+  if (paused) detailParts.push(status.replace(/_/g, " "));
+  else if (verifying) detailParts.push("verifying");
+  else if (planning) detailParts.push("planning");
+  else if (phase && phase !== "idle") detailParts.push(phase);
+  if (
+    completed != null &&
+    total != null &&
+    total > 0
+  ) {
+    detailParts.push(`${completed}/${total} deliverables`);
+  }
+  if (deliverable?.trim()) detailParts.push(deliverable.trim());
+  if (tokensUsed != null && tokensUsed > 0) {
+    detailParts.push(
+      tokenBudget != null && tokenBudget > 0
+        ? `${formatCompactCount(tokensUsed)} / ${formatCompactCount(tokenBudget)} tokens`
+        : `${formatCompactCount(tokensUsed)} tokens`,
+    );
+  }
+  if (liveContextPct != null) detailParts.push(`${liveContextPct}% ctx`);
+  if (pauseMessage?.trim()) detailParts.push(pauseMessage.trim());
+  else if (lastDetail?.trim() && !paused) detailParts.push(lastDetail.trim());
+
+  return [
+    {
+      type: "background.updated",
+      id: `goal:${goalId}`,
+      status: taskStatus,
+      title: objective,
+      detail: detailParts.join(" · ") || status,
+    },
+  ];
+}
+
+function formatCompactCount(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return "0";
+  if (count < 1000) return String(Math.round(count));
+  if (count < 1_000_000) {
+    const thousands = count / 1000;
+    return `${thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, "") : Math.round(thousands)}K`;
+  }
+  const millions = count / 1_000_000;
+  return `${millions < 10 ? millions.toFixed(1).replace(/\.0$/, "") : Math.round(millions)}M`;
+}
+
+function backgroundEventFromUpdate(
+  kind: string,
+  update: Record<string, unknown>,
+): Extract<HarnessEvent, { type: "background.updated" }> | null {
+  if (
+    kind !== "task_completed" &&
+    kind !== "task_backgrounded" &&
+    kind !== "monitor_event" &&
+    kind !== "scheduled_task_created" &&
+    kind !== "scheduled_task_fired" &&
+    kind !== "scheduled_task_deleted" &&
+    kind !== "scheduled_task_completed"
+  ) {
+    return null;
+  }
+  const snapshot = asRecord(update.task_snapshot) ?? asRecord(update.taskSnapshot);
+  const id =
+    stringField(update, "task_id") ??
+    stringField(update, "taskId") ??
+    stringField(snapshot ?? {}, "id") ??
+    stringField(snapshot ?? {}, "task_id") ??
+    stringField(update, "job_id") ??
+    stringField(update, "jobId") ??
+    stringField(update, "id");
+  if (!id && kind === "monitor_event") {
+    const line =
+      stringField(update, "line") ??
+      stringField(update, "text") ??
+      stringField(update, "message");
+    if (!line?.trim()) return null;
+    return {
+      type: "background.updated",
+      id: `monitor:${hashId(line)}`,
+      status: "running",
+      title: "Monitor",
+      detail: cap(line.trim(), 240),
+    };
+  }
+  if (!id) return null;
+  const title =
+    stringField(update, "title") ??
+    stringField(snapshot ?? {}, "title") ??
+    stringField(snapshot ?? {}, "command") ??
+    stringField(update, "command") ??
+    stringField(update, "prompt") ??
+    "Background task";
+  if (kind === "task_backgrounded" || kind === "scheduled_task_created") {
+    return {
+      type: "background.updated",
+      id,
+      status: "running",
+      title,
+      detail: stringField(update, "detail") ?? undefined,
+    };
+  }
+  if (kind === "scheduled_task_deleted") {
+    return { type: "background.updated", id, status: "cancelled", title };
+  }
+  const error = stringField(update, "error") ?? stringField(snapshot ?? {}, "error");
+  const exit = numberField(snapshot ?? {}, "exit_code") ?? numberField(snapshot ?? {}, "exitCode");
+  const status: "completed" | "failed" | "cancelled" =
+    error || (exit != null && exit !== 0) ? "failed" : "completed";
+  return {
+    type: "background.updated",
+    id,
+    status,
+    title,
+    detail: error ?? (exit != null ? `exit ${exit}` : undefined),
+  };
+}
+
+function hashId(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function promptIndexFromUpdate(
+  update: Record<string, unknown>,
+  outer?: Record<string, unknown> | null,
+): Extract<HarnessEvent, { type: "prompt.index" }> | null {
+  const index =
+    numberField(asRecord(update._meta) ?? {}, "promptIndex") ??
+    numberField(asRecord(update._meta) ?? {}, "prompt_index") ??
+    numberField(update, "promptIndex") ??
+    numberField(update, "prompt_index") ??
+    numberField(asRecord(outer?._meta) ?? {}, "promptIndex") ??
+    numberField(asRecord(outer?._meta) ?? {}, "prompt_index");
+  if (index == null) return null;
+  return { type: "prompt.index", index };
+}
+
+function sessionSummaryText(
+  update: Record<string, unknown>,
+  outer?: Record<string, unknown> | null,
+): string | null {
+  const candidates = [
+    stringField(update, "summary"),
+    stringField(update, "text"),
+    stringField(update, "message"),
+    stringField(update, "title"),
+    textFromContent(update.content ?? update.summary, "\n"),
+    stringField(asRecord(outer) ?? {}, "summary"),
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      return trimmed.startsWith("Summary") ? trimmed : `Summary: ${trimmed}`;
+    }
+  }
+  return null;
 }
 
 export function sessionIdFromResult(result: unknown): string | undefined {
@@ -501,9 +1023,26 @@ export function modelsFromGrokModelsOutput(stdout: string): AgentModel[] {
     if (!match) continue;
     const nativeId = match[1].trim();
     if (!nativeId) continue;
-    models.push(modelFromNative(nativeId, displayName(nativeId)));
+    // CLI lists ids only. Prefer ACP names via mergeGrokCatalogs when both run.
+    models.push(modelFromNative(nativeId, nativeId));
   }
   return uniqueGrokModels(models);
+}
+
+/** CLI decides membership; ACP supplies display names, context, and efforts. */
+export function mergeGrokCatalogs(
+  fromCli: AgentModel[],
+  fromAcp: AgentModel[],
+): AgentModel[] {
+  if (fromCli.length === 0) return fromAcp;
+  if (fromAcp.length === 0) return fromCli;
+  const rich = new Map(
+    fromAcp.map((model) => [model.nativeId ?? nativeId(model.id), model]),
+  );
+  return fromCli.map((model) => {
+    const key = model.nativeId ?? nativeId(model.id);
+    return rich.get(key) ?? model;
+  });
 }
 
 export function fallbackGrokModels(): AgentModel[] {
@@ -650,13 +1189,16 @@ function grokToolFields(
     asRecord(update.input) ??
     asRecord(tool.input);
   const variant = String(input?.variant ?? meta?.name ?? "").toLowerCase();
+  const variantKey = variant.replace(/[^a-z0-9]+/g, "");
   return {
     kind:
       stringField(meta ?? {}, "kind") ??
-      VARIANT_KIND[variant.replace(/[^a-z0-9]+/g, "")] ??
+      VARIANT_KIND[variantKey] ??
       VARIANT_KIND[variant],
     title:
       stringField(meta ?? {}, "label") ??
+      VARIANT_TITLE[variantKey] ??
+      VARIANT_TITLE[variant] ??
       stringField(update, "title") ??
       stringField(tool, "title"),
     path:
@@ -714,30 +1256,37 @@ function previewKind(kind?: string): ToolPreview["kind"] {
   return "read";
 }
 
+/**
+ * Context-window occupancy from a Grok ACP update.
+ *
+ * Grok's PromptUsage / `totalTokens` on TurnCompleted and `x.ai/session/usage`
+ * are cumulative ledger spend (main loop + folded subagents) and must never
+ * drive the meter. Prefer explicit occupancy fields, then a single-response
+ * prompt sum (input + disjoint cache buckets).
+ */
 function usageFromUpdate(update: Record<string, unknown>): HarnessEvent | null {
   const usage =
     asRecord(update.usage) ??
     asRecord(update.tokenUsage) ??
     asRecord(update.token_usage) ??
-    (hasUsageFields(update) ? update : null);
+    (hasOccupancyFields(update) ? update : null);
   if (!usage) return null;
-  const used =
-    numberField(usage, "totalTokens") ??
-    numberField(usage, "used") ??
-    numberField(usage, "usedTokens") ??
-    numberField(usage, "used_tokens") ??
-    sumNumbers(usage, [
-      "inputTokens",
-      "outputTokens",
-      "input_tokens",
-      "output_tokens",
-    ]);
+
+  // Ledger-shaped PromptUsage (session/turn bill) — not a window level.
+  if (isLedgerUsage(usage)) return null;
+
+  const used = occupancyTokens(usage);
   const window =
     numberField(usage, "window") ??
     numberField(usage, "contextWindow") ??
     numberField(usage, "context_window") ??
-    numberField(usage, "maxTokens");
+    numberField(update, "context_window") ??
+    numberField(update, "contextWindow") ??
+    numberField(update, "context_window_tokens");
   if (used == null && window == null) return null;
+  if (used != null && window != null && used > window) {
+    return { type: "context", window };
+  }
   return {
     type: "context",
     used: used ?? undefined,
@@ -745,11 +1294,76 @@ function usageFromUpdate(update: Record<string, unknown>): HarnessEvent | null {
   };
 }
 
-function hasUsageFields(rec: Record<string, unknown>): boolean {
+function occupancyFromResponseUpdate(
+  update: Record<string, unknown>,
+): HarnessEvent | null {
+  const usage = asRecord(update.usage) ?? update;
+  const used = occupancyTokens(usage);
+  if (used == null || used <= 0) return null;
+  return { type: "context", used };
+}
+
+/** True when the payload is a session/turn spend ledger, not window occupancy. */
+function isLedgerUsage(usage: Record<string, unknown>): boolean {
+  if (usage.modelUsage != null || usage.model_usage != null) return true;
+  if (numberField(usage, "numTurns") != null) return true;
+  if (numberField(usage, "modelCalls") != null) return true;
+  if (numberField(usage, "model_calls") != null) return true;
+  // totalTokens without an explicit occupancy field is almost always spend.
+  if (
+    numberField(usage, "totalTokens") != null &&
+    numberField(usage, "used") == null &&
+    numberField(usage, "tokens_used") == null &&
+    numberField(usage, "tokensUsed") == null &&
+    numberField(usage, "tokens_after") == null
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function occupancyTokens(usage: Record<string, unknown>): number | undefined {
+  const explicit =
+    numberField(usage, "tokens_used") ??
+    numberField(usage, "tokensUsed") ??
+    numberField(usage, "used") ??
+    numberField(usage, "usedTokens") ??
+    numberField(usage, "used_tokens") ??
+    numberField(usage, "tokens_after") ??
+    numberField(usage, "tokensAfter");
+  if (explicit != null) return explicit;
+
+  const input =
+    numberField(usage, "inputTokens") ?? numberField(usage, "input_tokens");
+  if (input == null) return undefined;
+
+  // ResponseUsage keeps cache buckets disjoint from input_tokens.
+  const hasDisjointCache =
+    numberField(usage, "cache_read_input_tokens") != null ||
+    numberField(usage, "cacheReadInputTokens") != null ||
+    numberField(usage, "cache_creation_input_tokens") != null ||
+    numberField(usage, "cacheCreationInputTokens") != null;
+  if (!hasDisjointCache) return input;
+
+  const cacheRead =
+    numberField(usage, "cache_read_input_tokens") ??
+    numberField(usage, "cacheReadInputTokens") ??
+    0;
+  const cacheCreate =
+    numberField(usage, "cache_creation_input_tokens") ??
+    numberField(usage, "cacheCreationInputTokens") ??
+    0;
+  return input + cacheRead + cacheCreate;
+}
+
+function hasOccupancyFields(rec: Record<string, unknown>): boolean {
   return (
     numberField(rec, "used") != null ||
-    numberField(rec, "totalTokens") != null ||
-    numberField(rec, "inputTokens") != null
+    numberField(rec, "tokens_used") != null ||
+    numberField(rec, "tokensUsed") != null ||
+    numberField(rec, "tokens_after") != null ||
+    numberField(rec, "inputTokens") != null ||
+    numberField(rec, "input_tokens") != null
   );
 }
 
@@ -804,12 +1418,99 @@ function toolDetail(
 function kindFromName(name?: string): string | undefined {
   if (!name) return undefined;
   const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return VARIANT_KIND[key];
+  return VARIANT_KIND[key] ?? VARIANT_KIND[name.toLowerCase()];
 }
 
 function humanizeToolName(name: string): string {
+  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const known = VARIANT_TITLE[key] ?? VARIANT_TITLE[name.toLowerCase()];
+  if (known) return known;
   const cleaned = name.replace(/[_-]+/g, " ").trim();
   return cleaned ? cleaned.replace(/\b\w/g, (ch) => ch.toUpperCase()) : name;
+}
+
+/** Parse `_x.ai/rewind/points` (snake_case or camelCase). */
+export function parseGrokRewindPoints(raw: unknown): GrokRewindPoint[] {
+  const rec = asRecord(raw);
+  const list = Array.isArray(rec?.rewind_points)
+    ? rec.rewind_points
+    : Array.isArray(rec?.rewindPoints)
+      ? rec.rewindPoints
+      : Array.isArray(raw)
+        ? raw
+        : [];
+  const points: GrokRewindPoint[] = [];
+  for (const entry of list) {
+    const row = asRecord(entry);
+    if (!row) continue;
+    const promptIndex =
+      numberField(row, "promptIndex") ??
+      numberField(row, "prompt_index") ??
+      numberField(row, "id");
+    if (promptIndex == null || !Number.isFinite(promptIndex) || promptIndex < 0) {
+      continue;
+    }
+    const promptPreview =
+      stringField(row, "promptPreview") ??
+      stringField(row, "prompt_preview") ??
+      stringField(row, "userMessage") ??
+      stringField(row, "user_message");
+    const createdAt =
+      stringField(row, "createdAt") ?? stringField(row, "created_at");
+    const numFileSnapshots =
+      numberField(row, "numFileSnapshots") ??
+      numberField(row, "num_file_snapshots");
+    const hasFileChanges =
+      typeof row.hasFileChanges === "boolean"
+        ? row.hasFileChanges
+        : typeof row.has_file_changes === "boolean"
+          ? row.has_file_changes
+          : undefined;
+    points.push({
+      promptIndex,
+      ...(promptPreview ? { promptPreview } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(numFileSnapshots != null ? { numFileSnapshots } : {}),
+      ...(hasFileChanges != null ? { hasFileChanges } : {}),
+    });
+  }
+  return points.sort((a, b) => a.promptIndex - b.promptIndex);
+}
+
+/**
+ * Prefer provider rewind points when picking a target index.
+ * Matches preview text when the transcript ordinal may drift from Grok's index.
+ */
+export function resolveGrokRewindTarget(input: {
+  preferredIndex: number | null;
+  points: GrokRewindPoint[];
+  removedUserText?: string;
+}): number | null {
+  const { preferredIndex, points } = input;
+  if (points.length === 0) return preferredIndex;
+
+  const needle = input.removedUserText?.trim();
+  if (needle) {
+    const byPreview = points.find((point) => {
+      const preview = point.promptPreview?.trim();
+      if (!preview) return false;
+      return (
+        preview === needle ||
+        needle.startsWith(preview) ||
+        preview.startsWith(needle)
+      );
+    });
+    if (byPreview) return byPreview.promptIndex;
+  }
+
+  if (preferredIndex != null) {
+    if (points.some((point) => point.promptIndex === preferredIndex)) {
+      return preferredIndex;
+    }
+    return preferredIndex;
+  }
+
+  return points[0]?.promptIndex ?? null;
 }
 
 function uniqueGrokModels(models: AgentModel[]): AgentModel[] {
@@ -906,22 +1607,13 @@ function numberField(
   key: string,
 ): number | undefined {
   const value = rec[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
-function sumNumbers(
-  rec: Record<string, unknown>,
-  keys: string[],
-): number | undefined {
-  let total = 0;
-  let found = false;
-  for (const key of keys) {
-    const value = numberField(rec, key);
-    if (value == null) continue;
-    total += value;
-    found = true;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (
+    typeof value === "string" &&
+    value.trim() &&
+    Number.isFinite(Number(value))
+  ) {
+    return Number(value);
   }
-  return found ? total : undefined;
+  return undefined;
 }

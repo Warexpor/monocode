@@ -15,12 +15,14 @@ export async function generateCursorSessionTitle(input: {
   sessionId: string;
   cwd: string;
   message: string;
+  model: string;
 }): Promise<string | null> {
   try {
     const output = await runCursorTextPrompt({
       cwd: input.cwd,
       prompt: buildThreadTitlePrompt(input.message),
       timeoutMs: TITLE_TIMEOUT_MS,
+      model: input.model,
     });
     return parseGeneratedThreadTitle(output);
   } catch (error) {

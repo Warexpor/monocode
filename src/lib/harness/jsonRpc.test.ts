@@ -9,7 +9,25 @@ vi.mock("./child", () => ({
     transport.onWrite(sessionId, line),
 }));
 
-import { JsonRpcClient } from "./jsonRpc";
+import { JsonRpcClient, formatJsonRpcError } from "./jsonRpc";
+
+describe("formatJsonRpcError", () => {
+  it("surfaces nested provider detail when the headline is Internal error", () => {
+    expect(
+      formatJsonRpcError(
+        {
+          message: "Internal error",
+          data: {
+            message:
+              "API error (status 400 Bad Request): MissingSessionID: Error from provider (Console Go)",
+            http_status: 400,
+          },
+        },
+        "grok",
+      ),
+    ).toContain("MissingSessionID");
+  });
+});
 
 describe("JsonRpcClient", () => {
   beforeEach(() => {

@@ -65,8 +65,18 @@ export function mergeContextUsage(
   previous: ContextUsage | undefined,
   next: { used?: number; window?: number },
 ): ContextUsage {
-  const used = next.used ?? previous?.used ?? 0;
   const window = next.window ?? previous?.window;
+  let used = next.used ?? previous?.used ?? 0;
+  // A reading larger than the window is spend (or a bad parse), not occupancy.
+  // Keep the previous level when the new `used` is nonsense.
+  if (
+    window &&
+    window > 0 &&
+    next.used != null &&
+    next.used > window
+  ) {
+    used = previous?.used ?? 0;
+  }
   return window ? { used, window } : { used };
 }
 

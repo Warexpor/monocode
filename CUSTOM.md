@@ -1,12 +1,25 @@
 ﻿# Warexpor custom layer
 
-This branch (`custom/warexpor`) is where product-specific changes live.
+Product overlay on Windows-ready `main`. Clone setup and sync: `UPSTREAM.md`. Windows evidence: `WINDOWS-PARITY.md`.
 
-Rules:
+Additive modules live under `src/custom/`. Windows/platform fixes still land on `main`. Prefer `src/custom/` (or other agreed overlay paths) over editing core harness files when possible.
+
+## Current modules
+
+| Module | Role |
+| --- | --- |
+| `fullSetup.ts` / `FullSetupWizard.tsx` | Windows Full Setup wizard for Grok, OpenCodex, API key, model catalogs, and Exa websearch |
+| `fullSetup.test.ts` | Unit coverage for recovery hints and Zen free-id heuristics |
+| `index.ts` | Public exports for Settings and other chrome entry points |
+
+The optional product branch `custom/warexpor` can diverge for larger overlay work. After `scripts/sync-upstream.sh` or `scripts/sync-upstream.ps1` updates `main`, merge `main` into that branch and resolve product conflicts there.
+
+## Rules
+
 1. Do not rewrite `main` history.
-2. Keep Windows/platform fixes on `main` (or `feat/windows`) so they merge cleanly with upstream.
+2. Land Windows/platform fixes on `main`, not on a stale `feat/windows` branch (`main` is ahead).
 3. After `.\scripts\sync-upstream.ps1`, merge `main` into this branch and resolve custom conflicts here.
-4. Prefer additive modules under `src/custom/` (or agreed paths) over editing core harness files when possible.
+4. Prefer additive modules under `src/custom/` (or agreed paths) over editing core harness files when possible. Keep custom product behavior behind `src/custom/` exports when practical so upstream merges stay small.
 
 Status: QoL comfort pack + Grok Build GUI parity + UI zoom / rewind / taskbar icon.
 
@@ -24,12 +37,10 @@ Status: QoL comfort pack + Grok Build GUI parity + UI zoom / rewind / taskbar ic
 
 ## Windows agent session (machine-local)
 
-These notes describe the Warexpor Windows PC that proved a live Claude session. They are product-operator rules, not proof that this cloud VM ran a session.
+These notes describe the Warexpor Windows PC that proved a live Claude session. They are product-operator rules, not proof that a cloud VM ran a session.
 
 - Prefer OpenCodex (`ocx`) on `127.0.0.1:10100` with model `claude-opus-4-8-20261030` when that helper is installed locally.
 - Do not send harness traffic through a SOCKS or HTTP outbound proxy on `:10808`.
 - Prefer `opencode-go` over a poisoned `sk-proxy` or `:8090` Claude gateway.
 - Token `monocode-windows-ok` is machine-local. Do not invent API keys in cloud agents.
-- `SESSION_OK` on that PC is not transferable. Linux cloud VMs cannot claim it.
-
-Platform parity work (glass, PTY, Job Objects, PATH) belongs on `main`, not here, even when this branch is the PR target for a mixed change set.
+- `SESSION_OK` on that PC is not transferable.

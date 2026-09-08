@@ -2,13 +2,16 @@ import type { ContextUsage } from "./contextUsage";
 import type { UserQuestionPrompt } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "./githubTasks";
+import type { InboxAskContext } from "./inboxAsk";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
 import {
   defaultSessionChoice,
+  loadLastModelChoice,
   preferredModelId,
   preferredModelSettings,
   resolveModel,
 } from "./models";
+import { isHarnessAvailable } from "./harness/availability";
 
 export type HarnessId =
   "claude" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "omp" | "fx";
@@ -153,6 +156,8 @@ export type Block = {
   startedAt?: number;
   /** How long the agent worked on this user turn, in ms. */
   durationMs?: number;
+  /** Grok ACP prompt index for provider-side rewind, when reported. */
+  promptIndex?: number;
   tool?: {
     callId?: string;
     title?: string;
@@ -200,6 +205,8 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
 };
 
 export type Session = {
+  /** Temporary Inbox conversation: shares the runtime, never saved as a session. */
+  inboxAsk?: InboxAskContext;
   id: string;
   harness: HarnessId;
   model: string;
@@ -233,8 +240,8 @@ export type Session = {
   branch?: string;
   /** Extra git worktree from the old session-branch feature. Unused. */
   worktreeCwd?: string;
-  /** One-shot composer text when opening a session from Inbox. */
-  composerSeed?: string;
+  /** One-shot composer seed (Inbox open, edit-resend). */
+  composerSeed?: { text: string; attachments?: Attachment[] } | string;
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
   inboxCard?: InboxComposerCard;
   /** Note chip shown above the composer. In-memory, one-shot. */
@@ -246,6 +253,47 @@ export type Session = {
    * In-memory; request ids do not survive restarts.
    */
   pendingQuestion?: UserQuestionPrompt;
+  /** Suggested next prompts from the harness. In-memory only. */
+  followUps?: string[];
+  /** Live subagents reported by the harness (e.g. Grok task tool). In-memory. */
+  agents?: SessionAgent[];
+  /** Background shell/monitor tasks from the harness. In-memory. */
+  backgroundTasks?: SessionBackgroundTask[];
+  /** Mid-turn Grok /btw aside panel. In-memory only. */
+  btwAside?: BtwAside;
+};
+
+export type BtwAsideStatus = "pending" | "done" | "error";
+
+export type BtwAside = {
+  id: string;
+  question: string;
+  status: BtwAsideStatus;
+  answer?: string;
+  error?: string;
+};
+
+export type SessionAgentStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type SessionAgent = {
+  id: string;
+  title: string;
+  status: SessionAgentStatus;
+  kind?: string;
+  detail?: string;
+  model?: string;
+  durationMs?: number;
+};
+
+export type SessionBackgroundTask = {
+  id: string;
+  title: string;
+  status: SessionAgentStatus;
+  detail?: string;
 };
 
 export type PendingHarnessSwitch = {
@@ -282,28 +330,40 @@ export function harnessSupportsAttachments(id: HarnessId): boolean {
   return id !== "fx";
 }
 
-/** Short composer copy — Grok embeds images; other files go as path links. */
+/** Short composer copy. Grok embeds images; other files go as path links. */
 export function harnessAttachmentHint(id: HarnessId): string {
   if (id === "fx") return `${HARNESS_TITLE[id]} does not support attachments`;
   if (id === "grok") return "Images embed; other files attach as paths";
   return "Attach files or images to this message";
 }
 
+/** Harness used for a new session when the user has not picked one yet. */
+export function preferredNewSessionHarness(): HarnessId {
+  return (
+    loadLastModelChoice()?.harness ??
+    (isHarnessAvailable("grok") ? "grok" : "claude")
+  );
+}
+
 export function newSession(
-  harness: HarnessId = "claude",
+  harness?: HarnessId,
   cwd = "~",
   model?: string,
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
   modelSettings?: Record<string, string>,
 ): Session {
-  const resolved = resolveModel(harness, model ?? preferredModelId(harness));
+  const selectedHarness = harness ?? preferredNewSessionHarness();
+  const resolved = resolveModel(
+    selectedHarness,
+    model ?? preferredModelId(selectedHarness),
+  );
   return {
     id: crypto.randomUUID(),
-    harness,
+    harness: selectedHarness,
     model: resolved.id,
     modelSettings: preferredModelSettings(resolved, modelSettings),
     runtimeMode,
-    title: HARNESS_LABEL[harness],
+    title: HARNESS_LABEL[selectedHarness],
     cwd,
     blocks: [],
   };
@@ -314,6 +374,10 @@ export function newDefaultSession(
   cwd = "~",
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
 ): Session {
+  const last = loadLastModelChoice();
+  if (last) return newSession(last.harness, cwd, last.model, runtimeMode);
+  if (isHarnessAvailable("grok"))
+    return newSession("grok", cwd, undefined, runtimeMode);
   const choice = defaultSessionChoice();
   return newSession(choice.harness, cwd, choice.model, runtimeMode);
 }

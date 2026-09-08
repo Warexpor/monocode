@@ -7,9 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Split conversation panes now share one continuous chat background instead of repeating the image in every pane.
+
+## [0.1.39] - 2026-09-08
+
 ### Added
 
+- Windows releases now check for, download, and install signed updates through the same in-app update flow as macOS.
+
+### Changed
+
+- The prompt outline remains visible on slightly narrower windows.
+- Removed the scrolled transcript's top-edge fade and blur effect.
+
+## [0.1.38] - 2026-09-08
+
+### Added
+
+- The sidebar project picker is now searchable and keyboard navigable, shows each project's parent path, and includes actions for opening a new project or starting a new tab.
+- Right-click a title-bar tab to close that tab, the other tabs, or every tab to its left or right. Bulk closing still protects unsaved files and running terminals.
+- Shift-click conversations in the sidebar to select several at once, then pin, unpin, archive, unarchive, move into or out of folders, or delete them together.
+- Settings → Appearance → Chat background adds an on-device image behind empty sessions or every conversation, with adjustable visibility. Each project can override the global image from its project-rail menu.
+- Long transcripts have a vertical prompt outline for jumping between turns. Hover or keyboard-focus a marker to preview its prompt and reply. In #90 by @kartava.
+- Drag image files into a note to copy them into MonoCode's local note storage and insert them into the note at the cursor.
+- Archive the focused conversation with Shift+Command/Ctrl+A. The shortcut stays out of editors, terminals, diffs, and open overlays. In #89 by @kualta.
+
+### Changed
+
+- This fork is Windows-only: CI and GitHub Releases ship x86_64 NSIS; macOS/Linux package jobs, configs, and install docs are removed. Non-Windows targets fail at compile time.
+- First Warexpor GitHub Release / in-app updater channel (`latest.json` with `windows-x86_64`). Windows builds emit Tauri 2 signed updater artifacts (`*-setup.exe` + `.sig`) when `TAURI_SIGNING_PRIVATE_KEY` is set.
+- Docs and package metadata describe [Warexpor/monocode](https://github.com/Warexpor/monocode) (install URLs, clone, security advisories, crate `repository` / `homepage`).
+- Scrolled transcripts fade and blur smoothly beneath the title bar, and popover backdrops now use theme-aware tints.
+- Light mode uses an opaque native window for legibility, preserves the dark-mode glass settings, and gives the composer theme-specific shadows and send-button states.
+
+### Fixed
+
+- Enabling Sounds now plays the switch cue immediately. In #111 by @kartava.
+- Sidebar multi-selection clears reliably when its menu closes or the pointer moves outside the selected conversation cards.
+- Chat background changes appear across open session panes immediately, and the empty-session arcade stays hidden when a background is visible.
+- Composer keyboard handlers ignore active IME composition, preventing Enter, Escape, and picker actions from firing while composing text.
+
+## [0.1.37] - 2026-09-07
+
+### Fixed
+
+- Improved transcript performance by rendering collapsed work only when opened, skipping hidden-tab layout work, and reusing line-height measurements across reflows.
+- Pending approval controls remain visible when completed transcript work folds, and switching tabs preserves transcript state.
+
+## [0.1.36] - 2026-09-07
+
+### Added
+
+- Filter Linear Inbox issues by team and project, including issues with no project. Team filters stay in sync with Settings. In #103.
+
+### Fixed
+
+- Improved performance in tool-heavy conversations by avoiding repeated rescans when grouping transcript activity.
+- Projects with the same folder name keep independent names, colors, logos, and mascots. Existing appearance settings migrate to each project, and shared logo files remain available while another project uses them. In #104.
+- Terminal focus stays in place after changing directories with `cd`. In #94.
+- Wrapped inline code grows to fit its content, and list markers stay beside it. In #93.
+- GitHub pull request lookups qualify the head branch with its repository owner.
+- The Windows installer uses the MonoCode icon.
+
+## [0.1.35] - 2026-09-06
+
+### Added
+
+- Inbox items have an **Ask** panel for discussing and analyzing GitHub and Linear issues and pull requests without leaving the Inbox. Discussions remain available while switching items, can be restarted, and stay out of project history, recovery, and notifications.
+- Settings → Appearance → Interface scale zooms the full UI from 50–200% and persists the choice. Use Command/Ctrl with `+`, `-`, or `0`, the View menu, or the settings slider. In #86 by @xaccefy.
+- Settings: Notifications, off by default. With it on, a system notification appears when a turn finishes or an agent waits on an approval or question in a session that is not on screen, whether MonoCode is in the background or another session is open; clicking it jumps to that session. Turning it on asks macOS for permission, and a blocked state links to System Settings. The Sounds setting decides whether the notification plays a sound, and the in-app cue is skipped when the banner fires. In #62 by @emircan-sahin.
+- Windows is a supported desktop target. Terminals, agent CLIs, and the rest of the macOS/Linux feature set run there, the window uses Tauri Acrylic in place of macOS vibrancy, and releases include an x86_64 NSIS installer. In #46.
+
+### Changed
+
+- Completed agent work folds into a concise summary in the transcript, keeping the prompt and final answer prominent. Expand the summary to inspect the reasoning and tool activity behind it.
+- Unified diff code, line numbers, and hunk headers are vertically centered within their rows. In #72 by @tcmarkfeld.
+
+### Fixed
+
+- Archiving or deleting an open conversation closes its related workspace panes, safely stops in-progress work, preserves the latest output when archiving, and cannot be undone by a queued background save. Unrelated tabs and files remain open. In #70.
+- The sole blank workspace tab no longer shows a close control. Closing while an auxiliary pane is focused closes that pane without removing the blank tab.
+- Composer highlights for commands and mentions stay aligned when editing moves the textarea's scroll position.
+
+## [0.1.34] - 2026-09-05
+
+### Added
+
+- Navigate sessions with Shift+Command/Ctrl+Up or Down and projects with Shift+Command/Ctrl+Left or Right. The shortcuts follow the visible sidebar order and also work from an empty composer. In #47 by @MisterWanted.
+- Session cards show an Archive or Unarchive action on hover and keyboard focus.
+- OMP's native commands and custom workflows appear in the `/` picker, with descriptions and argument hints. Commands run through OMP with their arguments intact, and workflow dialogs support choosing options and entering text. MonoCode keeps `/plan` and `/compact`; use `/omp:plan` and `/omp:compact` for OMP's versions.
+- The `@` file picker supports files and folders whose paths contain spaces and refreshes when the workspace changes, so newly created paths appear without restarting MonoCode. Unsafe control and bidirectional formatting characters are excluded from mention tokens. In #67 by @elanchezhiyanr.
+
+### Fixed
+
+- Opening a file from the explorer preserves the unfinished composer draft. In #76 by @kartava.
+- Pi extension status and notification labels no longer expose raw ANSI styling codes; interactive option values remain unchanged.
+- OMP commands that finish locally display their output and release the composer without waiting for an agent turn. Command inventory updates refresh the active session's picker, and ongoing OMP workflows no longer finish early on a nonterminal agent event. In #73.
+
+## [0.1.33] - 2026-09-04
+
+### Added
+
+- Selecting Astra in the composer celebrates it with a pane-wide solar animation: champagne-gold meteors, star glints, a glowing sun, and orbiting rings. The effect replays on every selection, fades out automatically, and respects reduced-motion preferences.
 - Diff reviews can be annotated line by line in both Unified and Editor views. Use the comment action on a changed line to write a note and add its file, line number, and code context to the active composer; collect multiple comments and send them to the agent in one prompt.
+- Compact session context manually with `/compact` or the context meter on supported agent harnesses.
+
+### Fixed
+
+- Agent markdown supports mixed right-to-left and left-to-right text while keeping code and Mermaid blocks left-to-right.
+- Popover glass backgrounds stay stable during opening and closing animations.
 
 ## [0.1.32] - 2026-09-04
 
@@ -60,7 +168,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Windows is a supported desktop target. Terminals, agent CLIs, and the rest of the macOS/Linux feature set run there, and the window uses Tauri Acrylic in place of macOS vibrancy.
 - Settings → General → Diff view: Editor or Unified. Unified stacks every working-tree change in one **Changes** tab — GitHub-style review, editor syntax colours, sticky file headers and line numbers, and a single horizontal scroll that stops at the end of the line. Editor keeps the previous per-file working-tree tabs.
 
 ### Fixed
@@ -511,36 +618,40 @@ First public release. macOS (Apple Silicon) only.
 - Updater endpoint and minisign public key are injected at release time rather than committed, so forks do not inherit the maintainer's update channel.
 - macOS release builds sign with `APPLE_SIGNING_IDENTITY` via a config overlay; the committed default remains ad-hoc `-` for community builds.
 
-[Unreleased]: https://github.com/hardbeat920/monocode/compare/v0.1.31...HEAD
-[0.1.31]: https://github.com/hardbeat920/monocode/compare/v0.1.30...v0.1.31
-[0.1.30]: https://github.com/hardbeat920/monocode/compare/v0.1.29...v0.1.30
-[0.1.29]: https://github.com/hardbeat920/monocode/compare/v0.1.28...v0.1.29
-[0.1.28]: https://github.com/hardbeat920/monocode/compare/v0.1.27...v0.1.28
-[0.1.27]: https://github.com/hardbeat920/monocode/compare/v0.1.26...v0.1.27
-[0.1.26]: https://github.com/hardbeat920/monocode/compare/v0.1.25...v0.1.26
-[0.1.25]: https://github.com/hardbeat920/monocode/compare/v0.1.24...v0.1.25
-[0.1.24]: https://github.com/hardbeat920/monocode/compare/v0.1.23...v0.1.24
-[0.1.23]: https://github.com/hardbeat920/monocode/compare/v0.1.22...v0.1.23
-[0.1.22]: https://github.com/hardbeat920/monocode/compare/v0.1.21...v0.1.22
-[0.1.21]: https://github.com/hardbeat920/monocode/compare/v0.1.20...v0.1.21
-[0.1.20]: https://github.com/hardbeat920/monocode/compare/v0.1.19...v0.1.20
-[0.1.19]: https://github.com/hardbeat920/monocode/compare/v0.1.18...v0.1.19
-[0.1.18]: https://github.com/hardbeat920/monocode/compare/v0.1.17...v0.1.18
-[0.1.17]: https://github.com/hardbeat920/monocode/compare/v0.1.16...v0.1.17
-[0.1.16]: https://github.com/hardbeat920/monocode/compare/v0.1.15...v0.1.16
-[0.1.15]: https://github.com/hardbeat920/monocode/compare/v0.1.14...v0.1.15
-[0.1.14]: https://github.com/hardbeat920/monocode/compare/v0.1.13...v0.1.14
-[0.1.13]: https://github.com/hardbeat920/monocode/compare/v0.1.12...v0.1.13
-[0.1.12]: https://github.com/hardbeat920/monocode/compare/v0.1.11...v0.1.12
-[0.1.11]: https://github.com/hardbeat920/monocode/compare/v0.1.10...v0.1.11
-[0.1.10]: https://github.com/hardbeat920/monocode/compare/v0.1.9...v0.1.10
-[0.1.9]: https://github.com/hardbeat920/monocode/compare/v0.1.8...v0.1.9
-[0.1.8]: https://github.com/hardbeat920/monocode/compare/v0.1.7...v0.1.8
-[0.1.7]: https://github.com/hardbeat920/monocode/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/hardbeat920/monocode/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/hardbeat920/monocode/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/hardbeat920/monocode/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/hardbeat920/monocode/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/hardbeat920/monocode/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/hardbeat920/monocode/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/hardbeat920/monocode/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Warexpor/monocode/compare/v0.1.35...HEAD
+[0.1.35]: https://github.com/Warexpor/monocode/compare/v0.1.34...v0.1.35
+[0.1.34]: https://github.com/Warexpor/monocode/compare/v0.1.33...v0.1.34
+[0.1.33]: https://github.com/Warexpor/monocode/compare/v0.1.32...v0.1.33
+[0.1.32]: https://github.com/Warexpor/monocode/compare/v0.1.31...v0.1.32
+[0.1.31]: https://github.com/Warexpor/monocode/compare/v0.1.30...v0.1.31
+[0.1.30]: https://github.com/Warexpor/monocode/compare/v0.1.29...v0.1.30
+[0.1.29]: https://github.com/Warexpor/monocode/compare/v0.1.28...v0.1.29
+[0.1.28]: https://github.com/Warexpor/monocode/compare/v0.1.27...v0.1.28
+[0.1.27]: https://github.com/Warexpor/monocode/compare/v0.1.26...v0.1.27
+[0.1.26]: https://github.com/Warexpor/monocode/compare/v0.1.25...v0.1.26
+[0.1.25]: https://github.com/Warexpor/monocode/compare/v0.1.24...v0.1.25
+[0.1.24]: https://github.com/Warexpor/monocode/compare/v0.1.23...v0.1.24
+[0.1.23]: https://github.com/Warexpor/monocode/compare/v0.1.22...v0.1.23
+[0.1.22]: https://github.com/Warexpor/monocode/compare/v0.1.21...v0.1.22
+[0.1.21]: https://github.com/Warexpor/monocode/compare/v0.1.20...v0.1.21
+[0.1.20]: https://github.com/Warexpor/monocode/compare/v0.1.19...v0.1.20
+[0.1.19]: https://github.com/Warexpor/monocode/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/Warexpor/monocode/compare/v0.1.17...v0.1.18
+[0.1.17]: https://github.com/Warexpor/monocode/compare/v0.1.16...v0.1.17
+[0.1.16]: https://github.com/Warexpor/monocode/compare/v0.1.15...v0.1.16
+[0.1.15]: https://github.com/Warexpor/monocode/compare/v0.1.14...v0.1.15
+[0.1.14]: https://github.com/Warexpor/monocode/compare/v0.1.13...v0.1.14
+[0.1.13]: https://github.com/Warexpor/monocode/compare/v0.1.12...v0.1.13
+[0.1.12]: https://github.com/Warexpor/monocode/compare/v0.1.11...v0.1.12
+[0.1.11]: https://github.com/Warexpor/monocode/compare/v0.1.10...v0.1.11
+[0.1.10]: https://github.com/Warexpor/monocode/compare/v0.1.9...v0.1.10
+[0.1.9]: https://github.com/Warexpor/monocode/compare/v0.1.8...v0.1.9
+[0.1.8]: https://github.com/Warexpor/monocode/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/Warexpor/monocode/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/Warexpor/monocode/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Warexpor/monocode/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Warexpor/monocode/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Warexpor/monocode/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/Warexpor/monocode/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/Warexpor/monocode/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Warexpor/monocode/releases/tag/v0.1.0

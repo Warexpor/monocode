@@ -1,4 +1,6 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { code } from "@streamdown/code";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import {
   createContext,
   isValidElement,
@@ -28,6 +30,7 @@ import { useColorScheme } from "../hooks/useColorScheme";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { copyText } from "../lib/clipboard";
 import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
+import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
 
 const MERMAID_BASE_CONFIG = {
@@ -51,7 +54,9 @@ const MARKDOWN_REHYPE_PLUGINS: PluggableList = [
   [
     harden,
     {
-      allowedImagePrefixes: [] as string[],
+      // MarkdownImage remains the final allowlist. The wildcard lets app-owned
+      // relative note URLs reach that component without changing link parsing.
+      allowedImagePrefixes: ["*"],
       allowedLinkPrefixes: ["*"],
       allowDataImages: true,
       imageBlockPolicy: "remove" as const,
@@ -141,6 +146,7 @@ function MarkdownLink({
   className,
   node: _node,
   onClick,
+  dir,
   ...props
 }: MarkdownLinkProps) {
   const allowRemoteMedia = useContext(RemoteMediaContext);
@@ -154,8 +160,9 @@ function MarkdownLink({
   return (
     <a
       href={href}
-      className={`text-sky-400/90 hover:text-sky-300 hover:underline ${className ?? ""}`}
+      className={`text-link hover:underline ${className ?? ""}`}
       {...props}
+      dir={dir ?? "auto"}
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
@@ -164,8 +171,11 @@ function MarkdownLink({
           onOpenFile(filePath);
           return;
         }
-        if (!href || !/^https?:\/\//i.test(href)) {
-          event.preventDefault();
+        // Never let the webview itself navigate: http(s) goes to the
+        // system browser, everything else is swallowed.
+        event.preventDefault();
+        if (href && /^https?:\/\//i.test(href)) {
+          void openUrl(href);
         }
       }}
     >
@@ -194,8 +204,9 @@ function MarkdownCode({
     return (
       <code
         {...props}
-        className={`inline-flex items-center gap-1 rounded-md bg-content/8 px-1.5 h-6 align-baseline font-mono text-[0.8em] text-content ${
-          open ? "cursor-pointer hover:text-sky-300 hover:underline" : ""
+        dir="ltr"
+        className={`inline-flex items-center gap-1 rounded-md bg-content/8 px-1.5 min-h-6 max-w-full [overflow-wrap:anywhere] align-baseline font-mono text-[0.8em] text-content ${
+          open ? "cursor-pointer hover:text-link hover:underline" : ""
         } ${className ?? ""}`}
         role={open ? "link" : undefined}
         tabIndex={open ? 0 : undefined}
@@ -235,7 +246,7 @@ function MarkdownCode({
   const code = textContent(children);
 
   return (
-    <div className="markdown-code-shell">
+    <div className="markdown-code-shell" dir="ltr">
       {iconName ? (
         <span className="markdown-code-icon" aria-hidden="true">
           <FileTypeIcon name={iconName} isDir={false} />
@@ -299,6 +310,42 @@ function CodeCopyButton({ code }: { code: string }) {
 
 type MarkdownImageProps = ComponentProps<"img"> & { node?: unknown };
 
+const noteImageSrcCache = new Map<string, string>();
+
+function NoteAssetImage({
+  asset,
+  alt,
+  ...props
+}: Omit<MarkdownImageProps, "src" | "node"> & { asset: string }) {
+  const [src, setSrc] = useState(() => noteImageSrcCache.get(asset));
+
+  useEffect(() => {
+    if (src) return;
+    let cancelled = false;
+    void invoke<string>("notes_image_path", { asset })
+      .then((path) => {
+        const next = convertFileSrc(path);
+        noteImageSrcCache.set(asset, next);
+        if (!cancelled) setSrc(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [asset, src]);
+
+  return (
+    <img
+      {...props}
+      src={src}
+      alt={alt ?? ""}
+      data-note-image={asset}
+      draggable={false}
+      loading="lazy"
+    />
+  );
+}
+
 function MarkdownImage({
   src,
   alt,
@@ -309,6 +356,9 @@ function MarkdownImage({
   const url = typeof src === "string" ? src.trim() : "";
   if (url.startsWith("data:image/")) {
     return <img {...props} src={url} alt={alt ?? ""} />;
+  }
+  if (isNoteImagePath(url)) {
+    return <NoteAssetImage {...props} asset={url} alt={alt} />;
   }
   if (!allowRemoteMedia || !url || !isInboxMediaUrl(url)) return null;
   return <InboxMedia src={url} alt={alt} />;
@@ -344,6 +394,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
           className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${className ?? ""}`}
           components={MARKDOWN_COMPONENTS}
           controls={false}
+          dir="auto"
           isAnimating={!!streaming}
           plugins={MARKDOWN_PLUGINS}
           rehypePlugins={
@@ -466,7 +517,7 @@ function MermaidBlock({
 
   if (incomplete || failed) {
     return (
-      <div className="markdown-code-shell">
+      <div className="markdown-code-shell" dir="ltr">
         <span className="markdown-code-icon" aria-hidden="true">
           <FileTypeIcon name="diagram.mmd" isDir={false} />
         </span>
@@ -491,6 +542,7 @@ function MermaidBlock({
     <div
       className="mermaid-block overflow-x-auto rounded-[10px] border border-content/10 bg-content/6 p-3"
       data-streamdown="mermaid-block"
+      dir="ltr"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );

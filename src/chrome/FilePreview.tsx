@@ -87,7 +87,7 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
         {filePath && onOpenFile ? (
           <button
             type="button"
-            className="min-w-0 flex-1 truncate text-left font-mono text-[12px] font-medium text-content/85 hover:text-sky-300 hover:underline"
+            className="min-w-0 flex-1 truncate text-left font-mono text-[12px] font-medium text-content/85 hover:text-link hover:underline"
             title={path}
             onClick={() => onOpenFile(filePath)}
           >
@@ -104,11 +104,11 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
         {added > 0 || deleted > 0 ? (
           <span className="shrink-0 font-mono text-[11px] font-semibold">
             {added > 0 ? (
-              <span className="text-emerald-400">+{added}</span>
+              <span className="text-success">+{added}</span>
             ) : null}
             {added > 0 && deleted > 0 ? " " : null}
             {deleted > 0 ? (
-              <span className="text-red-400">-{deleted}</span>
+              <span className="text-danger">-{deleted}</span>
             ) : null}
           </span>
         ) : (
@@ -142,22 +142,22 @@ function PreviewLine({
 }) {
   const bg =
     line.kind === "add"
-      ? "bg-teal-800/20"
+      ? "bg-success/20"
       : line.kind === "del"
-        ? "bg-rose-800/20"
+        ? "bg-danger/20"
         : "";
   const bar =
     line.kind === "add"
-      ? "bg-teal-400"
+      ? "bg-success"
       : line.kind === "del"
-        ? "bg-rose-400"
+        ? "bg-danger"
         : "bg-transparent";
   const mark = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   const markColor =
     line.kind === "add"
-      ? "text-teal-400"
+      ? "text-success"
       : line.kind === "del"
-        ? "text-rose-400"
+        ? "text-danger"
         : "text-transparent";
 
   return (
@@ -182,7 +182,7 @@ function PreviewLine({
 
 function StatusIcon({ status }: { status: Status }) {
   if (status === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
+    return <X className="size-3.5 shrink-0 text-danger" strokeWidth={2} />;
   }
   if (status === "pending") {
     return (
@@ -216,9 +216,9 @@ function highlight(text: string, dimmed: boolean) {
     }
     const token = match[1];
     const color = KEYWORDS.has(token)
-      ? "text-teal-300"
+      ? "text-success"
       : /^[A-Z]/.test(token)
-        ? "text-amber-200/90"
+        ? "text-warning/90"
         : "";
     parts.push({ text: token, color });
     last = match.index + token.length;

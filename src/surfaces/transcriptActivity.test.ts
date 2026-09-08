@@ -5,6 +5,10 @@ import {
   activityStillRunning,
   buildActivityPhases,
   editVerb,
+  firstFoldableIndex,
+  foldLineIndex,
+  foldableWork,
+  foldedBlocks,
   groupTurnItems,
   groupTurns,
   hasRunningSubagent,
@@ -233,6 +237,47 @@ describe("groupTurnItems", () => {
     expect(items[0].blocks.map((block) => block.id)).toEqual(["r", "a"]);
   });
 
+  it("exposes reasoning as standalone blocks when showReasoning is on", () => {
+    const items = groupTurnItems(
+      [
+        { id: "r", role: "reasoning", text: "**Checking the config**" },
+        shell("a"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    expect(items.map((item) => item.type)).toEqual([
+      "block",
+      "activity",
+      "block",
+    ]);
+    expect(items[0]).toMatchObject({
+      type: "block",
+      block: { id: "r", role: "reasoning" },
+    });
+  });
+
+  it("does not supersede initial thinking when showReasoning is on", () => {
+    const folded = groupTurnItems([
+      { id: "r", role: "reasoning", text: "private" },
+      { id: "a", role: "assistant", text: "Hello." },
+    ]);
+    expect(folded.map((item) => item.type)).toEqual(["block"]);
+
+    const shown = groupTurnItems(
+      [
+        { id: "r", role: "reasoning", text: "private" },
+        { id: "a", role: "assistant", text: "Hello." },
+      ],
+      { showReasoning: true },
+    );
+    expect(shown.map((item) => item.type)).toEqual(["block", "block"]);
+    expect(shown[0]).toMatchObject({
+      type: "block",
+      block: { id: "r" },
+    });
+  });
+
   it("uses assistant prose as boundaries between reasoning and tool groups", () => {
     const items = groupTurnItems([
       note("a1", "I’ll inspect the config first."),
@@ -262,6 +307,25 @@ describe("groupTurnItems", () => {
 
     expect(items).toMatchObject([
       { type: "block", block: { id: "u" } },
+      { type: "block", block: { id: "a1" } },
+      { type: "activity", blocks: [{ id: "t1" }] },
+    ]);
+  });
+
+  it("keeps reasoning as standalone blocks when showReasoning is on", () => {
+    const items = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "Investigate it" },
+        thought("r1", "I should inspect the current changes."),
+        note("a1", "I’ll investigate the current changes."),
+        read("t1"),
+      ],
+      { showReasoning: true },
+    );
+
+    expect(items).toMatchObject([
+      { type: "block", block: { id: "u" } },
+      { type: "block", block: { id: "r1" } },
       { type: "block", block: { id: "a1" } },
       { type: "activity", blocks: [{ id: "t1" }] },
     ]);
@@ -345,6 +409,45 @@ describe("groupTurns", () => {
 });
 
 describe("buildActivityPhases", () => {
+  it("does not repeatedly inspect earlier calls as a long tool run grows", () => {
+    const toolReads = (count: number) => {
+      let reads = 0;
+      const blocks = Array.from({ length: count }, (_, index) => {
+        const block = read(`r${index}`);
+        const tool = block.tool;
+        Object.defineProperty(block, "tool", {
+          get: () => {
+            reads += 1;
+            return tool;
+          },
+        });
+        return block;
+      });
+      const phases = buildActivityPhases(blocks);
+      const inspected = reads;
+      expect(phases).toHaveLength(1);
+      expect(phases[0].kind).toBe("research");
+      expect(phases[0].steps).toEqual(blocks);
+      return inspected;
+    };
+
+    // Count input accesses instead of timing the test on a particular CPU.
+    expect(toolReads(400)).toBeLessThan(toolReads(200) * 2.5);
+  });
+
+  it("resets the dominant work tally when narration starts a new group", () => {
+    const phases = buildActivityPhases([
+      edit("e1"),
+      edit("e2"),
+      edit("e3"),
+      note("n1", "Checking the result."),
+      read("r1"),
+      shell("c1"),
+    ]);
+    expect(phases.map((phase) => phase.kind)).toEqual(["edit", "run"]);
+    expect(phases[1].headline?.id).toBe("n1");
+  });
+
   it("groups a run of calls under the line that introduced it", () => {
     const phases = buildActivityPhases([
       note("n1", "Now I need to find the theme provider."),
@@ -369,14 +472,23 @@ describe("buildActivityPhases", () => {
     expect(phases[1].steps.map((block) => block.id)).toEqual(["e1", "e2"]);
   });
 
-  it("starts a group when the work changes shape, narrated or not", () => {
+  it("keeps a run of mixed work in one group", () => {
     const phases = buildActivityPhases([
       read("r1", "a.ts"),
       read("r2", "b.ts"),
       edit("e1", "a.ts"),
       edit("e2", "b.ts"),
+      shell("c1"),
     ]);
-    expect(phases.map((phase) => phase.kind)).toEqual(["research", "edit"]);
+    expect(phases).toHaveLength(1);
+    expect(phases[0].kind).toBe("edit");
+    expect(phases[0].steps.map((block) => block.id)).toEqual([
+      "r1",
+      "r2",
+      "e1",
+      "e2",
+      "c1",
+    ]);
   });
 
   it("folds a lone uninvited call into the group before it", () => {
@@ -442,7 +554,7 @@ describe("buildActivityPhases", () => {
     ]);
   });
 
-  it("moves a thought at the end of a group into the group it introduced", () => {
+  it("keeps a thought between two kinds of work inside the group", () => {
     const phases = buildActivityPhases([
       read("r1", "a.ts"),
       read("r2", "b.ts"),
@@ -450,9 +562,10 @@ describe("buildActivityPhases", () => {
       edit("e1", "a.ts"),
       edit("e2", "b.ts"),
     ]);
-    expect(phases.map((phase) => phase.kind)).toEqual(["research", "edit"]);
-    expect(phases[0].steps.map((block) => block.id)).toEqual(["r1", "r2"]);
-    expect(phases[1].steps.map((block) => block.id)).toEqual([
+    expect(phases).toHaveLength(1);
+    expect(phases[0].steps.map((block) => block.id)).toEqual([
+      "r1",
+      "r2",
       "t1",
       "e1",
       "e2",
@@ -503,6 +616,28 @@ describe("activityPhaseTitle", () => {
     );
     expect(title([shell("a"), shell("b")])).toBe("Ran 2 commands");
     expect(title([shell("a")], true)).toBe("Running a command");
+  });
+
+  it("adds up a group of mixed work, one clause per kind", () => {
+    expect(
+      title([
+        shell("c1"),
+        shell("c2"),
+        shell("c3"),
+        search("s1"),
+        edit("e1", "a.ts"),
+        edit("e2", "b.ts"),
+      ]),
+    ).toBe("Ran 3 commands · Searched the project · Edited 2 files");
+  });
+
+  it("puts only the call in flight in the present tense", () => {
+    expect(
+      title([edit("e1", "a.ts"), edit("e2", "b.ts"), shell("c1")], true),
+    ).toBe("Edited 2 files · Running a command");
+  });
+
+  it("still names the shapes of work on their own", () => {
     expect(
       title(
         [
@@ -524,19 +659,19 @@ describe("activityPhaseTitle", () => {
 });
 
 describe("running subagents", () => {
-  const agent = (
-    id: string,
-    status = "in_progress",
-  ): Block => ({
+  const agent = (id: string, status = "in_progress"): Block => ({
     id,
     role: "tool",
     text: "Explore the auth module",
     tool: { kind: "agent", title: "Explore the auth module", status },
   });
 
-  it("keeps a pending Agent tool visible as its own phase", () => {
+  it("counts a subagent in the group it ran in", () => {
     const phases = buildActivityPhases([read("r1"), agent("ag")]);
-    expect(phases.map((phase) => phase.kind)).toEqual(["research", "agent"]);
+    expect(phases).toHaveLength(1);
+    expect(activityPhaseTitle(phases[0], true)).toBe(
+      "Read App.tsx · Running a subagent",
+    );
   });
 
   it("flags a live subagent until the tool completes", () => {
@@ -544,6 +679,146 @@ describe("running subagents", () => {
     expect(activityStillRunning([agent("ag")])).toBe(true);
     expect(hasRunningSubagent([agent("ag", "completed")])).toBe(false);
     expect(activityStillRunning([agent("ag", "completed")])).toBe(false);
+  });
+});
+
+describe("foldableWork", () => {
+  const items = (blocks: Block[]) => groupTurnItems(blocks);
+
+  it("folds the work the agent has already answered for", () => {
+    const turn = items([
+      { id: "u", role: "user", text: "go" },
+      shell("c1"),
+      note("n1", "Checking the other half now."),
+      shell("c2"),
+      { id: "done", role: "assistant", text: "All set." },
+    ]);
+    const fold = foldableWork(turn);
+    expect(fold).toEqual({ start: 1, end: 3 });
+    expect(foldedBlocks(turn, fold!).map((block) => block.id)).toEqual([
+      "c1",
+      "n1",
+      "c2",
+    ]);
+  });
+
+  it("leaves work the agent has not answered for alone", () => {
+    expect(
+      foldableWork(items([{ id: "u", role: "user", text: "go" }, shell("c1")])),
+    ).toBeUndefined();
+    expect(
+      foldableWork(
+        items([
+          { id: "u", role: "user", text: "go" },
+          { id: "a", role: "assistant", text: "On it." },
+          shell("c1"),
+        ]),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps the live group outside the fold while the agent works on", () => {
+    const turn = items([
+      { id: "u", role: "user", text: "go" },
+      shell("c1"),
+      note("n1", "That worked. Running the tests."),
+      shell("c2", "pending"),
+    ]);
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 1 });
+  });
+
+  it("never folds a plan or anything under it", () => {
+    const turn = items([
+      { id: "u", role: "user", text: "go" },
+      shell("c1"),
+      { id: "p", role: "plan", text: "## Plan" },
+      shell("c2"),
+      { id: "done", role: "assistant", text: "Built it." },
+    ]);
+    expect(foldableWork(turn)).toEqual({ start: 3, end: 3 });
+  });
+
+  it("leaves an approval attached to earlier work outside the fold", () => {
+    const turn = items([
+      shell("pending", "pending", { requestId: 1 }),
+      note("n1", "I need permission to run that command."),
+    ]);
+    expect(foldableWork(turn)).toBeUndefined();
+  });
+
+  it("does not swallow an earlier approval when later work folds", () => {
+    const turn = items([
+      shell("pending", "pending", { requestId: 1 }),
+      note("n1", "Checking something else meanwhile."),
+      shell("finished"),
+      note("n2", "That check passed."),
+    ]);
+    const fold = foldableWork(turn)!;
+    expect(foldedBlocks(turn, fold).map((block) => block.id)).toEqual([
+      "n1",
+      "finished",
+    ]);
+  });
+
+  it("folds work normally once its approval has been resolved", () => {
+    const turn = items([
+      shell("approved", "completed", { requestId: 1, decided: "allow" }),
+      note("n1", "The command succeeded."),
+    ]);
+    expect(foldableWork(turn)).toEqual({ start: 0, end: 0 });
+  });
+
+  it("gives the fold line a place to sit before there is a fold", () => {
+    const turn = items([{ id: "u", role: "user", text: "go" }, shell("c1")]);
+    expect(foldableWork(turn)).toBeUndefined();
+    expect(firstFoldableIndex(turn)).toBe(1);
+    expect(
+      firstFoldableIndex(items([{ id: "u", role: "user", text: "go" }])),
+    ).toBe(-1);
+  });
+
+  it("sits the fold line above shown reasoning", () => {
+    const turn = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "go" },
+        thought("r1"),
+        shell("c1"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    const workAt = firstFoldableIndex(turn);
+    expect(workAt).toBe(1);
+    expect(foldLineIndex(turn, workAt, true)).toBe(1);
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 2 });
+    expect(foldedBlocks(turn, foldableWork(turn)!).map((block) => block.id)).toEqual([
+      "r1",
+      "c1",
+    ]);
+  });
+
+  it("folds trailing thoughts that sit between work and the answer", () => {
+    const turn = groupTurnItems(
+      [
+        { id: "u", role: "user", text: "go" },
+        shell("c1"),
+        thought("r1"),
+        { id: "done", role: "assistant", text: "Done." },
+      ],
+      { showReasoning: true },
+    );
+    expect(foldableWork(turn)).toEqual({ start: 1, end: 2 });
+  });
+
+  it("has nothing to fold in a turn that only answered", () => {
+    expect(
+      foldableWork(
+        items([
+          { id: "u", role: "user", text: "go" },
+          { id: "a", role: "assistant", text: "Here you go." },
+        ]),
+      ),
+    ).toBeUndefined();
   });
 });
 

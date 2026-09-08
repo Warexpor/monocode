@@ -593,6 +593,19 @@ describe("contextFromResult", () => {
     expect(contextFromResult(rec)).toEqual({ used: 70_305, window: 200000 });
   });
 
+  it("does not treat a multi-million turn sum without iterations as the window level", () => {
+    const rec = {
+      type: "result",
+      usage: {
+        input_tokens: 40_000,
+        cache_read_input_tokens: 4_500_000,
+        output_tokens: 80_000,
+      },
+      modelUsage: { "claude-opus-5": { contextWindow: 200_000 } },
+    };
+    expect(contextFromResult(rec)).toEqual({ window: 200_000 });
+  });
+
   it("has nothing to report for a turn that never called the API", () => {
     expect(contextFromResult({ type: "result", usage: {} })).toBeUndefined();
   });

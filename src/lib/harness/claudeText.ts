@@ -1,4 +1,4 @@
-import { modelsFor } from "../models";
+import { modelsFor, nativeModelId } from "../models";
 import {
   killChild,
   resolveClaudeBinary,
@@ -24,6 +24,7 @@ const TEXT_MODEL = "claude-haiku-4-5";
 
 type LiveText = {
   cwd: string;
+  model: string;
   collecting: boolean;
   output: string;
   closed: boolean;
@@ -36,7 +37,8 @@ type LiveText = {
 let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
-function pickTextModel(): string {
+function pickTextModel(requested?: string): string {
+  if (requested?.trim()) return nativeModelId(requested);
   const models = modelsFor("claude");
   const haiku = models.find((model) =>
     /haiku/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
@@ -51,7 +53,7 @@ export async function stopClaudeTextPrompt(): Promise<void> {
 export function warmupClaudeText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
   const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
+    await ensureLive(cwd, undefined);
   });
   turns = run.then(
     () => undefined,
@@ -64,6 +66,7 @@ export async function runClaudeTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -77,8 +80,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.model);
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -118,16 +122,20 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
-  if (live && !live.closed && live.cwd === cwd) return live;
+async function ensureLive(cwd: string, requestedModel?: string): Promise<LiveText> {
+  const model = pickTextModel(requestedModel);
+  if (live && !live.closed && live.cwd === cwd && live.model === model) {
+    return live;
+  }
   await dropLive();
-  return startLive(cwd);
+  return startLive(cwd, model);
 }
 
-async function startLive(cwd: string): Promise<LiveText> {
+async function startLive(cwd: string, model: string): Promise<LiveText> {
   const { path } = await resolveClaudeBinary();
   const session: LiveText = {
     cwd,
+    model,
     collecting: false,
     output: "",
     closed: false,
@@ -157,7 +165,7 @@ async function startLive(cwd: string): Promise<LiveText> {
       path,
       buildClaudeSpawnArgs({
         isolated: true,
-        model: pickTextModel(),
+        model,
       }),
       cwd,
     );

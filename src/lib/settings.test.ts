@@ -4,24 +4,33 @@ import {
   DIFF_VIEWER_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
   GRID_ARCADE_ENABLED_DEFAULT,
+  KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
   loadComposerRunner,
   loadDiffViewer,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
+  loadInboxEnabled,
   loadNotesEnabled,
+  loadShowReasoning,
+  INBOX_ENABLED_DEFAULT,
   NOTES_ENABLED_DEFAULT,
+  SHOW_REASONING_DEFAULT,
   saveComposerRunner,
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
+  saveInboxEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveShowReasoning,
 } from "./settings";
 
 const KEY = "monocode.composerRunner";
 const NOTES_KEY = "monocode.notesEnabled";
+const INBOX_KEY = "monocode.inboxEnabled";
+const SHOW_REASONING_KEY = "monocode.showReasoning";
 const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
@@ -113,6 +122,66 @@ describe("notes enabled setting", () => {
   });
 });
 
+describe("inbox enabled setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(INBOX_KEY);
+  });
+
+  it("defaults to on", () => {
+    expect(INBOX_ENABLED_DEFAULT).toBe(true);
+    expect(loadInboxEnabled()).toBe(true);
+  });
+
+  it("persists an off switch", () => {
+    saveInboxEnabled(false);
+    expect(localStorage.getItem(INBOX_KEY)).toBe("0");
+    expect(loadInboxEnabled()).toBe(false);
+    saveInboxEnabled(true);
+    expect(loadInboxEnabled()).toBe(true);
+  });
+});
+
+describe("show reasoning setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(SHOW_REASONING_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(SHOW_REASONING_DEFAULT).toBe(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+
+  it("persists an on switch", () => {
+    saveShowReasoning(true);
+    expect(localStorage.getItem(SHOW_REASONING_KEY)).toBe("1");
+    expect(loadShowReasoning()).toBe(true);
+    saveShowReasoning(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+});
+
+describe("show reasoning setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(SHOW_REASONING_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(SHOW_REASONING_DEFAULT).toBe(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+
+  it("persists an on switch", () => {
+    saveShowReasoning(true);
+    expect(localStorage.getItem(SHOW_REASONING_KEY)).toBe("1");
+    expect(loadShowReasoning()).toBe(true);
+    saveShowReasoning(false);
+    expect(loadShowReasoning()).toBe(false);
+  });
+});
+
 describe("live agents enabled setting", () => {
   beforeEach(mockLocalStorage);
   afterEach(() => {
@@ -150,6 +219,25 @@ describe("grid arcade enabled setting", () => {
     expect(loadGridArcadeEnabled()).toBe(false);
     saveGridArcadeEnabled(true);
     expect(loadGridArcadeEnabled()).toBe(true);
+  });
+});
+
+describe("workspace navigation keybindings", () => {
+  it("documents session and project cycling in the shortcut list", () => {
+    const rows = KEYBINDINGS.filter(
+      (row) => /^(Session|Project): (Previous|Next)$/.test(row.command),
+    );
+    expect(rows.map((row) => row.command)).toEqual([
+      "Session: Previous",
+      "Session: Next",
+      "Project: Previous",
+      "Project: Next",
+    ]);
+    expect(
+      rows.every(
+        (row) => row.when === "!overlay && (!textFocus || emptyComposer)",
+      ),
+    ).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ import type { HarnessId } from "../session";
 import type { PrContent } from "../gitText";
 import { hasLiveCatalog } from "../models";
 import type { UserQuestionReply } from "../userQuestion";
+import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -13,6 +14,8 @@ export type TitleInput = {
   sessionId: string;
   cwd: string;
   message: string;
+  /** Session / settings model id (`harness:native`). */
+  model: string;
 };
 
 /**
@@ -25,6 +28,7 @@ export type HarnessAdapter = {
   live: boolean;
   /** False when the harness cannot accept a follow-up while a turn is running. Default: same as live. */
   canSteer?: boolean;
+  commands?: NativeCommandProvider;
   sendTurn(input: SendTurnInput): Promise<void>;
   /** Trigger provider-owned compaction outside MonoCode's normal user-turn path. */
   compactContext?(input: CompactContextInput): Promise<void>;
@@ -238,14 +242,16 @@ export function bindHarnessSession(
  */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
+  options?: { force?: boolean },
 ): Promise<void> {
   const wanted = new Set(ids);
   if (wanted.size === 0) return;
+  const force = options?.force ?? false;
   await Promise.all(
     [...adapters.values()]
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
-        if (!adapter.refreshCatalog || hasLiveCatalog(adapter.id)) return;
+        if (!adapter.refreshCatalog || (!force && hasLiveCatalog(adapter.id))) return;
         await adapter.refreshCatalog().catch((error: unknown) => {
           console.debug(`[monocode] ${adapter.id} catalog`, error);
         });

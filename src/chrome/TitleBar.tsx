@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Inbox,
   PanelLeft,
+  PanelRight,
   Plus,
   Search,
   Settings,
@@ -18,6 +19,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { basename } from "../lib/fs";
@@ -31,8 +33,9 @@ import { HarnessIcon } from "./HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { WindowControls } from "./WindowControls";
-import { IS_MAC, MOD } from "../lib/platform";
+import { IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
+import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 
 export type Tab = {
   id: string;
@@ -52,6 +55,8 @@ export type Tab = {
   multiPane?: boolean;
   /** Focus is on a file/terminal pane rather than a conversation pane. */
   fileFocused?: boolean;
+  /** The sole pane is a fresh conversation with no user turn or open file. */
+  blank?: boolean;
   /** Explicit tab group; absent means ungrouped. */
   groupId?: string;
   dirty?: boolean;
@@ -63,7 +68,9 @@ type Props = {
   activeId: string;
   cwd: string;
   projectRailOpen?: boolean;
+  workspaceSidebarOpen?: boolean;
   onToggleSidebar: () => void;
+  onToggleWorkspaceSidebar?: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
   onNewTerminal?: () => void;
@@ -73,6 +80,7 @@ type Props = {
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
   onClose: (id: string) => void;
+  onCloseMany: (ids: string[], fallbackId: string) => void;
   onReorder: (ids: string[], movedId?: string) => void;
   onGoToFile?: () => void;
   recents?: RecentProject[];
@@ -145,6 +153,29 @@ export function tabStripOverflow(
   };
 }
 
+export function titleTabClosable(tab: Tab, tabCount: number): boolean {
+  return tabCount > 1 || !tab.blank;
+}
+
+export type TitleTabContextAction = "others" | "right" | "left";
+
+/** Tab ids affected by a context-menu action relative to its clicked tab. */
+export function titleTabContextCloseIds(
+  tabs: readonly Tab[],
+  targetId: string,
+  action: TitleTabContextAction,
+): string[] {
+  const targetIndex = tabs.findIndex((tab) => tab.id === targetId);
+  if (targetIndex < 0) return [];
+  if (action === "left") {
+    return tabs.slice(0, targetIndex).map((tab) => tab.id);
+  }
+  if (action === "right") {
+    return tabs.slice(targetIndex + 1).map((tab) => tab.id);
+  }
+  return tabs.filter((tab) => tab.id !== targetId).map((tab) => tab.id);
+}
+
 function TabHarnesses({
   harnesses,
   busyHarnesses,
@@ -197,6 +228,7 @@ function TitleTabItem({
   sortable,
   onSelect,
   onClose,
+  onContextMenu,
   itemRef,
 }: {
   tab: Tab;
@@ -207,6 +239,7 @@ function TitleTabItem({
   sortable: SortableApi;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onContextMenu: (id: string, event: ReactMouseEvent<HTMLDivElement>) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
   const dragging = canDrag && sortable.draggingId === tab.id;
@@ -233,6 +266,11 @@ function TitleTabItem({
       }}
       className={`group @container relative flex h-full cursor-default touch-none items-center self-stretch min-w-0 w-full ${dragging ? "opacity-40" : ""}`}
       data-tauri-drag-region="false"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(tab.id, event);
+      }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
@@ -321,7 +359,7 @@ function TitleTabItem({
             e.stopPropagation();
             onClose(tab.id);
           }}
-          className="absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100"
+          className="absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
         >
           <X className="size-3" strokeWidth={1.75} />
         </button>
@@ -427,6 +465,9 @@ export function TabVisitNav({
   onTogglePanel,
   panelActive = false,
   panelLabel = "Toggle Projects",
+  onToggleWorkspace,
+  workspaceActive = false,
+  workspaceLabel = "Toggle Workspace",
 }: {
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -435,6 +476,9 @@ export function TabVisitNav({
   onTogglePanel?: () => void;
   panelActive?: boolean;
   panelLabel?: string;
+  onToggleWorkspace?: () => void;
+  workspaceActive?: boolean;
+  workspaceLabel?: string;
 }) {
   return (
     <div className="flex shrink-0 items-center">
@@ -459,6 +503,15 @@ export function TabVisitNav({
           onClick={onTogglePanel}
         >
           <PanelLeft className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+      {onToggleWorkspace ? (
+        <IconButton
+          label={workspaceLabel}
+          active={workspaceActive}
+          onClick={onToggleWorkspace}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
         </IconButton>
       ) : null}
     </div>
@@ -498,7 +551,9 @@ function TitleBarComponent({
   activeId,
   cwd,
   projectRailOpen = true,
+  workspaceSidebarOpen = true,
   onToggleSidebar,
+  onToggleWorkspaceSidebar,
   onSelect,
   onNew,
   onNewTerminal,
@@ -508,6 +563,7 @@ function TitleBarComponent({
   onOpenInbox,
   onOpenNotes,
   onClose,
+  onCloseMany,
   onReorder,
   onGoToFile,
   recents = [],
@@ -525,6 +581,11 @@ function TitleBarComponent({
     [lockOverscroll],
   );
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
+  const [tabMenu, setTabMenu] = useState<{
+    tabId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const syncTabOverflow = useCallback(() => {
     const el = tabStripRef.current;
     const next = el
@@ -541,7 +602,6 @@ function TitleBarComponent({
     el.scrollBy({ left: direction * amount, behavior: "smooth" });
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
-  const closable = tabs.length > 0;
   const canDrag = tabs.length > 1;
 
   useEffect(() => {
@@ -596,7 +656,61 @@ function TitleBarComponent({
     } catch {}
   }, [systemTitle]);
 
+  const contextTab = tabMenu
+    ? tabs.find((tab) => tab.id === tabMenu.tabId)
+    : undefined;
+  const contextCloseIds = contextTab
+    ? {
+        others: titleTabContextCloseIds(tabs, contextTab.id, "others"),
+        right: titleTabContextCloseIds(tabs, contextTab.id, "right"),
+        left: titleTabContextCloseIds(tabs, contextTab.id, "left"),
+      }
+    : null;
+  const contextMenuItems: ExplorerMenuItem[] = contextTab
+    ? [
+        {
+          kind: "item",
+          id: "close",
+          label: "Close Tab",
+          shortcut: `${MOD}W`,
+          disabled: !titleTabClosable(contextTab, tabs.length),
+        },
+        { kind: "sep" },
+        {
+          kind: "item",
+          id: "others",
+          label: "Close Other Tabs",
+          disabled: contextCloseIds?.others.length === 0,
+        },
+        {
+          kind: "item",
+          id: "right",
+          label: "Close Tabs to the Right",
+          disabled: contextCloseIds?.right.length === 0,
+        },
+        {
+          kind: "item",
+          id: "left",
+          label: "Close Tabs to the Left",
+          disabled: contextCloseIds?.left.length === 0,
+        },
+      ]
+    : [];
+
+  const onPickTabMenu = (id: string) => {
+    if (!contextTab || !contextCloseIds) return;
+    setTabMenu(null);
+    if (id === "close") {
+      onClose(contextTab.id);
+      return;
+    }
+    if (id === "others" || id === "right" || id === "left") {
+      onCloseMany(contextCloseIds[id], contextTab.id);
+    }
+  };
+
   const railClosed = !projectRailOpen;
+  const workspaceClosed = !workspaceSidebarOpen;
   const showCurrentProject = looksLikeProject(cwd);
   // Until a project is picked, the rail and the sidebar hide, so nothing
   // project-scoped is actionable and the window controls need room.
@@ -605,6 +719,26 @@ function TitleBarComponent({
   // Changes. Without a project that sidebar is gone, so the picker stays here.
   const showProjectButton =
     railClosed && Boolean(onSelectProject) && !showCurrentProject;
+  const showReopenSidebars =
+    showCurrentProject && railClosed && workspaceClosed;
+  const reopenSidebars = showReopenSidebars ? (
+    <div className="flex shrink-0 items-center gap-0.5 px-1.5">
+      <IconButton
+        label={`Show Projects (${MOD}B)`}
+        onClick={onToggleSidebar}
+      >
+        <PanelLeft className="size-3.5" strokeWidth={1.75} />
+      </IconButton>
+      {onToggleWorkspaceSidebar ? (
+        <IconButton
+          label={`Show Workspace (${MOD}${SHIFT}B)`}
+          onClick={onToggleWorkspaceSidebar}
+        >
+          <PanelRight className="size-3.5" strokeWidth={1.75} />
+        </IconButton>
+      ) : null}
+    </div>
+  ) : null;
   const trailingControls = (
     <div className="flex h-full shrink-0 items-stretch">
       <div className="flex items-center gap-0.5 px-2">
@@ -665,7 +799,8 @@ function TitleBarComponent({
           title bar takes over the traffic lights and the rail toggle. */}
       {projectless && railClosed ? (
         <>
-          <div className="w-[78px] shrink-0" />
+          {/* Traffic-light clearance is a macOS-only concern. */}
+          {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
           <div className="flex shrink-0 items-center px-1.5">
             <IconButton
               label={`Toggle Sidebar (${MOD}B)`}
@@ -676,6 +811,7 @@ function TitleBarComponent({
           </div>
         </>
       ) : null}
+      {reopenSidebars}
       {showProjectButton && onSelectProject ? (
         <CwdPicker
           cwd={cwd}
@@ -691,7 +827,9 @@ function TitleBarComponent({
 
       <div
         className={`flex min-w-0 flex-1 items-stretch${
-          showProjectButton ? " border-l border-content/10" : ""
+          showProjectButton || showReopenSidebars
+            ? " border-l border-content/10"
+            : ""
         }`}
       >
         <div
@@ -724,11 +862,18 @@ function TitleBarComponent({
                   tab={tab}
                   index={index}
                   active={tab.id === activeId}
-                  closable={closable}
+                  closable={titleTabClosable(tab, tabs.length)}
                   canDrag={canDrag}
                   sortable={sortable}
                   onSelect={onSelect}
                   onClose={onClose}
+                  onContextMenu={(tabId, event) =>
+                    setTabMenu({
+                      tabId,
+                      x: event.clientX,
+                      y: event.clientY,
+                    })
+                  }
                   itemRef={
                     tab.id === activeId
                       ? (el) => {
@@ -744,13 +889,24 @@ function TitleBarComponent({
 
         {IS_MAC ? null : (
           <div className="flex min-w-0 flex-1 items-center justify-center px-4">
-            <span className="pointer-events-none truncate text-[11.5px] font-medium text-content/40 select-none">
+            <span className="pointer-events-none truncate text-[11px] font-medium text-content/40 select-none">
               {systemTitle}
             </span>
           </div>
         )}
         {trailingControls}
       </div>
+      {tabMenu && contextTab ? (
+        <ExplorerMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          width={244}
+          items={contextMenuItems}
+          ariaLabel={`Tab actions for ${tabCopy(contextTab).headline}`}
+          onPick={onPickTabMenu}
+          onClose={() => setTabMenu(null)}
+        />
+      ) : null}
     </header>
   );
 }

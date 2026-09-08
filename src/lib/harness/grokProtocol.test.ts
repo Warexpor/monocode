@@ -10,6 +10,7 @@ import {
   grokSessionNewParams,
   grokSpawnArgs,
   grokTextSpawnArgs,
+  mergeGrokCatalogs,
   modelsFromGrokModelsOutput,
   modelsFromInitialize,
   modelsFromSessionNew,
@@ -17,18 +18,104 @@ import {
   permissionRequestFromAcp,
   pickAutoOption,
   planFromExitPlan,
+  parseGrokRewindPoints,
+  resolveGrokRewindTarget,
   sessionIdFromResult,
+  isMethodNotFound,
 } from "./grokProtocol";
-import { harnessAttachmentHint, harnessSupportsAttachments } from "../session";
+import { harnessSupportsAttachments } from "../session";
 
 describe("grok protocol", () => {
   it("supports attachments despite Grok's stale advertised capability", () => {
     expect(harnessSupportsAttachments("grok")).toBe(true);
     expect(harnessSupportsAttachments("cursor")).toBe(true);
-    expect(harnessAttachmentHint("grok")).toMatch(/images/i);
-    expect(harnessAttachmentHint("fx")).toMatch(/does not support/i);
   });
 
+  it("titles media generation tools clearly", () => {
+    const started = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "img-1",
+      status: "in_progress",
+      _meta: {
+        "x.ai/tool": {
+          name: "image_gen",
+          input: { variant: "image_gen", prompt: "a fox" },
+        },
+      },
+    });
+    expect(started[0]).toMatchObject({
+      type: "tool.started",
+      callId: "img-1",
+      title: "Generating image",
+      kind: "other",
+    });
+
+    const delta = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call_delta_chunk",
+      tool_call_id: "vid-1",
+      name: "image_to_video",
+    });
+    expect(delta[0]).toMatchObject({
+      type: "tool.updated",
+      callId: "vid-1",
+      title: "Generating video",
+      kind: "other",
+    });
+  });
+
+  it("parses rewind points and resolves targets by preview", () => {
+    const points = parseGrokRewindPoints({
+      rewind_points: [
+        {
+          prompt_index: 0,
+          prompt_preview: "first turn",
+          created_at: "2026-01-01T00:00:00Z",
+          num_file_snapshots: 0,
+          has_file_changes: false,
+        },
+        {
+          prompt_index: 2,
+          prompt_preview: "edit me",
+          num_file_snapshots: 1,
+          has_file_changes: true,
+        },
+      ],
+    });
+    expect(points).toEqual([
+      {
+        promptIndex: 0,
+        promptPreview: "first turn",
+        createdAt: "2026-01-01T00:00:00Z",
+        numFileSnapshots: 0,
+        hasFileChanges: false,
+      },
+      {
+        promptIndex: 2,
+        promptPreview: "edit me",
+        numFileSnapshots: 1,
+        hasFileChanges: true,
+      },
+    ]);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 1,
+        points,
+        removedUserText: "edit me please",
+      }),
+    ).toBe(2);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 2,
+        points,
+      }),
+    ).toBe(2);
+    expect(
+      resolveGrokRewindTarget({
+        preferredIndex: 4,
+        points: [],
+      }),
+    ).toBe(4);
+  });
   it("sends text and image prompt blocks", () => {
     expect(
       grokPromptBlocks("  describe this  ", [
@@ -166,6 +253,98 @@ describe("grok protocol", () => {
       }),
     ).toEqual([{ type: "reasoning.delta", text: "Hmm" }]);
 
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "subagent_spawned",
+        subagent_id: "sa-1",
+        description: "Explore auth",
+        subagent_type: "explore",
+        model: "grok-4.6",
+      }),
+    ).toEqual([
+      {
+        type: "agent.updated",
+        id: "sa-1",
+        status: "running",
+        title: "Explore auth",
+        kind: "explore",
+        model: "grok-4.6",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "task_backgrounded",
+        task_id: "bg-1",
+        title: "npm test",
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "bg-1",
+        status: "running",
+        title: "npm test",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "goal_updated",
+        goal_id: "g1",
+        objective: "Ship context meter fix",
+        status: "active",
+        phase: "executing",
+        tokens_used: 12500,
+        token_budget: 200000,
+        completed_deliverables: 1,
+        total_deliverables: 3,
+        current_deliverable_title: "Prove occupancy mapping",
+        live_context_pct: 41,
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "goal:g1",
+        status: "running",
+        title: "Ship context meter fix",
+        detail:
+          "executing · 1/3 deliverables · Prove occupancy mapping · 13K / 200K tokens · 41% ctx",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "goal_updated",
+        goal_id: "g1",
+        objective: "Ship context meter fix",
+        status: "user_paused",
+        phase: "idle",
+        pause_message: "Waiting on your call",
+        tokens_used: 12500,
+      }),
+    ).toEqual([
+      {
+        type: "background.updated",
+        id: "goal:g1",
+        status: "running",
+        title: "Ship context meter fix",
+        detail: "user paused · 13K tokens · Waiting on your call",
+      },
+    ]);
+
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_started",
+        percentage: 87,
+        reason: "threshold",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacting context (87%): threshold",
+      },
+    ]);
+
     const early = eventsFromAcpUpdate({
       sessionUpdate: "tool_call_delta_chunk",
       tool_call_id: "call-0",
@@ -197,24 +376,34 @@ describe("grok protocol", () => {
       type: "tool.started",
       callId: "call-1",
       kind: "read",
+    });
+    expect(tools[1]).toMatchObject({
+      type: "tool.updated",
+      callId: "call-1",
+      kind: "read",
       preview: { kind: "read", path: "README.md", fileName: "README.md" },
     });
   });
 
-  it("surfaces session_summary_generated as status + context", () => {
+  it("stamps prompt.index from user message meta", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "user_message_chunk",
+        _meta: { promptIndex: 3 },
+      }),
+    ).toEqual([{ type: "prompt.index", index: 3 }]);
+  });
+
+  it("maps session_summary_generated to a status line", () => {
     expect(
       eventsFromAcpUpdate({
         sessionUpdate: "session_summary_generated",
-        summary: "Compacted prior turns into a short brief.",
-        usage: { totalTokens: 1200 },
+        summary: "Done reviewing the diff",
       }),
-    ).toEqual([
-      { type: "status", text: "Compacted prior turns into a short brief." },
-      { type: "context", used: 1200 },
-    ]);
+    ).toEqual([{ type: "status", text: "Summary: Done reviewing the diff" }]);
   });
 
-  it("maps turn_completed usage onto the context meter", () => {
+  it("ignores turn_completed ledger usage — that is spend, not occupancy", () => {
     expect(
       eventsFromAcpUpdate({
         sessionUpdate: "turn_completed",
@@ -224,7 +413,89 @@ describe("grok protocol", () => {
           totalTokens: 19798,
         },
       }),
-    ).toEqual([{ type: "context", used: 19798 }]);
+    ).toEqual([]);
+  });
+
+  it("ignores multi-million agent ledger totals on the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "turn_completed",
+        usage: {
+          inputTokens: 4_200_000,
+          outputTokens: 800_000,
+          totalTokens: 5_000_000,
+          numTurns: 48,
+          modelUsage: { "muse-spark": { inputTokens: 4_200_000 } },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("maps response_started prompt tokens onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "response_started",
+        input_tokens: 12_000,
+        cache_read_input_tokens: 80_000,
+        cache_creation_input_tokens: 1_500,
+      }),
+    ).toEqual([{ type: "context", used: 93_500 }]);
+  });
+
+  it("maps auto_compact_started occupancy onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_started",
+        tokens_used: 210_000,
+        context_window: 256_000,
+        percentage: 82,
+        reason: "threshold",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacting context (82%): threshold",
+      },
+      { type: "context", used: 210_000, window: 256_000 },
+    ]);
+  });
+
+  it("maps auto_compact_completed tokens_after onto the context meter", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "auto_compact_completed",
+        tokens_after: 42_000,
+        summary_preview: "trimmed history",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        text: "Compacted context · 42000 tokens: trimmed history",
+      },
+      { type: "context", used: 42_000 },
+    ]);
+  });
+
+  it("does not treat maxTokens as the context window", () => {
+    expect(
+      eventsFromAcpUpdate({
+        usage: {
+          used: 12_000,
+          maxTokens: 8192,
+        },
+      }),
+    ).toEqual([{ type: "context", used: 12_000 }]);
+  });
+
+  it("drops spend that exceeds the reported window", () => {
+    expect(
+      eventsFromAcpUpdate({
+        usage: {
+          used: 4_200_000,
+          contextWindow: 200_000,
+        },
+      }),
+    ).toEqual([{ type: "context", window: 200_000 }]);
   });
 
   it("maps plan entries", () => {
@@ -310,6 +581,54 @@ describe("grok protocol", () => {
     ]);
   });
 
+  it("parses muse-spark and free-models-router lines", () => {
+    const models = modelsFromGrokModelsOutput(
+      "Available models:\n  * muse-spark (default)\n  - muse-spark-free\n  - free-models-router\n  - grok-4.6\n",
+    );
+    expect(models.map((m) => m.nativeId)).toEqual([
+      "muse-spark",
+      "muse-spark-free",
+      "free-models-router",
+      "grok-4.6",
+    ]);
+    expect(models.map((m) => m.name)).toEqual([
+      "muse-spark",
+      "muse-spark-free",
+      "free-models-router",
+      "grok-4.6",
+    ]);
+    expect(models.every((m) => m.harness === "grok")).toBe(true);
+  });
+
+  it("merges CLI membership with ACP display names", () => {
+    const cli = modelsFromGrokModelsOutput(
+      "  * muse-spark (default)\n  - grok-4.6\n",
+    );
+    const acp = [
+      {
+        id: "grok:muse-spark",
+        harness: "grok" as const,
+        name: "Muse Spark 1.3 Contributor (OpenCode Go)",
+        nativeId: "muse-spark",
+        contextWindow: 1_048_576,
+      },
+      {
+        id: "grok:grok-4.6",
+        harness: "grok" as const,
+        name: "Grok 4.6",
+        nativeId: "grok-4.6",
+        contextWindow: 500_000,
+      },
+    ];
+    const merged = mergeGrokCatalogs(cli, acp);
+    expect(merged.map((m) => m.nativeId)).toEqual(["muse-spark", "grok-4.6"]);
+    expect(merged.map((m) => m.name)).toEqual([
+      "Muse Spark 1.3 Contributor (OpenCode Go)",
+      "Grok 4.6",
+    ]);
+    expect(merged[0]?.contextWindow).toBe(1_048_576);
+  });
+
   it("ships a grok-4.6 fallback catalog", () => {
     expect(fallbackGrokModels()[0]?.nativeId).toBe("grok-4.6");
   });
@@ -354,5 +673,81 @@ describe("grok protocol", () => {
 
   it("extracts plan text from exit_plan_mode", () => {
     expect(planFromExitPlan({ planContent: "Ship it" })).toBe("Ship it");
+  });
+
+  it("emits tool.started then tool.updated on first tool_call", () => {
+    const events = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-1",
+      title: "Read file",
+      kind: "read",
+      status: "pending",
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "tool.started",
+      "tool.updated",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "tool.started",
+      callId: "call-1",
+    });
+    expect(events[1]).toMatchObject({
+      type: "tool.updated",
+      callId: "call-1",
+    });
+  });
+
+  it("emits only tool.updated on tool_call_update", () => {
+    const events = eventsFromAcpUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-1",
+      status: "completed",
+    });
+    expect(events.map((event) => event.type)).toEqual(["tool.updated"]);
+  });
+
+  it("maps session_summary_generated to a status event", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+        summary: "Compressed older turns",
+      }),
+    ).toEqual([{ type: "status", text: "Summary: Compressed older turns" }]);
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "session_summary_generated",
+      }),
+    ).toEqual([]);
+  });
+
+  it("stamps prompt.index from user_message meta", () => {
+    expect(
+      eventsFromAcpUpdate({
+        sessionUpdate: "user_message",
+        _meta: { promptIndex: 3 },
+      }),
+    ).toEqual([{ type: "prompt.index", index: 3 }]);
+    expect(
+      eventsFromAcpUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "hi" },
+          _meta: { prompt_index: 2 },
+        },
+      }),
+    ).toEqual([
+      { type: "prompt.index", index: 2 },
+      { type: "message.delta", text: "hi" },
+    ]);
+  });
+
+  it("detects JSON-RPC method-not-found for rewind fallback", () => {
+    expect(isMethodNotFound({ code: -32601, message: "nope" })).toBe(true);
+    expect(
+      isMethodNotFound(
+        new Error("Method not found: _x.ai/rewind/execute"),
+      ),
+    ).toBe(true);
+    expect(isMethodNotFound(new Error("timeout"))).toBe(false);
   });
 });

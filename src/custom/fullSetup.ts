@@ -92,13 +92,12 @@ export function fullSetupApply(input: {
   });
 }
 
-export function fullSetupVerify(): Promise<FullSetupApplyResult> {
-  return invoke<FullSetupApplyResult>("full_setup_verify");
-}
-
 export function recoveryHint(step: string, error: string): string {
   const msg = error.trim();
-  if (/npm not found|node/i.test(msg) || step === "prereq") {
+  if (
+    /npm not found|node/i.test(msg) ||
+    (step === "prereq" && /not found|Install Node/i.test(msg))
+  ) {
     return "Install Node.js LTS from https://nodejs.org, then reopen MonoCode.";
   }
   if (/grok/i.test(step) || /install\.ps1|x\.ai\/cli/i.test(msg)) {

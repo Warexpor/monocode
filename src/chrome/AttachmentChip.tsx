@@ -47,10 +47,10 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
           className={`grid shrink-0 place-items-center rounded-full text-content/70 hover:bg-content/15 hover:text-content ${
             image
               ? "absolute -right-1 -top-1 size-5 bg-content/20 opacity-100 shadow-sm backdrop-blur-sm"
-              : "size-4 text-content/40"
+              : "-m-0.5 size-5 p-0.5 text-content/40"
           }`}
         >
-          <X className={image ? "size-3" : "size-3"} strokeWidth={2} />
+          <X className="size-3" strokeWidth={2} />
         </button>
       ) : null}
     </div>

@@ -1,4 +1,4 @@
-import { ChevronDown, GripVertical, X } from "../chrome/icons";
+import { ChevronDown, GripVertical, Maximize2, X } from "../chrome/icons";
 import {
   memo,
   useCallback,
@@ -6,10 +6,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
+import { DiscussionEmpty } from "../chrome/DiscussionEmpty";
 import { SessionReview } from "../chrome/SessionReview";
+import { PromptOutline } from "../chrome/PromptOutline";
 import {
   canCompactHarnessContext,
   type ApprovalDecision,
@@ -38,6 +41,21 @@ import {
 } from "../lib/quoteDraft";
 import { createNote, noteTitle } from "../lib/notes";
 import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
+import { resolveModel } from "../lib/models";
+import { isAstraModel } from "../lib/astraWelcome";
+import { AstraWelcome } from "./AstraWelcome";
+import { BtwAsidePanel } from "../chrome/BtwAsidePanel";
+import { projectKey } from "../lib/paths";
+import {
+  loadProjectChatBackground,
+  projectChatBackgroundRevision,
+  subscribeProjectChatBackground,
+} from "../lib/projectChatBackground";
+import { projectChatBackgroundSrc } from "../lib/chatBackground";
+import {
+  loadChatBackgroundPath,
+  subscribeChatBackgroundPath,
+} from "../lib/appearance";
 
 type Props = {
   session: Session;
@@ -120,7 +138,11 @@ type Props = {
   ) => void;
   focusBlockId?: string;
   onFocusBlockConsumed?: () => void;
+  onEditResend?: (sessionId: string, userBlockId: string) => void;
+  onRevertAfter?: (sessionId: string, userBlockId: string) => void;
   onNewTerminal: (sessionId: string) => void;
+  onBtwAsideDismiss?: (sessionId: string) => void;
+  onOpenTranscriptOverlay?: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
 
@@ -164,10 +186,33 @@ export const SessionPane = memo(function SessionPane({
   onHandoff,
   focusBlockId,
   onFocusBlockConsumed,
+  onEditResend,
+  onRevertAfter,
   onNewTerminal,
+  onBtwAsideDismiss,
+  onOpenTranscriptOverlay,
   onPaneDragStart,
 }: Props) {
   const title = sessionDisplayTitle(session.title, session.harness);
+  const backgroundRevision = useSyncExternalStore(
+    subscribeProjectChatBackground,
+    projectChatBackgroundRevision,
+    projectChatBackgroundRevision,
+  );
+  const globalBackgroundPath = useSyncExternalStore(
+    subscribeChatBackgroundPath,
+    loadChatBackgroundPath,
+    loadChatBackgroundPath,
+  );
+  const projectBackground = loadProjectChatBackground(projectKey(session.cwd));
+  const projectBackgroundStyle = projectBackground
+    ? ({
+        "--chat-background-image": `url(${JSON.stringify(
+          projectChatBackgroundSrc(projectBackground.path, backgroundRevision),
+        )})`,
+        "--chat-background-opacity": String(projectBackground.opacity),
+      } as CSSProperties)
+    : undefined;
   const approve = useCallback(
     (requestId: number, decision: ApprovalDecision) =>
       onApproval(session.id, requestId, decision),
@@ -188,13 +233,20 @@ export const SessionPane = memo(function SessionPane({
     [onBuildPlan, session.id],
   );
   const jumpToBottomRef = useRef<(() => void) | null>(null);
+  const transcriptScope = useRef<HTMLDivElement>(null);
   const quoteRequestId = useRef(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
-  const [unseenCount, setUnseenCount] = useState(0);
+  const astraWelcomeSequence = useRef(0);
+  const [astraWelcomeRun, setAstraWelcomeRun] = useState<number | null>(null);
+  const dismissAstraWelcome = useCallback(() => setAstraWelcomeRun(null), []);
+  useEffect(() => {
+    if (!visible) setAstraWelcomeRun(null);
+  }, [visible]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
   }, []);
+  const [unseenCount, setUnseenCount] = useState(0);
   const onUnseenCountChange = useCallback((count: number) => {
     setUnseenCount(count);
   }, []);
@@ -203,6 +255,14 @@ export const SessionPane = memo(function SessionPane({
       onReorderQueuedMessage?.(session.id, messageId, direction);
     },
     [onReorderQueuedMessage, session.id],
+  );
+  const revealBlockRef = useRef<((blockId: string) => boolean) | null>(null);
+  const onRevealReady = useCallback((reveal: (blockId: string) => boolean) => {
+    revealBlockRef.current = reveal;
+  }, []);
+  const revealBlock = useCallback(
+    (blockId: string) => revealBlockRef.current?.(blockId) ?? false,
+    [],
   );
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
@@ -248,34 +308,54 @@ export const SessionPane = memo(function SessionPane({
   const workCwd = sessionWorkCwd(session);
   const isEmpty = session.blocks.length === 0;
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
-  const dockComposer = !isEmpty || inSplit;
+  const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
+  const draftRef = useRef<string | undefined>(undefined);
+  const seedText =
+    typeof session.composerSeed === "string"
+      ? session.composerSeed
+      : session.composerSeed?.text;
+  const seedAttachments =
+    typeof session.composerSeed === "object"
+      ? session.composerSeed.attachments
+      : undefined;
+  useEffect(() => {
+    if (seedText != null) draftRef.current = seedText;
+  }, [seedText]);
   const composer = (
     <Composer
       enabled={visible}
       focused={focused && composerFocused}
       hotkeys={focused}
       shell={!dockComposer}
-      sessionId={session.id}
       harness={session.harness}
       model={session.model}
       modelSettings={session.modelSettings}
       runtimeMode={session.runtimeMode}
       cwd={session.cwd}
       executionCwd={workCwd}
+      sessionId={session.id}
       compactSupported={canCompactHarnessContext(session.harness)}
       recents={recents}
-      hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
+      hideProjectPicker={
+        !!session.inboxAsk ||
+        (hideProjectPicker ? !showDeckProjectPicker : false)
+      }
+      hideBranchPicker={!!session.inboxAsk}
+      hideTopBar={!!session.inboxAsk}
       context={session.context}
       quoteRequest={quoteRequest}
-      initialDraft={
-        session.inboxCard || session.noteCard || session.handoffCard
-          ? undefined
-          : session.composerSeed
-      }
+      initialDraft={seedText ?? draftRef.current}
+      initialAttachments={seedAttachments}
+      onDraftChange={(text) => {
+        draftRef.current = text;
+      }}
       inboxCard={session.inboxCard}
       noteCard={session.noteCard}
       handoffCard={session.handoffCard}
       question={session.pendingQuestion}
+      followUps={session.followUps}
+      agents={session.agents}
+      backgroundTasks={session.backgroundTasks}
       onQuoteRequestConsumed={acknowledgeQuote}
       onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
@@ -285,9 +365,14 @@ export const SessionPane = memo(function SessionPane({
       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
       onBranchChange={() => onBranchChange(session.id)}
       onNewTerminal={() => onNewTerminal(session.id)}
-      onModelChange={(harness, model) =>
-        onModelChange(session.id, harness, model)
-      }
+      onModelChange={(harness, model) => {
+        onModelChange(session.id, harness, model);
+        const selected = resolveModel(harness, model);
+        // A new key restarts the animation and its cleanup timer on every pick.
+        setAstraWelcomeRun(
+          isAstraModel(selected) ? ++astraWelcomeSequence.current : null,
+        );
+      }}
       onModelSettingsChange={(settings) =>
         onModelSettingsChange(session.id, settings)
       }
@@ -318,23 +403,32 @@ export const SessionPane = memo(function SessionPane({
       onOpenFile={onOpenFile}
       busy={!!session.busy}
     >
-      <SessionReview
-        sessionId={session.id}
-        cwd={workCwd}
-        enabled={visible}
-        busy={!!session.busy}
-        undoLocked={reviewUndoLocked}
-        onOpenDiff={onOpenDiff}
-      />
+      {session.inboxAsk ? null : (
+        <SessionReview
+          sessionId={session.id}
+          cwd={workCwd}
+          enabled={visible}
+          busy={!!session.busy}
+          undoLocked={reviewUndoLocked}
+          onOpenDiff={onOpenDiff}
+        />
+      )}
     </Composer>
   );
 
   return (
     <div
       data-session-drop={session.id}
-      className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      data-session-empty={isEmpty}
+      data-project-chat-background={!!projectBackground}
+      data-project-background-scope={projectBackground?.scope}
+      style={projectBackgroundStyle}
+      className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(session.id)}
     >
+      {astraWelcomeRun !== null && visible ? (
+        <AstraWelcome key={astraWelcomeRun} onDone={dismissAstraWelcome} />
+      ) : null}
       {inSplit ? (
         <div
           className={`flex h-9 shrink-0 touch-none items-center gap-1.5 border-b border-content/10 px-2 select-none ${
@@ -365,10 +459,27 @@ export const SessionPane = memo(function SessionPane({
           >
             {title}
           </span>
+          {onOpenTranscriptOverlay && !isEmpty ? (
+            <button
+              type="button"
+              title="Open full transcript"
+              aria-label="Open full transcript"
+              data-no-drag
+              className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenTranscriptOverlay(session.id);
+              }}
+            >
+              <Maximize2 className="size-3" strokeWidth={1.75} />
+            </button>
+          ) : null}
           <button
             type="button"
             title={`Close Pane (${MOD}W)`}
-            aria-label="Close pane"
+            aria-label={`Close pane (${MOD}W)`}
             data-no-drag
             className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
             onPointerDown={(e) => e.stopPropagation()}
@@ -382,81 +493,128 @@ export const SessionPane = memo(function SessionPane({
           </button>
         </div>
       ) : null}
-      <div className="relative min-h-0 flex-1">
+      <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {isEmpty ? (
-          <EmptySession
-            cwd={session.cwd}
-            composer={dockComposer ? undefined : composer}
-          />
-        ) : (
-          <>
-            <AgentTranscript
-              blocks={session.blocks}
-              busy={!!session.busy}
-              visible={visible}
-              cwd={workCwd}
-              harness={session.harness}
-              model={session.model}
-              pendingQuestion={!!session.pendingQuestion}
-              onApproval={approve}
-              onAddToChat={addSelectionToChat}
-              onSaveNote={notesEnabled ? saveNote : undefined}
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-              onOpenPlan={openPlan}
-              onBuildPlan={buildPlan}
-              onSecondOpinion={
-                onSecondOpinion
-                  ? (harness, turn, model) =>
-                      onSecondOpinion(session.id, harness, turn, model)
-                  : undefined
-              }
-              onHandoff={
-                onHandoff
-                  ? (harness, turn, model) =>
-                      onHandoff(session.id, harness, turn, model)
-                  : undefined
-              }
-              onRewindToMessage={
-                onRewindToMessage
-                  ? (blockId) => onRewindToMessage(session.id, blockId)
-                  : undefined
-              }
-              onJumpToBottomChange={setShowJumpToBottom}
-              onJumpToBottomReady={onJumpToBottomReady}
-              onUnseenCountChange={onUnseenCountChange}
-              focusBlockId={focusBlockId}
-              onFocusBlockConsumed={onFocusBlockConsumed}
-              hotkeys={focused && visible}
+          session.inboxAsk ? (
+            <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
+              <DiscussionEmpty message="Explore this item with your agent." />
+            </div>
+          ) : (
+            <EmptySession
+              cwd={session.cwd}
+              hasChatBackground={Boolean(
+                projectBackground || globalBackgroundPath,
+              )}
+              composer={dockComposer ? undefined : composer}
             />
-            {showJumpToBottom ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
-                <button
-                  type="button"
-                  title="Jump to latest"
-                  aria-label={
-                    unseenCount > 0
-                      ? `Jump to latest, ${unseenCount} new`
-                      : "Jump to latest"
-                  }
-                  data-jump-to-bottom
-                  onClick={() => jumpToBottomRef.current?.()}
-                  className={
-                    unseenCount > 0
-                      ? "pointer-events-auto flex h-6 items-center gap-1 rounded-md border border-content/15 bg-content/10 px-2 font-sans text-[11px] text-content shadow-md backdrop-blur-md hover:bg-content/5"
-                      : "pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md backdrop-blur-md hover:bg-content/5"
-                  }
-                >
-                  <ChevronDown className="size-4" strokeWidth={2} />
-                  {unseenCount > 0 ? (
-                    <span className="tabular-nums">
-                      {unseenCount} new
-                    </span>
-                  ) : null}
-                </button>
-              </div>
+          )
+        ) : (
+          <div className="flex h-full min-h-0">
+            <div className="relative min-h-0 min-w-0 flex-1">
+              {onOpenTranscriptOverlay && !inSplit ? (
+                <div className="pointer-events-none absolute top-2 right-2 z-30">
+                  <button
+                    type="button"
+                    title="Open full transcript"
+                    aria-label="Open full transcript"
+                    onClick={() => onOpenTranscriptOverlay(session.id)}
+                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content/60 shadow-md backdrop-blur-md hover:bg-content/20 hover:text-content"
+                  >
+                    <Maximize2 className="size-3.5" strokeWidth={1.75} />
+                  </button>
+                </div>
+              ) : null}
+              <AgentTranscript
+                blocks={session.blocks}
+                busy={!!session.busy}
+                visible={visible}
+                cwd={workCwd}
+                harness={session.harness}
+                model={session.model}
+                pendingQuestion={!!session.pendingQuestion}
+                onApproval={approve}
+                onAddToChat={addSelectionToChat}
+                onSaveNote={notesEnabled ? saveNote : undefined}
+                onOpenFile={onOpenFile}
+                onOpenDiff={onOpenDiff}
+                onOpenPlan={openPlan}
+                onBuildPlan={buildPlan}
+                onSecondOpinion={
+                  !session.inboxAsk && onSecondOpinion
+                    ? (harness, turn, model) =>
+                        onSecondOpinion(session.id, harness, turn, model)
+                    : undefined
+                }
+                onHandoff={
+                  !session.inboxAsk && onHandoff
+                    ? (harness, turn, model) =>
+                        onHandoff(session.id, harness, turn, model)
+                    : undefined
+                }
+                onEditResend={
+                  onEditResend
+                    ? (userBlockId) => onEditResend(session.id, userBlockId)
+                    : undefined
+                }
+                onRevertAfter={
+                  onRevertAfter
+                    ? (userBlockId) => onRevertAfter(session.id, userBlockId)
+                    : undefined
+                }
+                onRewindToMessage={
+                  onRewindToMessage
+                    ? (blockId) => onRewindToMessage(session.id, blockId)
+                    : undefined
+                }
+                onJumpToBottomChange={setShowJumpToBottom}
+                onJumpToBottomReady={onJumpToBottomReady}
+                onUnseenCountChange={onUnseenCountChange}
+                focusBlockId={focusBlockId}
+                onFocusBlockConsumed={onFocusBlockConsumed}
+                hotkeys={focused && visible}
+                onRevealReady={onRevealReady}
+              />
+              <PromptOutline
+                blocks={session.blocks}
+                scope={transcriptScope}
+                visible={visible}
+                revealBlock={revealBlock}
+              />
+              {showJumpToBottom ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
+                  <button
+                    type="button"
+                    title="Jump to latest"
+                    aria-label={
+                      unseenCount > 0
+                        ? `Jump to latest, ${unseenCount} new`
+                        : "Jump to latest"
+                    }
+                    data-jump-to-bottom
+                    onClick={() => jumpToBottomRef.current?.()}
+                    className={
+                      unseenCount > 0
+                        ? "pointer-events-auto flex h-6 items-center gap-1 rounded-md border border-content/15 bg-content/10 px-2 font-sans text-[11px] text-content shadow-md backdrop-blur-md hover:bg-content/5"
+                        : "pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
+                    }
+                  >
+                    <ChevronDown className="size-4" strokeWidth={2} />
+                    {unseenCount > 0 ? (
+                      <span className="tabular-nums">{unseenCount} new</span>
+                    ) : null}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            {session.btwAside ? (
+              <BtwAsidePanel
+                aside={session.btwAside}
+                cwd={workCwd}
+                onDismiss={() => onBtwAsideDismiss?.(session.id)}
+                onOpenFile={onOpenFile}
+              />
             ) : null}
-          </>
+          </div>
         )}
       </div>
       {dockComposer ? (

@@ -1,6 +1,6 @@
 # Contributing
 
-MonoCode is early and I’m the only maintainer, so small and focused lands much faster than large and ambitious. Past that, the door is open - bug reports and fixes are genuinely welcome.
+This is [Warexpor/monocode](https://github.com/Warexpor/monocode). The app is early, so small and focused pull requests land much faster than large and ambitious ones. Bug reports and fixes are welcome.
 
 Please don’t open PRs that add a new provider right now. The existing harnesses still need to agree on a few patterns, and a new adapter would copy whatever is there today. See [New providers](#new-providers).
 
@@ -17,7 +17,7 @@ You need Node.js 20+, a current stable Rust toolchain, and at least one provider
 - [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`
 - [fx](https://fx.sh) - `curl -fsSL https://fx.sh/setup.sh | bash` then `fx login`
 
-macOS, Linux, and Windows are supported targets. On Debian/Ubuntu, `npm run setup:linux:deb` installs the native Tauri build dependencies.
+Windows is the only platform this fork ships and builds. Develop on Windows with the MSVC Rust toolchain.
 
 ```bash
 npm install
@@ -31,9 +31,10 @@ One provider is enough. MonoCode probes for each CLI at startup and disables the
 - `src/chrome/` - the window frame: title bar, sidebar, composer, tabs, model picker
 - `src/surfaces/` - the panes inside a tab: transcript, file editor, diff, terminal
 - `src/lib/harness/` - one adapter per provider, plus the registry they plug into
-- `src-tauri/src/` - the Rust side: PTYs, filesystem and git, session storage, native window
+- `src/custom/` - Warexpor product overlay (Windows Full Setup wizard for Grok + OpenCodex + Exa)
+- `src-tauri/src/` - the Rust side: PTYs, filesystem and git, session storage, native window, Full Setup commands
 
-`src/lib/harness/` is the most useful place to start if you want to fix something real. Each provider has an adapter (`claudeAdapter.ts`) that implements the shared `HarnessAdapter` lifecycle from `registry.ts`, and a protocol module (`claudeProtocol.ts`) that translates the CLI’s output into MonoCode’s own event types. The protocol modules are pure functions with unit tests beside them, so you can fix a Codex parsing bug with only Claude Code installed. That’s for the providers we already ship - please don’t add a new one yet.
+`src/lib/harness/` is the most useful place to start if you want to fix something real. Each provider has an adapter (`claudeAdapter.ts`) that implements the shared `HarnessAdapter` lifecycle from `registry.ts`, and a protocol module (`claudeProtocol.ts`) that translates the CLI’s output into MonoCode’s own event types. The protocol modules are pure functions with unit tests beside them, so you can fix a Codex parsing bug with only Claude Code installed. That’s for the providers we already ship - please don’t add a new one yet. Product-only Windows setup UX belongs in `src/custom/` (see `CUSTOM.md`).
 
 ## Before you push
 
@@ -41,7 +42,7 @@ One provider is enough. MonoCode probes for each CLI at startup and disables the
 npm run check
 ```
 
-That runs what CI runs: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test`. If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
+That runs what CI runs on `windows-latest`: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test`. On Windows, `npm run check:rust` pins the MSVC rustup toolchain (see `scripts/check-rust.mjs`). If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
 
 ## New providers
 
@@ -53,8 +54,8 @@ When the pause lifts, this section goes away.
 
 Keep a PR to one thing, and say what changed and why. The [PR template](.github/pull_request_template.md) covers the rest. If it changes the UI, a before/after screenshot helps a lot.
 
-For anything that moves product direction - a new surface, new provider behavior, a refactor that changes the shape of the app - open an issue first. That’s not gatekeeping, I’d just rather you hear “I’m already halfway through that” before you write it than after. New providers are the exception: don’t send the adapter, even from an issue, until the pause above is gone.
+For anything that moves product direction - a new surface, new provider behavior, a refactor that changes the shape of the app - open an issue first. New providers are the exception: don’t send the adapter, even from an issue, until the pause above is gone.
 
-I might close a PR, ask you to shrink it, or end up implementing the idea differently. That’s a call about scope and timing, not about you or the quality of your work.
+A PR may be closed, shrunk, or implemented differently. That’s a call about scope and timing, not about you or the quality of your work.
 
 Be kind: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security reports: [SECURITY.md](SECURITY.md).

@@ -57,7 +57,7 @@ fn search_project_sync(options: &SearchOptions) -> Result<SearchResult, String> 
 
     let root = expand_home(&options.cwd);
     if !root.is_dir() {
-        return Err(format!("{}: Not a directory", root.display()));
+        return Err(crate::fs::path_msg(&root, "Not a directory"));
     }
 
     if let Some(result) = git_grep(&root, options, query) {

@@ -55,6 +55,7 @@ import {
 } from "../lib/fs";
 import type { HarnessId } from "../lib/session";
 import { generateCommitMessage, generatePrContent } from "../lib/harness";
+import { onMenuRovingKeyDown } from "../lib/menuKeys";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
@@ -278,8 +279,18 @@ function ChangedFiles({
     const onPointer = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMenuOpen(false);
+    };
     window.addEventListener("pointerdown", onPointer);
-    return () => window.removeEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [menuOpen]);
 
   const fail = (error: unknown) => {
@@ -464,7 +475,7 @@ function ChangedFiles({
                 void commit(false);
               }
             }}
-            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-[13px] leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40"
+            className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-[13px] leading-5 text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-40"
           />
           <button
             type="button"
@@ -472,7 +483,7 @@ function ChangedFiles({
             aria-label="Generate commit message"
             disabled={!canGenerate}
             onClick={() => void generate()}
-            className="absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 hover:text-content disabled:opacity-40"
+            className="absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 disabled:opacity-40"
           >
             {busy === "generate" ? (
               <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
@@ -496,6 +507,8 @@ function ChangedFiles({
             type="button"
             title="Commit options"
             aria-label="Commit options"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             disabled={!canCommit}
             onClick={() => setMenuOpen((open) => !open)}
             className="grid h-7 w-7 shrink-0 place-items-center rounded-r-md border-l border-background-base/10 bg-content text-background-base disabled:opacity-40"
@@ -503,9 +516,15 @@ function ChangedFiles({
             <ChevronDown className="size-3.5" strokeWidth={2} />
           </button>
           {menuOpen ? (
-            <div className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 bg-background-base py-1 shadow-lg">
+            <div
+              role="menu"
+              aria-label="Commit options"
+              onKeyDown={onMenuRovingKeyDown}
+              className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 bg-background-base py-1 shadow-lg"
+            >
               <button
                 type="button"
+                role="menuitem"
                 disabled={!canCommitPush}
                 onClick={() => void commit(true)}
                 className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
@@ -514,6 +533,7 @@ function ChangedFiles({
               </button>
               <button
                 type="button"
+                role="menuitem"
                 disabled={!canCommitPushPr}
                 onClick={() => void commit(true, true)}
                 className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
@@ -853,6 +873,7 @@ function FileSection({
         <button
           type="button"
           onClick={onToggle}
+          aria-expanded={open}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
         >
           {open ? (
@@ -869,7 +890,7 @@ function FileSection({
           <span className="min-w-0 truncate text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
             {title}
           </span>
-          <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-accent/80 px-1 text-[8px] text-white">
+          <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-accent/80 px-1 text-[8px] text-on-accent">
             {count}
           </span>
         </button>
@@ -923,10 +944,11 @@ function ChangeRow({
         <button
           type="button"
           title={file.relative}
+          disabled={!canOpen}
           onClick={() => {
             if (canOpen) onOpenFile(file.path);
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default disabled:opacity-60"
         >
           <FileTypeIcon name={name} isDir={false} size={16} />
           <span className="min-w-0 flex-1 truncate">
@@ -1014,10 +1036,10 @@ function DiffCounts({
   return (
     <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums">
       {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-success">+{additions}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
+        <span className="text-danger">-{deletions}</span>
       ) : null}
     </span>
   );
@@ -1036,10 +1058,10 @@ function statusLetter(status: string): string {
 }
 
 function statusColor(status: string): string {
-  if (status === "untracked") return "text-sky-400";
-  if (status === "added") return "text-emerald-400";
-  if (status === "deleted") return "text-red-400";
-  return "text-amber-400";
+  if (status === "untracked") return "text-info";
+  if (status === "added") return "text-success";
+  if (status === "deleted") return "text-danger";
+  return "text-warning";
 }
 
 function useDiffIndex(

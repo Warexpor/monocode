@@ -550,6 +550,13 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            updated_at INTEGER NOT NULL
          );",
     )?;
+    // Compatibility only: earlier Inbox Ask builds saved temporary chats here.
+    // Keep those records off normal surfaces without deleting their transcripts.
+    ensure_session_column(conn, "inbox_ask", "TEXT")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS sessions_legacy_inbox
+         ON sessions (id) WHERE inbox_ask IS NOT NULL;",
+    )?;
     crate::notes::ensure_notes_table(conn)?;
     Ok(())
 }
@@ -565,7 +572,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(&session.cwd));
+    let cwd = crate::fs::slash_cwd(&session.cwd);
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let branch = session
         .branch
         .as_deref()
@@ -575,7 +583,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
     let worktree_cwd = session
         .worktree_cwd
         .as_deref()
-        .map(str::trim)
+        .map(crate::fs::slash_cwd)
         .filter(|value| !value.is_empty());
 
     let has_user_message = has_user_block(&session.blocks);
@@ -629,7 +637,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            has_user_message = excluded.has_user_message",
         params![
             session.id,
-            session.cwd,
+            cwd,
             session.harness,
             session.model,
             model_settings,
@@ -649,7 +657,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
 
     Ok(SessionSummary {
         id: session.id.clone(),
-        cwd: session.cwd.clone(),
+        cwd,
         harness: session.harness.clone(),
         model: session.model.clone(),
         runtime_mode: session.runtime_mode.clone(),
@@ -682,13 +690,13 @@ fn search_sessions(
     let cwd = options
         .cwd
         .as_deref()
-        .map(str::trim)
+        .map(crate::fs::slash_cwd)
         .filter(|value| !value.is_empty());
 
     let mut sql = String::from(
         "SELECT id, cwd, harness, title, updated_at, archived, blocks_json
          FROM sessions
-         WHERE blocks_json != '[]'
+         WHERE inbox_ask IS NULL AND blocks_json != '[]'
            AND blocks_json LIKE '%\"role\":\"user\"%'
            AND (LOWER(title) LIKE LOWER(?1) ESCAPE '\\'
                 OR LOWER(blocks_json) LIKE LOWER(?1) ESCAPE '\\')",
@@ -913,13 +921,15 @@ fn ceil_char_boundary(text: &str, mut index: usize) -> usize {
 }
 
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
-    let git = crate::fs::git_info_for(&crate::fs::expand_home(cwd));
+    let cwd = crate::fs::slash_cwd(cwd);
+    let git = crate::fs::git_info_for(&crate::fs::expand_home(&cwd));
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                 created_at, updated_at, branch, archived, pinned
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
+           AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
          ORDER BY updated_at DESC, id ASC",
     )?;
     let rows = statement.query_map(params![cwd], |row| {
@@ -995,7 +1005,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd
          FROM sessions
-         WHERE id = ?1",
+         WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
         |row| {
             let model_settings_raw: String = row.get(4)?;
@@ -1146,6 +1156,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn legacy_inbox_chats_are_not_normal_sessions() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        upsert_session(&conn, &sample("project", "/tmp/project", "Login")).unwrap();
+        upsert_session(&conn, &sample("ask", "/tmp/project", "Login")).unwrap();
+        conn.execute("UPDATE sessions SET inbox_ask = '{}' WHERE id = 'ask'", [])
+            .unwrap();
+        migrate(&conn).unwrap();
+        let rows = list_by_project(&conn, "/tmp/project").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "project");
+        assert!(get_session(&conn, "ask").unwrap().is_none());
+        let search = search_sessions(
+            &conn,
+            &SessionSearchOptions {
+                query: "Login".into(),
+                cwd: None,
+                include_archived: true,
+            },
+        )
+        .unwrap();
+        assert!(search.hits.iter().all(|hit| hit.session_id == "project"));
+        // Hiding the old implementation's records does not delete their data.
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
     /// The sidebar query must stay answerable from the index alone. Selecting a
     /// column the index does not carry silently reintroduces a table seek per
     /// row, and every summary column sits behind a ~180 KB `blocks_json` blob
@@ -1163,6 +1203,7 @@ mod tests {
                  FROM sessions
                  WHERE cwd = ?1
                    AND has_user_message = 1
+                   AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                  ORDER BY updated_at DESC, id ASC",
                 params!["/tmp/a"],
                 |row| row.get(3),
@@ -1335,6 +1376,16 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].id, "s2");
         assert_eq!(listed[1].id, "s1");
+    }
+
+    #[test]
+    fn list_by_project_treats_backslash_and_slash_cwd_as_the_same_project() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("s1", r"C:\Users\me\app", "Win")).unwrap();
+        let listed = list_by_project(&conn, "C:/Users/me/app").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].cwd, "C:/Users/me/app");
     }
 
     #[test]

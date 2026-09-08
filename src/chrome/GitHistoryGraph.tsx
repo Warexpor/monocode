@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ChevronDown, ChevronRight, GitBranch } from "./icons";
@@ -122,7 +123,7 @@ function HistoryRow({
         type="button"
         title={`${commit.shortSha} ${commit.subject}${commit.author ? ` — ${commit.author}` : ""}`}
         onClick={onOpen}
-        aria-pressed={active}
+        aria-current={active ? "true" : undefined}
         className={`git-history-item flex h-[22px] min-w-0 w-full items-stretch overflow-visible pr-2 text-left ${
           row.kind === "HEAD" ? "is-head" : ""
         } ${
@@ -363,16 +364,38 @@ export function GraphResizeSash({
     window.addEventListener("pointercancel", onUp);
   };
 
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 48 : 12;
+    let next: number | null = null;
+    if (event.key === "ArrowUp" || event.key === "ArrowRight") {
+      next = clamp(paintedRef.current + step);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
+      next = clamp(paintedRef.current - step);
+    } else if (event.key === "Home") {
+      next = clamp(GRAPH_PANEL_MIN);
+    } else if (event.key === "End" || event.key === "Enter") {
+      next = clamp(GRAPH_PANEL_DEFAULT);
+    } else return;
+    event.preventDefault();
+    paintedRef.current = next;
+    paintRef.current(next);
+    commitRef.current(next);
+  };
+
   return (
     <div
       role="separator"
       aria-orientation="horizontal"
       aria-label="Resize graph"
+      aria-valuemin={GRAPH_PANEL_MIN}
+      aria-valuemax={Math.round(maxRef.current())}
       aria-valuenow={height}
+      tabIndex={0}
       className={`z-10 h-1.5 shrink-0 cursor-row-resize touch-none ${
         dragging ? "bg-content/15" : "hover:bg-content/10"
       }`}
       onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
       onDoubleClick={() => commitRef.current(clamp(GRAPH_PANEL_DEFAULT))}
     />
   );

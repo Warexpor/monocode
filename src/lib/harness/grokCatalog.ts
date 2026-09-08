@@ -10,9 +10,9 @@ import {
   watchChild,
 } from "./child";
 import {
-  fallbackGrokModels,
   grokAuthMethodId,
   grokSpawnArgs,
+  mergeGrokCatalogs,
   modelsFromGrokModelsOutput,
   modelsFromInitialize,
   modelsFromSessionNew,
@@ -45,17 +45,18 @@ export function refreshGrokCatalog(): Promise<void> {
 }
 
 async function discoverGrokModels() {
-  const fromAcp = await discoverViaAcp().catch((error: unknown) => {
-    console.debug("[monocode] grok ACP catalog failed", error);
-    return [];
-  });
-  if (fromAcp.length > 0) return fromAcp;
-  const fromCli = await discoverViaCli().catch((error: unknown) => {
-    console.debug("[monocode] grok CLI catalog failed", error);
-    return [];
-  });
-  if (fromCli.length > 0) return fromCli;
-  return fallbackGrokModels();
+  const [fromCli, fromAcp] = await Promise.all([
+    discoverViaCli().catch((error: unknown) => {
+      console.debug("[monocode] grok CLI catalog failed", error);
+      return [];
+    }),
+    discoverViaAcp().catch((error: unknown) => {
+      console.debug("[monocode] grok ACP catalog failed", error);
+      return [];
+    }),
+  ]);
+  const models = mergeGrokCatalogs(fromCli, fromAcp);
+  return models;
 }
 
 async function discoverViaAcp() {

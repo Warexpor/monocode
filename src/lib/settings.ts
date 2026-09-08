@@ -166,6 +166,78 @@ export function subscribeNotesEnabled(onStoreChange: () => void) {
     window.removeEventListener(NOTES_ENABLED_CHANGE_EVENT, onStoreChange);
 }
 
+const INBOX_ENABLED_KEY = "monocode.inboxEnabled";
+
+export const INBOX_ENABLED_DEFAULT = true;
+
+/** Fired on `window` when the Inbox UI setting flips. */
+export const INBOX_ENABLED_CHANGE_EVENT = "monocode:inbox-enabled-change";
+
+export function loadInboxEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(INBOX_ENABLED_KEY);
+    if (raw == null) return INBOX_ENABLED_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return INBOX_ENABLED_DEFAULT;
+  }
+}
+
+export function saveInboxEnabled(value: boolean) {
+  try {
+    localStorage.setItem(INBOX_ENABLED_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(INBOX_ENABLED_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeInboxEnabled(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(INBOX_ENABLED_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(INBOX_ENABLED_CHANGE_EVENT, onStoreChange);
+}
+
+const SHOW_REASONING_KEY = "monocode.showReasoning";
+
+export const SHOW_REASONING_DEFAULT = false;
+
+/** Fired on `window` when the transcript reasoning visibility setting flips. */
+export const SHOW_REASONING_CHANGE_EVENT = "monocode:show-reasoning-change";
+
+export function loadShowReasoning(): boolean {
+  try {
+    const raw = localStorage.getItem(SHOW_REASONING_KEY);
+    if (raw == null) return SHOW_REASONING_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return SHOW_REASONING_DEFAULT;
+  }
+}
+
+export function saveShowReasoning(value: boolean) {
+  try {
+    localStorage.setItem(SHOW_REASONING_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(SHOW_REASONING_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeShowReasoning(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(SHOW_REASONING_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(SHOW_REASONING_CHANGE_EVENT, onStoreChange);
+}
+
 const LIVE_AGENTS_ENABLED_KEY = "monocode.liveAgentsEnabled";
 
 export const LIVE_AGENTS_ENABLED_DEFAULT = true;
@@ -326,8 +398,16 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
-  { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
+  { command: "App: Toggle Projects", keys: `${MOD}B`, when: "Always" },
+  {
+    command: "App: Toggle Workspace",
+    keys: `${MOD}${SHIFT}B`,
+    when: "Always",
+  },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
+  { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
+  { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
+  { command: "View: Reset Zoom", keys: `${MOD}0`, when: "Always" },
   { command: "Tab: New", keys: `${MOD}T`, when: "Always" },
   { command: "Tab: Close Others", keys: `${MOD}${ALT}T`, when: "Always" },
   { command: "Tab: Next", keys: `${MOD}${SHIFT}]`, when: "Always" },
@@ -342,6 +422,31 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Tab: Forward", keys: `${MOD}]`, when: "Always" },
   { command: "Tab: Activate 1–8", keys: `${MOD}1 … ${MOD}8`, when: "Always" },
   { command: "Tab: Activate Last", keys: `${MOD}9`, when: "Always" },
+  {
+    command: "Session: Archive",
+    keys: `${MOD}${SHIFT}A`,
+    when: "sessionFocus && !overlay",
+  },
+  {
+    command: "Session: Previous",
+    keys: `${MOD}${SHIFT}↑`,
+    when: "!overlay && (!textFocus || emptyComposer)",
+  },
+  {
+    command: "Session: Next",
+    keys: `${MOD}${SHIFT}↓`,
+    when: "!overlay && (!textFocus || emptyComposer)",
+  },
+  {
+    command: "Project: Previous",
+    keys: `${MOD}${SHIFT}←`,
+    when: "!overlay && (!textFocus || emptyComposer)",
+  },
+  {
+    command: "Project: Next",
+    keys: `${MOD}${SHIFT}→`,
+    when: "!overlay && (!textFocus || emptyComposer)",
+  },
   { command: "Pane: Close", keys: `${MOD}W`, when: "Always" },
   { command: "Pane: Split Right", keys: `${MOD}D`, when: "!editorFocus" },
   {

@@ -1,6 +1,7 @@
 import { Folder, LoaderCircle, MessageSquare, Search } from "../chrome/icons";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -268,6 +269,7 @@ export function SearchView({
   ]);
 
   const activeHit = hits[active] ?? null;
+  const listboxId = useId();
 
   useEffect(() => {
     setActive(0);
@@ -339,6 +341,13 @@ export function SearchView({
             onKeyDown={onQueryKeyDown}
             placeholder="Search everything..."
             aria-label="Search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={!empty && hits.length > 0}
+            aria-controls={listboxId}
+            aria-activedescendant={
+              activeHit ? `${listboxId}-option-${active}` : undefined
+            }
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
@@ -388,14 +397,18 @@ export function SearchView({
         {empty ? (
           <EmptyState />
         ) : error && hits.length === 0 ? (
-          <p className="px-2 py-1.5 text-[12px] text-red-400">{error}</p>
+          <p className="px-2 py-1.5 text-[12px] text-danger">{error}</p>
         ) : noResults ? (
-          <p className="px-2 py-1.5 text-[12px] text-content/50">No results</p>
+          <SearchEmptyResults
+            scope={scope}
+            onClearScope={() => setScope("all")}
+          />
         ) : (
           <ResultList
             hits={hits}
             active={active}
             query={trimmed}
+            listboxId={listboxId}
             onActive={setActive}
             onOpen={openHit}
           />
@@ -403,6 +416,31 @@ export function SearchView({
       </div>
     </div>
   );
+}
+
+/** Quiet empty copy when a query returns nothing. Projects scope is a filter. */
+export function SearchEmptyResults({
+  scope,
+  onClearScope,
+}: {
+  scope: SearchScope;
+  onClearScope: () => void;
+}) {
+  if (scope === "projects") {
+    return (
+      <div className="px-2 py-1.5">
+        <p className="text-[12px] text-content/50">Filters hid all projects</p>
+        <button
+          type="button"
+          onClick={onClearScope}
+          className="mt-1 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
+        >
+          Clear filters
+        </button>
+      </div>
+    );
+  }
+  return <p className="px-2 py-1.5 text-[12px] text-content/50">No results</p>;
 }
 
 const EMPTY_DOT_COLS = 27;
@@ -444,12 +482,14 @@ function ResultList({
   hits,
   active,
   query,
+  listboxId,
   onActive,
   onOpen,
 }: {
   hits: AppSearchHit[];
   active: number;
   query: string;
+  listboxId: string;
   onActive: (index: number) => void;
   onOpen: (hit: AppSearchHit) => void;
 }) {
@@ -489,6 +529,7 @@ function ResultList({
   return (
     <div
       role="listbox"
+      id={listboxId}
       aria-label="Search results"
       onMouseMove={onListMouseMove}
     >
@@ -501,6 +542,8 @@ function ResultList({
             ref={highlighted ? activeRef : undefined}
             type="button"
             role="option"
+            id={`${listboxId}-option-${index}`}
+            tabIndex={-1}
             aria-selected={highlighted}
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}

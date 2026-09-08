@@ -1,4 +1,4 @@
-import { modelsFor } from "../models";
+import { modelsFor, nativeModelId } from "../models";
 import {
   execChild,
   freeHarnessPort,
@@ -39,7 +39,7 @@ export async function stopOpenCodeTextPrompt(): Promise<void> {
 export function warmupOpenCodeText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
   const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
+    await ensureLive(cwd, undefined);
   });
   turns = run.then(
     () => undefined,
@@ -52,6 +52,7 @@ export async function runOpenCodeTextPrompt(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
@@ -65,8 +66,9 @@ async function promptOnLive(input: {
   cwd: string;
   prompt: string;
   timeoutMs?: number;
+  model?: string;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.model);
   try {
     const result = await session.client.prompt({
       sessionID: session.sessionId,
@@ -90,8 +92,8 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
-  const model = pickTextModel();
+async function ensureLive(cwd: string, requestedModel?: string): Promise<LiveText> {
+  const model = pickTextModel(requestedModel);
   if (live && live.cwd === cwd && sameModel(live.model, model)) return live;
   if (live) await dropLive();
   return startLive(cwd, model);
@@ -159,7 +161,13 @@ async function dropLive(): Promise<void> {
   await killChild(TEXT_CHILD_ID).catch(() => undefined);
 }
 
-function pickTextModel(): { providerID: string; modelID: string } {
+function pickTextModel(
+  requested?: string,
+): { providerID: string; modelID: string } {
+  if (requested?.trim()) {
+    const parsed = parseOpenCodeModelSlug(nativeModelId(requested));
+    if (parsed) return parsed;
+  }
   const models = modelsFor("opencode");
   for (const model of models) {
     const parsed = parseOpenCodeModelSlug(model.nativeId ?? model.id);

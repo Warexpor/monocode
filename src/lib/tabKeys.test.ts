@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  adjacentItemId,
   deferUnhandledEscape,
   focusedBusyAgentSessionId,
-  shouldIgnoreTerminalCtrlChord,
-  isQuitChord,
-  isModelPickerChord,
+  shouldHandleListNavigation,
   shouldStopFocusedTurnOnEscape,
   tabCommand,
 } from "./tabKeys";
@@ -40,6 +39,27 @@ function key(
 }
 
 describe("tabCommand", () => {
+  it("archives with Cmd+Shift+A or Ctrl+Shift+A", () => {
+    expect(
+      tabCommand(key({ key: "A", metaKey: true, shiftKey: true })),
+    ).toBe("archive-session");
+    expect(
+      tabCommand(key({ key: "a", ctrlKey: true, shiftKey: true })),
+    ).toBe("archive-session");
+  });
+
+  it.each([
+    {},
+    { metaKey: true },
+    { ctrlKey: true },
+    { shiftKey: true },
+    { metaKey: true, shiftKey: true, altKey: true },
+    { metaKey: true, shiftKey: true, isComposing: true },
+    { metaKey: true, shiftKey: true, repeat: true },
+  ])("leaves other A key events alone (%j)", (modifiers) => {
+    expect(tabCommand(key({ key: "a", ...modifiers }))).toBeNull();
+  });
+
   it("opens a terminal pane with cmd-backtick", () => {
     expect(tabCommand(key({ key: "`", code: "Backquote", metaKey: true }))).toBe(
       "new-terminal",
@@ -56,7 +76,6 @@ describe("tabCommand", () => {
 
   it("keeps existing tab chrome bindings", () => {
     expect(tabCommand(key({ key: "t", metaKey: true }))).toBe("new");
-    expect(tabCommand(key({ key: "t", ctrlKey: true }))).toBe("new");
     expect(
       tabCommand(key({ key: "t", metaKey: true, altKey: true })),
     ).toBe("close-others");
@@ -90,49 +109,70 @@ describe("tabCommand", () => {
       ),
     ).toBe("next");
   });
-});
 
-describe("shouldIgnoreTerminalCtrlChord", () => {
-  it("lets Ctrl reach the terminal on Windows and Linux", () => {
+  it("uses shift-mod arrows for session and project navigation", () => {
     expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), true),
-    ).toBe(true);
+      tabCommand(key({ key: "ArrowUp", metaKey: true, shiftKey: true })),
+    ).toBe("prev-session");
     expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "w", ctrlKey: true }), true),
+      tabCommand(key({ key: "ArrowDown", metaKey: true, shiftKey: true })),
+    ).toBe("next-session");
+    expect(
+      tabCommand(key({ key: "ArrowLeft", metaKey: true, shiftKey: true })),
+    ).toBe("prev-project");
+    expect(
+      tabCommand(key({ key: "ArrowRight", metaKey: true, shiftKey: true })),
+    ).toBe("next-project");
+  });
+
+  it("cycles ordered item ids and wraps at both ends", () => {
+    expect(adjacentItemId(["a", "b", "c"], "b", 1)).toBe("c");
+    expect(adjacentItemId(["a", "b", "c"], "c", 1)).toBe("a");
+    expect(adjacentItemId(["a", "b", "c"], "a", -1)).toBe("c");
+    expect(adjacentItemId(["a", "b", "c"], "missing", 1)).toBe("a");
+    expect(adjacentItemId(["a", "b", "c"], "missing", -1)).toBe("c");
+    expect(adjacentItemId([], "a", 1)).toBeNull();
+  });
+
+  it("allows navigation from an empty composer", () => {
+    expect(
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: true,
+        surfaceOpen: false,
+      }),
     ).toBe(true);
   });
 
-  it("still allows Cmd chords and non-terminal Ctrl", () => {
+  it("blocks list navigation while another text or app surface owns focus", () => {
     expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", metaKey: true }), true),
-    ).toBe(false);
-    expect(
-      shouldIgnoreTerminalCtrlChord(key({ key: "d", ctrlKey: true }), false),
-    ).toBe(false);
-  });
-});
-
-describe("isModelPickerChord", () => {
-  it("matches cmd/ctrl-period without other modifiers", () => {
-    expect(isModelPickerChord(key({ key: ".", metaKey: true }))).toBe(true);
-    expect(
-      isModelPickerChord(key({ key: ".", code: "Period", ctrlKey: true })),
+      shouldHandleListNavigation({
+        blockedTarget: false,
+        emptyComposerTarget: false,
+        surfaceOpen: false,
+      }),
     ).toBe(true);
     expect(
-      isModelPickerChord(key({ key: ".", ctrlKey: true, shiftKey: true })),
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: false,
+        surfaceOpen: false,
+      }),
     ).toBe(false);
-    expect(isModelPickerChord(key({ key: "." }))).toBe(false);
-  });
-});
-
-describe("isQuitChord", () => {
-  it("matches cmd/ctrl-q without other modifiers", () => {
-    expect(isQuitChord(key({ key: "q", metaKey: true }))).toBe(true);
-    expect(isQuitChord(key({ key: "Q", ctrlKey: true }))).toBe(true);
-    expect(isQuitChord(key({ key: "q", ctrlKey: true, shiftKey: true }))).toBe(
-      false,
-    );
-    expect(isQuitChord(key({ key: "q" }))).toBe(false);
+    expect(
+      shouldHandleListNavigation({
+        blockedTarget: false,
+        emptyComposerTarget: false,
+        surfaceOpen: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHandleListNavigation({
+        blockedTarget: true,
+        emptyComposerTarget: true,
+        surfaceOpen: true,
+      }),
+    ).toBe(false);
   });
 });
 

@@ -10,12 +10,14 @@ export async function generateGrokSessionTitle(input: {
   sessionId: string;
   cwd: string;
   message: string;
+  model: string;
 }): Promise<string | null> {
   try {
     const output = await runGrokTextPrompt({
       cwd: input.cwd,
       prompt: buildThreadTitlePrompt(input.message),
       timeoutMs: TITLE_TIMEOUT_MS,
+      model: input.model,
     });
     return parseGeneratedThreadTitle(output);
   } catch (error) {

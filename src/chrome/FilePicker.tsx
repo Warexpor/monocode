@@ -157,10 +157,11 @@ export function FilePicker({
   });
 
   return createPortal(
-    <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
+    <div className="mono-dialog fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div className="absolute inset-0" onMouseDown={onClose} />
       <div
         role="dialog"
+        aria-modal="true"
         aria-label="Go to File"
         data-file-picker
         onMouseDown={(e) => e.stopPropagation()}

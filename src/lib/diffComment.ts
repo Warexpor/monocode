@@ -8,7 +8,7 @@ export type DiffCommentTarget = {
 
 export function diffCommentLocation({ path, line }: DiffCommentTarget): string {
   const number = line.kind === "del" ? line.oldNumber : line.newNumber;
-  const file = slash(path);
+  const file = slash(path).replace(/\\/g, "/");
   return number == null ? file : `${file}:${number}`;
 }
 
