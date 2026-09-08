@@ -209,22 +209,23 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           BUNDLE="target/release/bundle"
-          TAR=$(find "$BUNDLE/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)
+          TAR="$BUNDLE/macos/MonoCode.app.tar.gz"
           SIG="${TAR}.sig"
-          DMG=$(find "$BUNDLE/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)
-          shopt -s nullglob
-          DEB=("$BUNDLE"/linux/*.deb)
-          APPIMAGE=("$BUNDLE"/linux/*.AppImage)
-          NSIS=("$BUNDLE"/nsis/*.exe)
-          NSIS_SIG=("$BUNDLE"/nsis/*.exe.sig)
-          if (( ${#DEB[@]} != 1 || ${#APPIMAGE[@]} != 1 || ${#NSIS[@]} != 1 || ${#NSIS_SIG[@]} != 1 )); then
-            echo "Expected exactly one .deb, one AppImage, one NSIS installer, and one NSIS signature" >&2
-            exit 1
-          fi
+          DMG="$BUNDLE/dmg/MonoCode_${VERSION}_aarch64.dmg"
+          DEB="$BUNDLE/linux/MonoCode_${VERSION}_amd64.deb"
+          APPIMAGE="$BUNDLE/linux/MonoCode_${VERSION}_amd64.AppImage"
+          NSIS="$BUNDLE/nsis/MonoCode_${VERSION}_x64-setup.exe"
+          NSIS_SIG="${NSIS}.sig"
+          for artifact in "$DMG" "$TAR" "$SIG" "$DEB" "$APPIMAGE" "$NSIS" "$NSIS_SIG"; do
+            if [[ ! -f "$artifact" ]]; then
+              echo "Missing release artifact: $artifact" >&2
+              exit 1
+            fi
+          done
           gh release create "$GITHUB_REF_NAME" \
             --title "MonoCode $VERSION" \
             --notes "See CHANGELOG.md for details." \
-            "$DMG" "$TAR" "$SIG" "${DEB[0]}" "${APPIMAGE[0]}" "${NSIS[0]}" "${NSIS_SIG[0]}"
+            "$DMG" "$TAR" "$SIG" "$DEB" "$APPIMAGE" "$NSIS" "$NSIS_SIG"
 
   linux:
     name: Linux packages
