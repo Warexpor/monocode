@@ -155,7 +155,6 @@ type Props = {
   runtimeMode: RuntimeMode;
   cwd?: string;
   executionCwd: string;
-  sessionId?: string;
   branch?: string;
   recents?: RecentProject[];
   hideProjectPicker?: boolean;
@@ -460,7 +459,6 @@ export function Composer({
   compactSupported = false,
   quoteRequest,
   initialDraft,
-  sessionId,
   initialAttachments,
   inboxCard,
   noteCard,

@@ -193,14 +193,14 @@ function AgentTranscriptComponent({
   const wasVisible = useRef(false);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
-  const findMarksRef = useRef([]);
-  const findInputRef = useRef(null);
+  const findMarksRef = useRef<HTMLElement[]>([]);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const blocksLenRef = useRef(blocks.length);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findIndex, setFindIndex] = useState(0);
   const [findCount, setFindCount] = useState(0);
-  const [focusRingId, setFocusRingId] = useState(null);
+  const [focusRingId, setFocusRingId] = useState<string | null>(null);
   // Turns whose folded work the reader has opened, by turn id.
   const [openWork, setOpenWork] = useState<Record<string, boolean>>({});
   const toggleWork = useCallback((turnId: string) => {
@@ -257,7 +257,7 @@ function AgentTranscriptComponent({
 
   const unseenRef = useRef(0);
   const setUnseen = useCallback(
-    (count) => {
+    (count: number) => {
       if (unseenRef.current === count) return;
       unseenRef.current = count;
       onUnseenCountChange?.(count);
@@ -290,7 +290,7 @@ function AgentTranscriptComponent({
     if (el) clearTranscriptFindMarks(el);
   }, []);
 
-  const goFind = useCallback((delta) => {
+  const goFind = useCallback((delta: number) => {
     const total = findMarksRef.current.length;
     if (total === 0) return;
     setFindIndex((index) => (index + delta + total) % total);
@@ -324,7 +324,7 @@ function AgentTranscriptComponent({
 
   useEffect(() => {
     if (!hotkeys) return;
-    const onKey = (event) => {
+    const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
         return;
       }
@@ -661,8 +661,6 @@ function AgentTranscriptComponent({
               )
             ) : (
               <TranscriptBlock
-                  focusRing={focusRingId === item.block.id}
-                  onRewindToMessage={onRewindToMessage}
                 key={item.block.id}
                 block={item.block}
                 layout={transcriptLayout}
@@ -674,6 +672,8 @@ function AgentTranscriptComponent({
                   item.block.id === turnUserId
                 }
                 canRevertAfter={canRevertAfterTurn}
+                focusRing={focusRingId === item.block.id}
+                onRewindToMessage={onRewindToMessage}
                 onEditResend={onEditResend}
                 onRevertAfter={onRevertAfter}
                 // Prose reads the same wherever it lands: under the fold
@@ -1080,12 +1080,14 @@ const TranscriptBlock = memo(function TranscriptBlock({
   showReasoning = false,
   mutateEnabled = false,
   canRevertAfter = false,
+  focusRing = false,
   cwd,
   onApproval,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
   onBuildPlan,
+  onRewindToMessage,
   onEditResend,
   onRevertAfter,
   planBusy,
@@ -1100,12 +1102,14 @@ const TranscriptBlock = memo(function TranscriptBlock({
   showReasoning?: boolean;
   mutateEnabled?: boolean;
   canRevertAfter?: boolean;
+  focusRing?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
+  onRewindToMessage?: (blockId: string) => void;
   onEditResend?: (userBlockId: string) => void;
   onRevertAfter?: (userBlockId: string) => void;
   planBusy?: boolean;
@@ -1120,6 +1124,10 @@ const TranscriptBlock = memo(function TranscriptBlock({
         stickyIndex={stickyIndex}
         mutateEnabled={mutateEnabled}
         canRevertAfter={canRevertAfter}
+        focusRing={focusRing}
+        onRewind={
+          onRewindToMessage ? () => onRewindToMessage(block.id) : undefined
+        }
         onEditResend={onEditResend}
         onRevertAfter={onRevertAfter}
       />

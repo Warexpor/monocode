@@ -5,12 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- Split conversation panes now share one continuous chat background instead of repeating the image in every pane.
-
 ## [0.1.39] - 2026-09-08
 
 ### Added
@@ -21,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The prompt outline remains visible on slightly narrower windows.
 - Removed the scrolled transcript's top-edge fade and blur effect.
+
+### Fixed
+
+- Split conversation panes now share one continuous chat background instead of repeating the image in every pane.
+- Boot no longer hangs on the splash screen after a duplicate `sessionId` prop broke Composer compile.
 
 ## [0.1.38] - 2026-09-08
 

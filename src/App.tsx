@@ -2674,7 +2674,7 @@ export default function App({
           ? (peekLinearIssueDetails(item.id) ?? await linearIssueDetails(item.id)).body
           : undefined;
         session = {
-          ...newDefaultSession(cwd),
+          ...createComfortSession(cwd),
           title: `Ask · ${item.title}`,
           inboxAsk: { key, title: item.title, url: item.url, provider: item.provider, description },
         };

@@ -1848,7 +1848,6 @@ function Slider({
         aria-valuemax={max}
         aria-valuenow={value}
         aria-label={label}
-        disabled={disabled}
         className="sidebar-opacity-slider min-w-0 flex-1 disabled:cursor-not-allowed"
         onChange={(event) => onChange(Number(event.target.value))}
       />
