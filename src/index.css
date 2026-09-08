@@ -126,7 +126,10 @@ html.has-native-glass:not(.theme-light) .sidebar-glass {
 .chat-pane-background::before {
   content: "";
   position: absolute;
-  inset: 0;
+  left: var(--chat-background-left, 0);
+  top: var(--chat-background-top, 0);
+  width: var(--chat-background-width, 100%);
+  height: var(--chat-background-height, 100%);
   z-index: -1;
   background-image: var(--chat-background-image, none);
   background-position: center;
