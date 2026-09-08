@@ -353,6 +353,7 @@ function SidebarComponent({
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const contextSelectionRef = useRef(false);
   const [folderMenu, setFolderMenu] = useState<{
     x: number;
     y: number;
@@ -609,7 +610,7 @@ function SidebarComponent({
   useEffect(() => {
     if (!sessionMenu && !folderMenu && !filterMenu) return;
     const onScroll = () => {
-      setSessionMenu(null);
+      closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
     };
@@ -620,13 +621,29 @@ function SidebarComponent({
 
   useEffect(() => {
     if (selectedSessionIds.size === 0) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const clear = () => {
+      contextSelectionRef.current = false;
       setSelectedSessionIds(new Set());
       setSessionMenu(null);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      clear();
+    };
+    // A pointer landing off the cards drops the selection; a menu acting on
+    // it stays open, and the cards handle their own clicks.
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const el = target instanceof Element ? target : null;
+      if (el?.closest("[data-session-card],[data-popover-side]")) return;
+      clear();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [selectedSessionIds.size]);
 
   const commitSessionFolders = (next: SessionFolder[]) => {
@@ -765,12 +782,20 @@ function SidebarComponent({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!selectedSessionIds.has(sessionId)) {
+    contextSelectionRef.current = !selectedSessionIds.has(sessionId);
+    if (contextSelectionRef.current) {
       setSelectedSessionIds(new Set([sessionId]));
     }
     setFilterMenu(null);
     setFolderMenu(null);
     setSessionMenu({ x: e.clientX, y: e.clientY, sessionId });
+  };
+
+  const closeSessionMenu = () => {
+    setSessionMenu(null);
+    if (!contextSelectionRef.current) return;
+    contextSelectionRef.current = false;
+    setSelectedSessionIds(new Set());
   };
 
   const onFolderContextMenu = (
@@ -790,7 +815,7 @@ function SidebarComponent({
     const sessionIds = menuSessionIds;
     const archived = allMenuSessionsArchived;
     const pinned = allMenuSessionsPinned;
-    setSessionMenu(null);
+    closeSessionMenu();
     if (id === "pin") {
       if (sessionIds.length > 1 && onPinSessions) {
         onPinSessions(sessionIds, !pinned);
@@ -897,6 +922,7 @@ function SidebarComponent({
     event: ReactMouseEvent<HTMLButtonElement>,
   ) => {
     if (event.shiftKey) {
+      contextSelectionRef.current = false;
       setSessionMenu(null);
       setSelectedSessionIds((current) =>
         toggleSessionSelection(current, sessionId),
@@ -1475,7 +1501,7 @@ function SidebarComponent({
               : "Session actions"
           }
           onPick={onSessionMenuPick}
-          onClose={() => setSessionMenu(null)}
+          onClose={closeSessionMenu}
         />
       ) : null}
       {folderMenu ? (

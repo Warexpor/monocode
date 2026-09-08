@@ -288,6 +288,7 @@ import {
   setWindowFocused,
 } from "./lib/notifications";
 import { playCue } from "./lib/sounds";
+import { archiveFocusedSession } from "./lib/archiveShortcut";
 import {
   adjacentItemId,
   deferUnhandledEscape,
@@ -2987,6 +2988,32 @@ export default function App({
     [onRemoveHistorySession],
   );
 
+  const onArchiveFocusedSession = useCallback(
+    (event: KeyboardEvent) => {
+      archiveFocusedSession(
+        event,
+        {
+          activeTabId: activeTabIdRef.current,
+          tabs: tabsRef.current,
+          sessions: sessionsRef.current,
+          projectTerminalFocused: projectTerminalFocusedRef.current,
+          surfaceOpen: Boolean(
+            searchViewOpenRef.current ||
+            inboxViewOpenRef.current ||
+            notesViewOpenRef.current ||
+            settingsOpenRef.current ||
+            filePickerOpenRef.current ||
+            whatsNewVersionRef.current,
+          ),
+        },
+        (sessionId) => {
+          void onArchiveHistorySession(sessionId, true);
+        },
+      );
+    },
+    [onArchiveHistorySession],
+  );
+
   const onPinHistorySession = useCallback(
     async (sessionId: string, pinned: boolean) => {
       const open = sessionsRef.current.find(
@@ -4988,6 +5015,7 @@ export default function App({
 
   const actions = useRef({
     onNew,
+    onArchiveFocusedSession,
     onCloseOtherTabs,
     onClosePane,
     onNext,
@@ -5015,6 +5043,7 @@ export default function App({
   });
   actions.current = {
     onNew,
+    onArchiveFocusedSession,
     onCloseOtherTabs,
     onClosePane,
     onNext,
@@ -5074,6 +5103,10 @@ export default function App({
       }
       const cmd = tabCommand(e);
       if (cmd) {
+        if (cmd === "archive-session") {
+          actions.current.onArchiveFocusedSession(e);
+          return;
+        }
         const target = e.target instanceof Element ? e.target : null;
         if (shouldIgnoreTerminalCtrlChord(e, Boolean(target?.closest(".monocode-terminal")))) {
           return;

@@ -19,6 +19,7 @@
  *   Toggle terminal     cmd-j
  *   Previous session    shift-cmd-up
  *   Next session        shift-cmd-down
+ *   Archive session     shift-cmd-a
  *   Previous project    shift-cmd-left
  *   Next project        shift-cmd-right
  *   Stop focused turn   escape
@@ -41,6 +42,7 @@ export type TabCommand =
   | "toggle-terminal"
   | "prev-session"
   | "next-session"
+  | "archive-session"
   | "prev-project"
   | "next-project"
   | { activate: number }
@@ -80,6 +82,7 @@ export function tabCommand(e: KeyboardEvent): TabCommand | null {
   const key = e.key.toLowerCase();
 
   if (e.shiftKey) {
+    if (key === "a" && !e.repeat) return "archive-session";
     if (e.key === "]" || e.key === "}") return "next";
     if (e.key === "[" || e.key === "{") return "prev";
     if (e.key === "ArrowUp") return "prev-session";

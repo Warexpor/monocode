@@ -7,13 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Split conversation panes now share one continuous chat background instead of repeating the image in every pane.
+
+## [0.1.39] - 2026-09-08
+
+### Added
+
+- Windows releases now check for, download, and install signed updates through the same in-app update flow as macOS.
+
+### Changed
+
+- The prompt outline remains visible on slightly narrower windows.
+- Removed the scrolled transcript's top-edge fade and blur effect.
+
 ## [0.1.38] - 2026-09-08
+
+### Added
+
+- The sidebar project picker is now searchable and keyboard navigable, shows each project's parent path, and includes actions for opening a new project or starting a new tab.
+- Right-click a title-bar tab to close that tab, the other tabs, or every tab to its left or right. Bulk closing still protects unsaved files and running terminals.
+- Shift-click conversations in the sidebar to select several at once, then pin, unpin, archive, unarchive, move into or out of folders, or delete them together.
+- Settings → Appearance → Chat background adds an on-device image behind empty sessions or every conversation, with adjustable visibility. Each project can override the global image from its project-rail menu.
+- Long transcripts have a vertical prompt outline for jumping between turns. Hover or keyboard-focus a marker to preview its prompt and reply. In #90 by @kartava.
+- Drag image files into a note to copy them into MonoCode's local note storage and insert them into the note at the cursor.
+- Archive the focused conversation with Shift+Command/Ctrl+A. The shortcut stays out of editors, terminals, diffs, and open overlays. In #89 by @kualta.
 
 ### Changed
 
 - This fork is Windows-only: CI and GitHub Releases ship x86_64 NSIS; macOS/Linux package jobs, configs, and install docs are removed. Non-Windows targets fail at compile time.
 - First Warexpor GitHub Release / in-app updater channel (`latest.json` with `windows-x86_64`). Windows builds emit Tauri 2 signed updater artifacts (`*-setup.exe` + `.sig`) when `TAURI_SIGNING_PRIVATE_KEY` is set.
 - Docs and package metadata describe [Warexpor/monocode](https://github.com/Warexpor/monocode) (install URLs, clone, security advisories, crate `repository` / `homepage`).
+- Scrolled transcripts fade and blur smoothly beneath the title bar, and popover backdrops now use theme-aware tints.
+- Light mode uses an opaque native window for legibility, preserves the dark-mode glass settings, and gives the composer theme-specific shadows and send-button states.
+
+### Fixed
+
+- Enabling Sounds now plays the switch cue immediately. In #111 by @kartava.
+- Sidebar multi-selection clears reliably when its menu closes or the pointer moves outside the selected conversation cards.
+- Chat background changes appear across open session panes immediately, and the empty-session arcade stays hidden when a background is visible.
+- Composer keyboard handlers ignore active IME composition, preventing Enter, Escape, and picker actions from firing while composing text.
 
 ## [0.1.37] - 2026-09-07
 
